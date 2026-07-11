@@ -1,0 +1,6 @@
+{
+  "name": "Sonko Sound Accountant system",
+  "description": "A premium, professional debt and customer ledger application for Tanzanian businesses. Manage customers, debts, payments, suppliers, and generate reports in Tanzanian Shillings (TSh).",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

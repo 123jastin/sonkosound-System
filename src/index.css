@@ -1,0 +1,195 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --color-primary: #0F172A;
+  --color-accent: #2563EB;
+  --color-success: #059669;
+  --color-warning: #D97706;
+  --color-danger: #DC2626;
+  --color-bg: #F8FAFC;
+  --color-surface: #FFFFFF;
+  --color-border: #E2E8F0;
+  --color-text-main: #1E293B;
+  --color-text-muted: #64748B;
+
+  /* Scale up tailwind standard typography utility sizes for enhanced readability */
+  --text-xs: 0.85rem;      /* ~15px base with 17.5px html root */
+  --text-sm: 0.95rem;      /* ~16.6px base with 17.5px html root */
+  --text-base: 1.05rem;    /* ~18px base with 17.5px html root */
+  --text-lg: 1.15rem;      /* ~20px base with 17.5px html root */
+  --text-xl: 1.3rem;       /* ~23px base with 17.5px html root */
+  --text-2xl: 1.6rem;      /* ~28px base */
+  --text-3xl: 2rem;        /* ~35px base */
+  --text-4xl: 2.6rem;      /* ~45px base */
+}
+
+/* Global root scale up to ensure Facebook-style native text readability */
+html {
+  font-size: 17px !important;
+}
+
+@media (min-width: 1024px) {
+  html {
+    font-size: 17.5px !important;
+  }
+}
+
+/* Accessibility overrides for micro bracket font sizes used in badges, labels or secondary metadata */
+.text-\[8px\] {
+  font-size: 11px !important;
+}
+.text-\[9px\] {
+  font-size: 12.5px !important;
+}
+.text-\[10px\] {
+  font-size: 13.5px !important;
+}
+.text-\[11px\] {
+  font-size: 14px !important;
+}
+
+/* Custom micro transitions and prints optimization */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Custom scrollbars for details drawer panels */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Print layout optimizations for financial statements */
+@media print {
+  /* Force browsers to print backgrounds and colors */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  body {
+    background: white !important;
+    color: #1e293b !important;
+  }
+
+  /* Hide all elements on the page by default using visibility */
+  body * {
+    visibility: hidden !important;
+  }
+
+  /* Only show the printable container and its nested children */
+  #printable-statement-container,
+  #printable-statement-container * {
+    visibility: visible !important;
+  }
+
+  /* Reset the statement container to span the entire printable area without scrollbars or overlays */
+  #printable-statement-container {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+    overflow: visible !important;
+  }
+
+  /* Hide the print trigger buttons and modal closing buttons */
+  .print\:hidden,
+  button,
+  .absolute.top-6.right-6 {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Ensure deep contrasting colors render beautifully in the PDF */
+  .text-rose-600 {
+    color: #dc2626 !important;
+  }
+  .text-success, .text-emerald-600 {
+    color: #059669 !important;
+  }
+  .bg-slate-50, .bg-slate-50\/50 {
+    background-color: #f8fafc !important;
+  }
+  .bg-slate-100 {
+    background-color: #f1f5f9 !important;
+  }
+  .text-slate-800 {
+    color: #1e293b !important;
+  }
+  .text-slate-700 {
+    color: #334155 !important;
+  }
+  .text-slate-600 {
+    color: #475569 !important;
+  }
+  .text-slate-500 {
+    color: #64748b !important;
+  }
+  .text-slate-400 {
+    color: #94a3b8 !important;
+  }
+  .border-slate-200 {
+    border-color: #e2e8f0 !important;
+  }
+  .border-slate-100, .border-slate-100\/50 {
+    border-color: #f1f5f9 !important;
+  }
+
+  /* Explicitly enforce bold styling during print */
+  .font-semibold {
+    font-weight: 600 !important;
+  }
+  .font-bold, th, h4 {
+    font-weight: 700 !important;
+  }
+  .font-extrabold, h2 {
+    font-weight: 800 !important;
+  }
+  .font-black, h3 {
+    font-weight: 900 !important;
+  }
+
+  /* Layout refinements for tables in print */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+  tr {
+    page-break-inside: avoid !important;
+  }
+}
