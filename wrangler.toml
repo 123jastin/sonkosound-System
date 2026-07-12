@@ -1,0 +1,73 @@
+# ============================================
+# DEBT MANAGEMENT SYSTEM - WRANGLER CONFIG
+# ============================================
+
+name = "deni-management"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ============================================
+# D1 DATABASE
+# ============================================
+[[d1_databases]]
+binding = "DB"
+database_name = "deni"
+database_id = "d7e0ab0b-f513-4147-8764-ff1d779c15a7"
+
+# ============================================
+# R2 BUCKET (for images/uploads)
+# ============================================
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "deni"
+
+# ============================================
+# PAGES CONFIG
+# ============================================
+[pages]
+# Production branch
+production_branch = "main"
+
+# ============================================
+# BUILD CONFIG
+# ============================================
+[build]
+command = "npm run build"
+
+[build.environment]
+NODE_VERSION = "18"
+
+# ============================================
+# SITE CONFIG (for Pages deployment)
+# ============================================
+[site]
+bucket = "./dist"
+
+# ============================================
+# VARS (Environment Variables)
+# ============================================
+[vars]
+APP_NAME = "Sonko Sound"
+APP_VERSION = "1.0.0"
+
+# ============================================
+# DEV CONFIG
+# ============================================
+[dev]
+port = 8788
+local_protocol = "http"
+
+# ============================================
+# OBSERVABILITY
+# ============================================
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============================================
+# CUSTOM DOMAIN (for Workers)
+# Use this if deploying as a Worker instead of Pages
+# ============================================
+# [routes]
+# pattern = "deni.sonkosound.store/*"
+# zone_name = "sonkosound.store"
