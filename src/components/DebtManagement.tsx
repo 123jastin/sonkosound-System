@@ -4,13 +4,13 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Debt, Customer, Payment, DebtCategory, DebtStatus, PaymentMethod } from '../types';
-import { LocalDatabase, getDaysDiff } from '../db';
+import { Debt, Customer, Payment, DebtStatus, PaymentMethod } from '../types';
+import { api } from '../services/api';
 import FormAIOCR from './FormAIOCR';
 import { 
   Plus, Search, Filter, Trash2, Edit2, Calendar, 
   ArrowRight, CreditCard, ChevronRight, Check, X, AlertTriangle, HelpCircle, 
-  Tag, Download
+  Tag, Download, Loader2
 } from 'lucide-react';
 
 interface DebtManagementProps {
@@ -37,6 +37,7 @@ export default function DebtManagement({
   >('All');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   // Modals
   const [isAddDebtOpen, setIsAddDebtOpen] = useState(false);
@@ -61,6 +62,14 @@ export default function DebtManagement({
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState<PaymentMethod>('M-Pesa');
   const [payNotes, setPayNotes] = useState('');
+
+  // Helper: Get days difference
+  const getDaysDiff = (currentDate: string, dueDate: string): number => {
+    const current = new Date(currentDate);
+    const due = new Date(dueDate);
+    const diffTime = current.getTime() - due.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
 
   // Dynamic Debt Calculations and Status Updates
   const processedDebts = useMemo(() => {
@@ -104,7 +113,7 @@ export default function DebtManagement({
     const today = new Date(todayStr);
 
     return processedDebts.filter(debt => {
-      // 1. Search Query
+      // Search Query
       const matchesSearch = 
         debt.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         debt.customerPhone.includes(searchQuery) ||
@@ -113,7 +122,7 @@ export default function DebtManagement({
 
       if (!matchesSearch) return false;
 
-      // 2. Tab Filter
+      // Tab Filter
       if (filterType === 'All') return true;
       if (filterType === 'Paid') return debt.status === 'Paid';
       if (filterType === 'Unpaid') return debt.status !== 'Paid';
@@ -144,127 +153,137 @@ export default function DebtManagement({
     });
   }, [processedDebts, searchQuery, filterType, customStart, customEnd]);
 
-  // Handlers - Debt
-  const handleCreateDebt = (e: React.FormEvent) => {
+  // ============================================
+  // API HANDLERS
+  // ============================================
+
+  const handleCreateDebt = async (e: React.FormEvent) => {
     e.preventDefault();
     
     let customerIdToUse = selectedCustomerIdForm;
 
+    // Create new customer if needed
     if (isNewCustomer) {
       if (!newCustomerName) return;
       
-      const newCustomer: Customer = {
-        id: 'cust-' + Date.now(),
-        fullName: newCustomerName,
-        phoneNumber: newCustomerPhone || '-',
-        address: '-',
-        businessName: '',
-        notes: 'Sajiliwa kupitia Debt Book',
-        createdAt: new Date().toISOString().split('T')[0]
-      };
-
-      const currentCustomers = LocalDatabase.getCustomers();
-      currentCustomers.push(newCustomer);
-      LocalDatabase.saveCustomers(currentCustomers);
-      LocalDatabase.logTransaction('Customer Created', `Registered new customer: ${newCustomerName} (via Debt Book)`);
-      
-      customerIdToUse = newCustomer.id;
+      setIsLoading(true);
+      try {
+        const newCustId = 'cust-' + Date.now();
+        await api.customers.create({
+          id: newCustId,
+          fullName: newCustomerName,
+          phoneNumber: newCustomerPhone || '-',
+          address: '-',
+          businessName: '',
+          notes: 'Sajiliwa kupitia Debt Book',
+          photoUrl: ''
+        });
+        
+        customerIdToUse = newCustId;
+      } catch (err: any) {
+        console.error('Failed to create customer:', err);
+        alert('Imeshindwa kumsajili mteja mpya: ' + err.message);
+        setIsLoading(false);
+        return;
+      }
     }
 
     if (!customerIdToUse || !debtAmount || !debtDueDate) return;
 
-    const currentDebts = LocalDatabase.getDebts();
-    const customer = isNewCustomer 
-      ? { fullName: newCustomerName } 
-      : customers.find(c => c.id === customerIdToUse);
-    
-    const newDebt: Debt = {
-      id: 'debt-' + Date.now(),
-      customerId: customerIdToUse,
-      amount: Number(debtAmount),
-      dateBorrowed: new Date().toISOString().split('T')[0],
-      dueDate: debtDueDate,
-      description: debtDescription || 'Deni',
-      category: debtCategory,
-      notes: debtNotes,
-      status: 'Active',
-      createdAt: new Date().toISOString()
-    };
-
-    currentDebts.push(newDebt);
-    LocalDatabase.saveDebts(currentDebts);
-    LocalDatabase.logTransaction('Debt Added', `Added debt of TSh ${Number(debtAmount).toLocaleString()} for ${customer?.fullName}`, Number(debtAmount));
-    
-    onUpdate();
-    setIsAddDebtOpen(false);
-    resetDebtForm();
+    setIsLoading(true);
+    try {
+      const customer = isNewCustomer 
+        ? { fullName: newCustomerName } 
+        : customers.find(c => c.id === customerIdToUse);
+      
+      await api.debts.create({
+        id: 'debt-' + Date.now(),
+        customerId: customerIdToUse,
+        amount: Number(debtAmount),
+        dateBorrowed: new Date().toISOString().split('T')[0],
+        dueDate: debtDueDate,
+        description: debtDescription || 'Deni',
+        category: debtCategory,
+        notes: debtNotes,
+        status: 'Active'
+      });
+      
+      onUpdate();
+      setIsAddDebtOpen(false);
+      resetDebtForm();
+    } catch (err: any) {
+      console.error('Failed to create debt:', err);
+      alert('Imeshindwa kusajili deni: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleEditDebt = (e: React.FormEvent) => {
+  const handleEditDebt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDebt || !debtAmount || !debtDueDate) return;
 
-    const currentDebts = LocalDatabase.getDebts();
-    const updated = currentDebts.map(d => {
-      if (d.id === selectedDebt.id) {
-        return {
-          ...d,
-          amount: Number(debtAmount),
-          dueDate: debtDueDate,
-          description: debtDescription,
-          category: debtCategory,
-          notes: debtNotes
-        };
-      }
-      return d;
-    });
-
-    LocalDatabase.saveDebts(updated);
-    LocalDatabase.logTransaction('Debt Edited', `Updated debt details for: ${selectedDebt.description}`, Number(debtAmount));
-    onUpdate();
-    setIsEditDebtOpen(false);
-    setSelectedDebt(null);
+    setIsLoading(true);
+    try {
+      await api.debts.update(selectedDebt.id, {
+        amount: Number(debtAmount),
+        dueDate: debtDueDate,
+        description: debtDescription,
+        category: debtCategory,
+        notes: debtNotes
+      });
+      
+      onUpdate();
+      setIsEditDebtOpen(false);
+      setSelectedDebt(null);
+    } catch (err: any) {
+      console.error('Failed to update debt:', err);
+      alert('Imeshindwa kuhariri deni: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleDeleteDebt = (debtId: string) => {
-    if (!confirm("Je, una uhakika unataka kufuta deni hili? Kitendo hiki pia kinaweza kufuta kumbukumbu za malipo husika.")) return;
+  const handleDeleteDebt = async (debtId: string) => {
+    if (!confirm("Je, una uhakika unataka kufuta deni hili? Kitendo hiki pia kitafuta kumbukumbu za malipo husika.")) return;
 
-    const currentDebts = LocalDatabase.getDebts();
-    const filteredD = currentDebts.filter(d => d.id !== debtId);
-    LocalDatabase.saveDebts(filteredD);
-
-    // Also cascade payments
-    const currentPayments = LocalDatabase.getPayments();
-    const filteredP = currentPayments.filter(p => p.debtId !== debtId);
-    LocalDatabase.savePayments(filteredP);
-
-    LocalDatabase.logTransaction('Payment Deleted', `Deleted debt and cascading payments of ID: ${debtId}`);
-    onUpdate();
+    setIsLoading(true);
+    try {
+      await api.debts.delete(debtId);
+      onUpdate();
+    } catch (err: any) {
+      console.error('Failed to delete debt:', err);
+      alert('Imeshindwa kufuta deni: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleAddPayment = (e: React.FormEvent) => {
+  const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDebt || !payAmount) return;
 
-    const currentPayments = LocalDatabase.getPayments();
-    const newPay: Payment = {
-      id: 'pay-' + Date.now(),
-      debtId: selectedDebt.id,
-      amount: Number(payAmount),
-      date: new Date().toISOString().split('T')[0],
-      paymentMethod: payMethod,
-      notes: payNotes,
-      createdAt: new Date().toISOString()
-    };
+    setIsLoading(true);
+    try {
+      await api.payments.create({
+        id: 'pay-' + Date.now(),
+        debtId: selectedDebt.id,
+        amount: Number(payAmount),
+        date: new Date().toISOString().split('T')[0],
+        paymentMethod: payMethod,
+        notes: payNotes
+      });
 
-    currentPayments.push(newPay);
-    LocalDatabase.savePayments(currentPayments);
-    LocalDatabase.logTransaction('Payment Added', `Recorded payment of TSh ${Number(payAmount).toLocaleString()} for ${selectedDebt.description}`, Number(payAmount));
-
-    onUpdate();
-    setIsAddPaymentOpen(false);
-    resetPaymentForm();
-    setSelectedDebt(null);
+      onUpdate();
+      setIsAddPaymentOpen(false);
+      resetPaymentForm();
+      setSelectedDebt(null);
+    } catch (err: any) {
+      console.error('Failed to record payment:', err);
+      alert('Imeshindwa kurekodi malipo: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const resetDebtForm = () => {
@@ -312,7 +331,8 @@ export default function DebtManagement({
         
         <button 
           onClick={() => { resetDebtForm(); setIsAddDebtOpen(true); }}
-          className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition"
+          disabled={isLoading}
+          className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
         >
           <Plus size={15} /> Sajili Deni Jipya
         </button>
@@ -336,7 +356,7 @@ export default function DebtManagement({
               {tab === 'All' ? 'Yote' : 
                tab === 'Active' ? 'Active' : 
                tab === 'Paid' ? 'Paid' : 
-               tab === 'Unpaid' ? 'Unpaid (Haijalipwa)' : 
+               tab === 'Unpaid' ? 'Haijalipwa' : 
                tab === 'Due Today' ? 'Leo' :
                tab === 'Due Tomorrow' ? 'Kesho' : 
                tab === 'Overdue' ? 'Overdue' :
@@ -383,6 +403,14 @@ export default function DebtManagement({
 
       </div>
 
+      {/* Loading indicator */}
+      {isLoading && (
+        <div className="flex items-center justify-center gap-2 text-xs text-slate-400 py-2">
+          <Loader2 size={14} className="animate-spin" />
+          <span>Inasasisha data...</span>
+        </div>
+      )}
+
       {/* Debts Table */}
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -395,8 +423,8 @@ export default function DebtManagement({
                 <th className="py-4 px-6">Ukomo (Due)</th>
                 <th className="py-4 px-6 text-right">Kiasi Kamili</th>
                 <th className="py-4 px-6 text-right">Kilicholipwa</th>
-                <th className="py-4 px-6 text-right">Salio (Remaining)</th>
-                <th className="py-4 px-6">Hali (Status)</th>
+                <th className="py-4 px-6 text-right">Salio</th>
+                <th className="py-4 px-6">Hali</th>
                 <th className="py-4 px-6 text-center">Matendo</th>
               </tr>
             </thead>
@@ -440,7 +468,8 @@ export default function DebtManagement({
                         {debt.status !== 'Paid' && (
                           <button
                             onClick={() => openPaymentModal(debt)}
-                            className="p-1 text-success hover:bg-success/10 rounded-lg transition"
+                            disabled={isLoading}
+                            className="p-1 text-success hover:bg-success/10 rounded-lg transition disabled:opacity-50"
                             title="Rekodi malipo"
                           >
                             <CreditCard size={15} />
@@ -448,14 +477,16 @@ export default function DebtManagement({
                         )}
                         <button
                           onClick={() => openEditModal(debt)}
-                          className="p-1 text-slate-500 hover:bg-slate-100 rounded-lg transition"
+                          disabled={isLoading}
+                          className="p-1 text-slate-500 hover:bg-slate-100 rounded-lg transition disabled:opacity-50"
                           title="Hariri"
                         >
                           <Edit2 size={15} />
                         </button>
                         <button
                           onClick={() => handleDeleteDebt(debt.id)}
-                          className="p-1 text-rose-500 hover:bg-rose-50 rounded-lg transition"
+                          disabled={isLoading}
+                          className="p-1 text-rose-500 hover:bg-rose-50 rounded-lg transition disabled:opacity-50"
                           title="Futa deni"
                         >
                           <Trash2 size={15} />
@@ -478,7 +509,7 @@ export default function DebtManagement({
         </div>
       </div>
 
-      {/* MODAL 1: Create Debt */}
+      {/* MODAL: Create Debt */}
       {isAddDebtOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -503,7 +534,6 @@ export default function DebtManagement({
                 if (combinedNotes) setDebtNotes(combinedNotes);
                 
                 if (data.name) {
-                  // Intelligent customer matching
                   const foundCustomer = customers.find(c => 
                     c.fullName.toLowerCase().includes(data.name!.toLowerCase()) || 
                     data.name!.toLowerCase().includes(c.fullName.toLowerCase())
@@ -575,7 +605,7 @@ export default function DebtManagement({
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Nambari ya Simu (Sio Lazima)</label>
+                      <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Nambari ya Simu</label>
                       <input
                         type="tel"
                         value={newCustomerPhone}
@@ -608,8 +638,8 @@ export default function DebtManagement({
                     required
                     value={debtCategory}
                     onChange={(e) => setDebtCategory(e.target.value)}
-                    placeholder="Mfano: Mizigo/Products, Huduma, Mkopo n.k."
-                    className="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:ring-accent focus:border-accent"
+                    placeholder="Mfano: Mizigo/Products"
+                    className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
                   />
                 </div>
                 <div>
@@ -631,7 +661,7 @@ export default function DebtManagement({
                   required
                   value={debtDescription} 
                   onChange={(e) => setDebtDescription(e.target.value)}
-                  placeholder="Mfano: Mashati 3 ya kiume, n.k."
+                  placeholder="Mfano: Mashati 3 ya kiume"
                   className="w-full p-2.5 border border-slate-200 rounded-xl" 
                 />
               </div>
@@ -650,15 +680,24 @@ export default function DebtManagement({
                 <button 
                   type="button" 
                   onClick={() => setIsAddDebtOpen(false)}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition"
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
                 >
                   Ghairi
                 </button>
                 <button 
-                  type="submit" 
-                  className="px-5 py-2 bg-slate-900 text-white rounded-xl font-semibold hover:bg-slate-800 transition shadow-sm"
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-5 py-2 bg-slate-900 text-white rounded-xl font-semibold hover:bg-slate-800 transition shadow-sm disabled:opacity-50 flex items-center gap-2"
                 >
-                  Sajili Deni
+                  {isLoading ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Inasajili...
+                    </>
+                  ) : (
+                    'Sajili Deni'
+                  )}
                 </button>
               </div>
             </form>
@@ -666,7 +705,7 @@ export default function DebtManagement({
         </div>
       )}
 
-      {/* MODAL 2: Edit Debt */}
+      {/* MODAL: Edit Debt */}
       {isEditDebtOpen && selectedDebt && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -693,18 +732,17 @@ export default function DebtManagement({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Bidhaa (Product Type) *</label>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Bidhaa *</label>
                   <input
                     type="text"
                     required
                     value={debtCategory}
                     onChange={(e) => setDebtCategory(e.target.value)}
-                    placeholder="Mfano: Mizigo/Products, Huduma, Mkopo n.k."
-                    className="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:ring-accent focus:border-accent"
+                    className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Ukomo (Due Date) *</label>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Ukomo *</label>
                   <input 
                     type="date" 
                     required 
@@ -716,7 +754,7 @@ export default function DebtManagement({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo/Kichwa cha Habari *</label>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo *</label>
                 <input 
                   type="text" 
                   required
@@ -727,7 +765,7 @@ export default function DebtManagement({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Notes za Ziada</label>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Notes</label>
                 <textarea 
                   value={debtNotes} 
                   onChange={(e) => setDebtNotes(e.target.value)}
@@ -739,15 +777,24 @@ export default function DebtManagement({
                 <button 
                   type="button" 
                   onClick={() => { setIsEditDebtOpen(false); setSelectedDebt(null); }}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition"
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
                 >
                   Ghairi
                 </button>
                 <button 
-                  type="submit" 
-                  className="px-5 py-2 bg-slate-900 text-white rounded-xl font-semibold hover:bg-slate-800 transition shadow-sm"
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-5 py-2 bg-slate-900 text-white rounded-xl font-semibold hover:bg-slate-800 transition shadow-sm disabled:opacity-50 flex items-center gap-2"
                 >
-                  Hifadhi Mabadiliko
+                  {isLoading ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Inahifadhi...
+                    </>
+                  ) : (
+                    'Hifadhi Mabadiliko'
+                  )}
                 </button>
               </div>
             </form>
@@ -755,7 +802,7 @@ export default function DebtManagement({
         </div>
       )}
 
-      {/* MODAL 3: Record Payment on Debt */}
+      {/* MODAL: Record Payment */}
       {isAddPaymentOpen && selectedDebt && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -767,12 +814,14 @@ export default function DebtManagement({
             </button>
             
             <h3 className="text-md font-bold text-slate-850">Rekodi Malipo ya Deni</h3>
-            <p className="text-xs text-slate-400">Deni: {selectedDebt.description}. Kiporo kilichobaki: TSh {selectedDebt.amount.toLocaleString()}</p>
+            <p className="text-xs text-slate-400">
+              Deni: {selectedDebt.description}. Salio: TSh {(selectedDebt.amount - (payments.filter(p => p.debtId === selectedDebt.id).reduce((s, p) => s + p.amount, 0))).toLocaleString()}
+            </p>
             
             <form onSubmit={handleAddPayment} className="space-y-4 text-xs text-left">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kiasi Kilicholipwa (TSh) *</label>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kiasi (TSh) *</label>
                   <input 
                     type="number" 
                     required 
@@ -802,7 +851,7 @@ export default function DebtManagement({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kumbukumbu / Maelezo ya Malipo</label>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kumbukumbu / Maelezo</label>
                 <textarea 
                   value={payNotes} 
                   onChange={(e) => setPayNotes(e.target.value)}
@@ -815,22 +864,30 @@ export default function DebtManagement({
                 <button 
                   type="button" 
                   onClick={() => { setIsAddPaymentOpen(false); setSelectedDebt(null); }}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition"
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
                 >
                   Ghairi
                 </button>
                 <button 
-                  type="submit" 
-                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition"
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
                 >
-                  Hifadhi Malipo
+                  {isLoading ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Inarekodi...
+                    </>
+                  ) : (
+                    'Hifadhi Malipo'
+                  )}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }
