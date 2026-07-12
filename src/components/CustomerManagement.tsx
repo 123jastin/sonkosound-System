@@ -6,7 +6,7 @@
 import React, { useState, useMemo } from 'react';
 import { Customer, Debt, Payment, CustomerStatus } from '../types';
 import FormAIOCR from './FormAIOCR';
-import { LocalDatabase, getDaysDiff } from '../db';
+import { api } from '../services/api';
 import { 
   Users, Search, Plus, Filter, Phone, MapPin, 
   Building, UserPlus, CreditCard, ChevronRight, FileText, 
@@ -33,6 +33,7 @@ export default function CustomerManagement({
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<CustomerStatus | 'All'>('All');
+  const [isLoading, setIsLoading] = useState(false);
   
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -58,23 +59,43 @@ export default function CustomerManagement({
 
   // Form states - Quick Payment recording
   const [payAmount, setPayAmount] = useState('');
-  const [payMethod, setPayMethod] = useState<'M-Pesa' | 'Tigo Pesa' | 'Airtel Money' | 'HaloPesa' | 'Bank Transfer' | 'Cash' | 'Cheque' | 'Other'>('M-Pesa');
+  const [payMethod, setPayMethod] = useState<string>('M-Pesa');
   const [payNotes, setPayNotes] = useState('');
   const [payDebtId, setPayDebtId] = useState('');
 
-  // Active business settings
-  const settings = LocalDatabase.getSettings();
-
-  // Selected customer details
+  // Active customer details
   const activeCustomer = useMemo(() => {
     if (!selectedCustomerId) return null;
     return customers.find(c => c.id === selectedCustomerId) || null;
   }, [customers, selectedCustomerId]);
 
-  // Aggregate stats of selected customer
+  // Active customer stats
   const activeCustomerStats = useMemo(() => {
     if (!selectedCustomerId) return null;
-    return LocalDatabase.getCustomerStats(selectedCustomerId);
+    const customerDebts = debts.filter(d => d.customerId === selectedCustomerId);
+    const debtIds = customerDebts.map(d => d.id);
+    const customerPayments = payments.filter(p => debtIds.includes(p.debtId));
+    
+    const totalDebt = customerDebts.reduce((sum, d) => sum + d.amount, 0);
+    const totalPaid = customerPayments.reduce((sum, p) => sum + p.amount, 0);
+    const remainingBalance = Math.max(0, totalDebt - totalPaid);
+    
+    let status: CustomerStatus = 'Cleared';
+    if (remainingBalance > 0) {
+      const hasOverdue = customerDebts.some(d => {
+        const paid = customerPayments.filter(p => p.debtId === d.id).reduce((s, p) => s + p.amount, 0);
+        return d.amount - paid > 0 && new Date(d.dueDate) < new Date('2026-07-10');
+      });
+      status = hasOverdue ? 'Overdue' : 'Active';
+    }
+
+    return {
+      totalDebt,
+      totalPaid,
+      remainingBalance,
+      status,
+      percentagePaid: totalDebt > 0 ? (totalPaid / totalDebt) * 100 : 0
+    };
   }, [selectedCustomerId, debts, payments]);
 
   // Selected customer's specific debts and payments
@@ -83,24 +104,37 @@ export default function CustomerManagement({
     const custDebts = debts.filter(d => d.customerId === selectedCustomerId);
     const debtIds = custDebts.map(d => d.id);
     const custPayments = payments.filter(p => debtIds.includes(p.debtId));
-    return {
-      debts: custDebts,
-      payments: custPayments
-    };
+    return { debts: custDebts, payments: custPayments };
   }, [selectedCustomerId, debts, payments]);
 
-  // All customers with calculated statuses & balances
+  // All customers with calculated stats
   const customersWithStats = useMemo(() => {
     return customers.map(c => {
-      const stats = LocalDatabase.getCustomerStats(c.id);
+      const customerDebts = debts.filter(d => d.customerId === c.id);
+      const debtIds = customerDebts.map(d => d.id);
+      const customerPayments = payments.filter(p => debtIds.includes(p.debtId));
+      
+      const totalDebt = customerDebts.reduce((sum, d) => sum + d.amount, 0);
+      const totalPaid = customerPayments.reduce((sum, p) => sum + p.amount, 0);
+      const remainingBalance = Math.max(0, totalDebt - totalPaid);
+      
+      let status: CustomerStatus = 'Cleared';
+      if (remainingBalance > 0) {
+        const hasOverdue = customerDebts.some(d => {
+          const paid = customerPayments.filter(p => p.debtId === d.id).reduce((s, p) => s + p.amount, 0);
+          return d.amount - paid > 0 && new Date(d.dueDate) < new Date('2026-07-10');
+        });
+        status = hasOverdue ? 'Overdue' : 'Active';
+      }
+
       return {
         ...c,
-        stats
+        stats: { totalDebt, totalPaid, remainingBalance, status, percentagePaid: totalDebt > 0 ? (totalPaid / totalDebt) * 100 : 0 }
       };
     });
   }, [customers, debts, payments]);
 
-  // Search and Filter customers list
+  // Filtered customers
   const filteredCustomers = useMemo(() => {
     return customersWithStats.filter(c => {
       const matchesSearch = 
@@ -114,109 +148,131 @@ export default function CustomerManagement({
     });
   }, [customersWithStats, searchQuery, statusFilter]);
 
-  // Handlers - Customer
-  const handleAddCustomer = (e: React.FormEvent) => {
+  // ============================================
+  // API HANDLERS
+  // ============================================
+  
+  const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName || !phoneNumber) return;
 
-    const currentCustomers = LocalDatabase.getCustomers();
-    const newCust: Customer = {
-      id: 'cust-' + Date.now(),
-      fullName,
-      phoneNumber,
-      address,
-      businessName: businessName || undefined,
-      notes,
-      photoUrl: photoUrl || undefined,
-      createdAt: new Date().toISOString().split('T')[0]
-    };
-
-    currentCustomers.push(newCust);
-    LocalDatabase.saveCustomers(currentCustomers);
-    LocalDatabase.logTransaction('Customer Created', `Registered new customer: ${fullName}`);
-    
-    onUpdate();
-    setIsAddModalOpen(false);
-    resetCustomerForm();
+    setIsLoading(true);
+    try {
+      await api.customers.create({
+        id: 'cust-' + Date.now(),
+        fullName,
+        phoneNumber,
+        address,
+        businessName: businessName || '',
+        notes,
+        photoUrl: photoUrl || ''
+      });
+      
+      onUpdate();
+      setIsAddModalOpen(false);
+      resetCustomerForm();
+    } catch (err: any) {
+      console.error('Failed to add customer:', err);
+      alert('Imeshindwa kumsajili mteja: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleEditCustomer = (e: React.FormEvent) => {
+  const handleEditCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomerId || !fullName || !phoneNumber) return;
 
-    const currentCustomers = LocalDatabase.getCustomers();
-    const updated = currentCustomers.map(c => {
-      if (c.id === selectedCustomerId) {
-        return {
-          ...c,
-          fullName,
-          phoneNumber,
-          address,
-          businessName: businessName || undefined,
-          notes,
-          photoUrl: photoUrl || undefined
-        };
-      }
-      return c;
-    });
-
-    LocalDatabase.saveCustomers(updated);
-    LocalDatabase.logTransaction('Customer Updated', `Updated profile of customer: ${fullName}`);
-    onUpdate();
-    setIsEditModalOpen(false);
+    setIsLoading(true);
+    try {
+      await api.customers.update(selectedCustomerId, {
+        fullName,
+        phoneNumber,
+        address,
+        businessName: businessName || '',
+        notes,
+        photoUrl: photoUrl || ''
+      });
+      
+      onUpdate();
+      setIsEditModalOpen(false);
+    } catch (err: any) {
+      console.error('Failed to update customer:', err);
+      alert('Imeshindwa kuhariri wasifu: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Handlers - Debt creation inside customer details
-  const handleAddDebt = (e: React.FormEvent) => {
+  const handleDeleteCustomer = async (customerId: string) => {
+    if (!confirm('Je, una uhakika unataka kumfuta mteja huyu pamoja na madeni na malipo yake yote?')) return;
+
+    setIsLoading(true);
+    try {
+      await api.customers.delete(customerId);
+      onUpdate();
+      if (selectedCustomerId === customerId) setSelectedCustomerId(null);
+    } catch (err: any) {
+      console.error('Failed to delete customer:', err);
+      alert('Imeshindwa kumfuta mteja: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAddDebt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomerId || !debtAmount || !debtDueDate) return;
 
-    const currentDebts = LocalDatabase.getDebts();
-    const newDebt: Debt = {
-      id: 'debt-' + Date.now(),
-      customerId: selectedCustomerId,
-      amount: Number(debtAmount),
-      dateBorrowed: new Date().toISOString().split('T')[0],
-      dueDate: debtDueDate,
-      description: debtDescription || 'Deni jipya',
-      category: debtCategory,
-      notes: debtNotes,
-      status: 'Active',
-      createdAt: new Date().toISOString()
-    };
-
-    currentDebts.push(newDebt);
-    LocalDatabase.saveDebts(currentDebts);
-    LocalDatabase.logTransaction('Debt Added', `Added debt of TSh ${Number(debtAmount).toLocaleString()} for ${activeCustomer?.fullName}`, Number(debtAmount));
-    
-    onUpdate();
-    setIsAddDebtOpen(false);
-    resetDebtForm();
+    setIsLoading(true);
+    try {
+      await api.debts.create({
+        id: 'debt-' + Date.now(),
+        customerId: selectedCustomerId,
+        amount: Number(debtAmount),
+        dateBorrowed: new Date().toISOString().split('T')[0],
+        dueDate: debtDueDate,
+        description: debtDescription || 'Deni jipya',
+        category: debtCategory,
+        notes: debtNotes,
+        status: 'Active'
+      });
+      
+      onUpdate();
+      setIsAddDebtOpen(false);
+      resetDebtForm();
+    } catch (err: any) {
+      console.error('Failed to add debt:', err);
+      alert('Imeshindwa kuongeza deni: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Handlers - Record payment
-  const handleAddPayment = (e: React.FormEvent) => {
+  const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payDebtId || !payAmount) return;
 
-    const currentPayments = LocalDatabase.getPayments();
-    const newPay: Payment = {
-      id: 'pay-' + Date.now(),
-      debtId: payDebtId,
-      amount: Number(payAmount),
-      date: new Date().toISOString().split('T')[0],
-      paymentMethod: payMethod,
-      notes: payNotes,
-      createdAt: new Date().toISOString()
-    };
-
-    currentPayments.push(newPay);
-    LocalDatabase.savePayments(currentPayments);
-    LocalDatabase.logTransaction('Payment Added', `Recorded payment of TSh ${Number(payAmount).toLocaleString()} via ${payMethod}`, Number(payAmount));
-
-    onUpdate();
-    setIsAddPaymentOpen(false);
-    resetPaymentForm();
+    setIsLoading(true);
+    try {
+      await api.payments.create({
+        id: 'pay-' + Date.now(),
+        debtId: payDebtId,
+        amount: Number(payAmount),
+        date: new Date().toISOString().split('T')[0],
+        paymentMethod: payMethod,
+        notes: payNotes
+      });
+      
+      onUpdate();
+      setIsAddPaymentOpen(false);
+      resetPaymentForm();
+    } catch (err: any) {
+      console.error('Failed to record payment:', err);
+      alert('Imeshindwa kurekodi malipo: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const resetCustomerForm = () => {
@@ -255,6 +311,13 @@ export default function CustomerManagement({
 
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  // Business settings (mock for now - will come from API)
+  const settings = {
+    businessName: 'Sonko Sound',
+    businessAddress: 'Dar es Salaam, Tanzania',
+    businessPhone: '255XXXXXXXXX'
   };
 
   return (
@@ -308,8 +371,15 @@ export default function CustomerManagement({
                   <Edit2 size={14} /> Hariri Wasifu (Edit)
                 </button>
                 <button 
+                  onClick={() => handleDeleteCustomer(activeCustomer.id)}
+                  className="py-2.5 px-4 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition-colors flex items-center gap-1.5 font-bold"
+                  title="Futa Mteja"
+                >
+                  <Trash2 size={14} /> Futa
+                </button>
+                <button 
                   onClick={() => setSelectedCustomerId('')}
-                  className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-250 text-slate-700 transition-colors font-bold"
+                  className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors font-bold"
                 >
                   Orodha (Back to List)
                 </button>
@@ -362,7 +432,8 @@ export default function CustomerManagement({
               <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate-100">
                 <button
                   onClick={() => setIsAddDebtOpen(true)}
-                  className="bg-slate-900 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                  disabled={isLoading}
+                  className="bg-slate-900 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50"
                 >
                   <Plus size={14} /> Deni Jipya
                 </button>
@@ -379,7 +450,8 @@ export default function CustomerManagement({
                       alert("Mteja huyu hana deni linalohitaji malipo!");
                     }
                   }}
-                  className="bg-emerald-600 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                  disabled={isLoading}
+                  className="bg-emerald-600 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50"
                 >
                   <CreditCard size={14} /> Lipisha Deni
                 </button>
@@ -393,7 +465,7 @@ export default function CustomerManagement({
             </div>
           </div>
 
-          {/* Individual History section - list of products demanded */}
+          {/* Individual History section */}
           <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
             <h4 className="text-xs font-bold text-slate-750 uppercase flex items-center gap-1.5 border-b border-slate-100 pb-2">
               <History size={14} className="text-slate-400" />
@@ -419,11 +491,11 @@ export default function CustomerManagement({
                         </span>
                         {bal > 0 ? (
                           <span className="font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded text-[9px]">
-                            Inadaiwa (Outstanding)
+                            Inadaiwa
                           </span>
                         ) : (
                           <span className="font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded text-[9px]">
-                            Imelipwa (Paid)
+                            Imelipwa
                           </span>
                         )}
                       </div>
@@ -485,7 +557,8 @@ export default function CustomerManagement({
               
               <button
                 onClick={() => { resetCustomerForm(); setIsAddModalOpen(true); }}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 ml-2 shadow-sm transition"
+                disabled={isLoading}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 ml-2 shadow-sm transition disabled:opacity-50"
               >
                 <UserPlus size={15} /> Msajili Mteja
               </button>
@@ -493,12 +566,12 @@ export default function CustomerManagement({
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            
             {/* Customers Grid list */}
             <div className="lg:col-span-3 space-y-4">
               <h2 className="text-md font-bold text-slate-800 flex items-center gap-2">
                 <Users size={18} className="text-emerald-600" />
                 Wateja na Madeni Yao ({filteredCustomers.length})
+                {isLoading && <span className="text-xs text-slate-400 animate-pulse">(Inasasisha...)</span>}
               </h2>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -564,7 +637,6 @@ export default function CustomerManagement({
                             Fungua <ChevronRight size={12} />
                           </span>
                         </div>
-
                       </div>
                     );
                   })
@@ -581,7 +653,7 @@ export default function CustomerManagement({
         </>
       )}
 
-      {/* MODAL 1: Add Customer */}
+      {/* MODAL: Add Customer */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -628,29 +700,29 @@ export default function CustomerManagement({
                     value={phoneNumber} 
                     onChange={(e) => setPhoneNumber(e.target.value)}
                     placeholder="Mfano: 0712345678"
-                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent" 
+                    className="w-full p-2.5 border border-slate-200 rounded-xl" 
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina la Biashara (Optional)</label>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Biashara</label>
                   <input 
                     type="text" 
                     value={businessName} 
                     onChange={(e) => setBusinessName(e.target.value)}
                     placeholder="Mfano: Jalia Boutique"
-                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent" 
+                    className="w-full p-2.5 border border-slate-200 rounded-xl" 
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Anuani ya Mteja (Address)</label>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Anuani (Address)</label>
                 <input 
                   type="text" 
                   value={address} 
                   onChange={(e) => setAddress(e.target.value)}
                   placeholder="Mfano: Kariakoo, Dar es Salaam"
-                  className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent" 
+                  className="w-full p-2.5 border border-slate-200 rounded-xl" 
                 />
               </div>
 
@@ -660,7 +732,7 @@ export default function CustomerManagement({
                   value={notes} 
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Kumbukumbu maalum za mteja huyu..."
-                  className="w-full p-2.5 border border-slate-200 rounded-xl h-20 focus:ring-accent" 
+                  className="w-full p-2.5 border border-slate-200 rounded-xl h-20" 
                 />
               </div>
 
@@ -668,15 +740,17 @@ export default function CustomerManagement({
                 <button 
                   type="button" 
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition"
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
                 >
                   Ghairi
                 </button>
                 <button 
-                  type="submit" 
-                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition"
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
                 >
-                  Sajili Mteja
+                  {isLoading ? 'Inasajili...' : 'Sajili Mteja'}
                 </button>
               </div>
             </form>
@@ -684,7 +758,7 @@ export default function CustomerManagement({
         </div>
       )}
 
-      {/* MODAL 2: Edit Customer */}
+      {/* MODAL: Edit Customer */}
       {isEditModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -705,7 +779,7 @@ export default function CustomerManagement({
                   required 
                   value={fullName} 
                   onChange={(e) => setFullName(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent" 
+                  className="w-full p-2.5 border border-slate-200 rounded-xl" 
                 />
               </div>
 
@@ -717,7 +791,7 @@ export default function CustomerManagement({
                     required 
                     value={phoneNumber} 
                     onChange={(e) => setPhoneNumber(e.target.value)}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent" 
+                    className="w-full p-2.5 border border-slate-200 rounded-xl" 
                   />
                 </div>
                 <div>
@@ -726,18 +800,18 @@ export default function CustomerManagement({
                     type="text" 
                     value={businessName} 
                     onChange={(e) => setBusinessName(e.target.value)}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent" 
+                    className="w-full p-2.5 border border-slate-200 rounded-xl" 
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Anuani ya Mteja</label>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Anuani</label>
                 <input 
                   type="text" 
                   value={address} 
                   onChange={(e) => setAddress(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent" 
+                  className="w-full p-2.5 border border-slate-200 rounded-xl" 
                 />
               </div>
 
@@ -746,7 +820,7 @@ export default function CustomerManagement({
                 <textarea 
                   value={notes} 
                   onChange={(e) => setNotes(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl h-20 focus:ring-accent" 
+                  className="w-full p-2.5 border border-slate-200 rounded-xl h-20" 
                 />
               </div>
 
@@ -754,15 +828,17 @@ export default function CustomerManagement({
                 <button 
                   type="button" 
                   onClick={() => setIsEditModalOpen(false)}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition"
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
                 >
                   Ghairi
                 </button>
                 <button 
-                  type="submit" 
-                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition"
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50"
                 >
-                  Hifadhi Wasifu
+                  {isLoading ? 'Inahifadhi...' : 'Hifadhi Wasifu'}
                 </button>
               </div>
             </form>
@@ -770,7 +846,7 @@ export default function CustomerManagement({
         </div>
       )}
 
-      {/* MODAL 3: Create Debt inside details */}
+      {/* MODAL: Add Debt */}
       {isAddDebtOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -805,7 +881,7 @@ export default function CustomerManagement({
                   value={debtAmount} 
                   onChange={(e) => setDebtAmount(e.target.value)}
                   placeholder="Mfano: 50000"
-                  className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent" 
+                  className="w-full p-2.5 border border-slate-200 rounded-xl" 
                 />
               </div>
 
@@ -818,7 +894,7 @@ export default function CustomerManagement({
                     value={debtCategory}
                     onChange={(e) => setDebtCategory(e.target.value)}
                     placeholder="Mfano: Mizigo/Products, Huduma, Mkopo n.k."
-                    className="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:ring-accent focus:border-accent"
+                    className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
                   />
                 </div>
                 <div>
@@ -834,13 +910,13 @@ export default function CustomerManagement({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kichwa cha Habari/Maelezo mafupi *</label>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo *</label>
                 <input 
                   type="text" 
                   required
                   value={debtDescription} 
                   onChange={(e) => setDebtDescription(e.target.value)}
-                  placeholder="Mfano: Karatasi za Ofisi au Mkopo mdogo"
+                  placeholder="Mfano: Karatasi za Ofisi"
                   className="w-full p-2.5 border border-slate-200 rounded-xl" 
                 />
               </div>
@@ -858,15 +934,17 @@ export default function CustomerManagement({
                 <button 
                   type="button" 
                   onClick={() => setIsAddDebtOpen(false)}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition"
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
                 >
                   Ghairi
                 </button>
                 <button 
-                  type="submit" 
-                  className="px-5 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-semibold shadow-sm transition"
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-5 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-semibold shadow-sm transition disabled:opacity-50"
                 >
-                  Sajili Deni
+                  {isLoading ? 'Inasajili...' : 'Sajili Deni'}
                 </button>
               </div>
             </form>
@@ -874,7 +952,7 @@ export default function CustomerManagement({
         </div>
       )}
 
-      {/* MODAL 4: Record Payment */}
+      {/* MODAL: Add Payment */}
       {isAddPaymentOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -894,11 +972,11 @@ export default function CustomerManagement({
                   required
                   value={payDebtId}
                   onChange={(e) => setPayDebtId(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:ring-accent"
+                  className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
                 >
                   <option value="">Chagua deni...</option>
                   {activeCustomerHistory.debts.map(d => {
-                    const pd = payments.filter(p => p.debtId === d.id).reduce((s, p) => s + p.amount, 0);
+                    const pd = activeCustomerHistory.payments.filter(p => p.debtId === d.id).reduce((s, p) => s + p.amount, 0);
                     const rem = d.amount - pd;
                     if (rem <= 0) return null;
                     return (
@@ -912,21 +990,21 @@ export default function CustomerManagement({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kiasi Kilicholipwa (TSh) *</label>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kiasi (TSh) *</label>
                   <input 
                     type="number" 
                     required 
                     value={payAmount} 
                     onChange={(e) => setPayAmount(e.target.value)}
                     placeholder="Mfano: 30000"
-                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent" 
+                    className="w-full p-2.5 border border-slate-200 rounded-xl" 
                   />
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Njia ya Malipo *</label>
                   <select
                     value={payMethod}
-                    onChange={(e: any) => setPayMethod(e.target.value)}
+                    onChange={(e) => setPayMethod(e.target.value)}
                     className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
                   >
                     <option value="M-Pesa">M-Pesa</option>
@@ -946,8 +1024,8 @@ export default function CustomerManagement({
                 <textarea 
                   value={payNotes} 
                   onChange={(e) => setPayNotes(e.target.value)}
-                  placeholder="Andika risiti au kumbukumbu yoyote ya muamala..."
-                  className="w-full p-2.5 border border-slate-200 rounded-xl h-20 focus:ring-accent" 
+                  placeholder="Kumbukumbu ya muamala..."
+                  className="w-full p-2.5 border border-slate-200 rounded-xl h-20" 
                 />
               </div>
 
@@ -955,15 +1033,17 @@ export default function CustomerManagement({
                 <button 
                   type="button" 
                   onClick={() => setIsAddPaymentOpen(false)}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition"
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
                 >
                   Ghairi
                 </button>
                 <button 
-                  type="submit" 
-                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition"
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50"
                 >
-                  Hifadhi Malipo
+                  {isLoading ? 'Inarekodi...' : 'Hifadhi Malipo'}
                 </button>
               </div>
             </form>
@@ -971,12 +1051,11 @@ export default function CustomerManagement({
         </div>
       )}
 
-      {/* PRINT STATEMENT MODAL (Aesthetic Printable layout styled for invoice look) */}
+      {/* PRINT STATEMENT MODAL */}
       {isStatementOpen && activeCustomer && activeCustomerStats && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-3xl w-full p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in" id="printable-statement-container">
             
-            {/* Control buttons */}
             <div className="absolute top-6 right-6 flex items-center gap-2 print:hidden">
               <button 
                 onClick={() => window.print()}
@@ -992,17 +1071,14 @@ export default function CustomerManagement({
               </button>
             </div>
 
-            {/* Printable Area */}
             <div className="space-y-6 pt-4 text-slate-700">
-              
-              {/* Invoice Header */}
               <div className="flex justify-between items-start border-b border-slate-200 pb-6">
                 <div>
-                  <h2 className="text-xl font-extrabold text-slate-800 uppercase tracking-tight flex items-center gap-1.5">
+                  <h2 className="text-xl font-extrabold text-slate-800 uppercase tracking-tight">
                     {settings.businessName}
                   </h2>
                   <p className="text-xs text-slate-500 mt-1">Anuani: {settings.businessAddress}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">Simu ya Biashara: {settings.businessPhone}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Simu: {settings.businessPhone}</p>
                 </div>
                 <div className="text-right">
                   <span className="inline-block text-[10px] uppercase tracking-wider font-extrabold px-3 py-1 bg-slate-100 text-slate-600 rounded-full">
@@ -1012,59 +1088,54 @@ export default function CustomerManagement({
                 </div>
               </div>
 
-              {/* Customers Profile Details in Statement */}
               <div className="grid grid-cols-2 gap-8 py-4 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
                 <div>
                   <h4 className="text-[10px] font-bold text-slate-400 uppercase">MTEJA:</h4>
                   <h3 className="text-sm font-bold text-slate-800 mt-1">{activeCustomer.fullName}</h3>
                   <p className="text-xs text-slate-500 mt-0.5">Simu: {activeCustomer.phoneNumber}</p>
-                  {activeCustomer.businessName && <p className="text-xs text-slate-500 mt-0.5">Biashara: {activeCustomer.businessName}</p>}
                 </div>
                 <div className="text-right">
-                  <h4 className="text-[10px] font-bold text-slate-400 uppercase">SALIO LINARIPOTIWA (TSh):</h4>
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase">SALIO (TSh):</h4>
                   <h3 className="text-lg font-black text-rose-600 mt-1">TSh {activeCustomerStats.remainingBalance.toLocaleString()}</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Asilimia Lipwa: {Math.round(activeCustomerStats.percentagePaid)}%</p>
                 </div>
               </div>
 
-              {/* Debt list inside Statement */}
               <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-1.5 uppercase tracking-wide">
-                  Historia ya Madeni (Debt History)
+                <h4 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-1.5 uppercase">
+                  Historia ya Madeni
                 </h4>
                 <table className="w-full text-left text-xs text-slate-600">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 font-bold">
                       <th className="py-2.5 px-3 rounded-l-lg">Maelezo</th>
-                      <th className="py-2.5 px-3">Tarehe ya Kukopa</th>
-                      <th className="py-2.5 px-3">Ukomo (Due Date)</th>
+                      <th className="py-2.5 px-3">Tarehe</th>
+                      <th className="py-2.5 px-3">Ukomo</th>
                       <th className="py-2.5 px-3 text-right rounded-r-lg">Kiasi (TSh)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {activeCustomerHistory.debts.map(debt => (
                       <tr key={debt.id} className="border-b border-slate-100/50">
-                        <td className="py-2 px-3 font-semibold text-slate-800">{debt.description}</td>
+                        <td className="py-2 px-3 font-semibold">{debt.description}</td>
                         <td className="py-2 px-3 font-mono text-slate-400">{debt.dateBorrowed}</td>
                         <td className="py-2 px-3 font-mono text-slate-400">{debt.dueDate}</td>
-                        <td className="py-2 px-3 text-right font-bold text-slate-800">TSh {debt.amount.toLocaleString()}</td>
+                        <td className="py-2 px-3 text-right font-bold">TSh {debt.amount.toLocaleString()}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              {/* Payment list inside Statement */}
               <div className="space-y-2 pt-2">
-                <h4 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-1.5 uppercase tracking-wide">
-                  Historia ya Malipo Yaliyopokewa (Payment History)
+                <h4 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-1.5 uppercase">
+                  Historia ya Malipo
                 </h4>
                 <table className="w-full text-left text-xs text-slate-600">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 font-bold">
-                      <th className="py-2.5 px-3 rounded-l-lg">Kumbukumbu / Maelezo ya Malipo</th>
-                      <th className="py-2.5 px-3">Tarehe Iliyolipwa</th>
-                      <th className="py-2.5 px-3">Njia ya Malipo</th>
+                      <th className="py-2.5 px-3 rounded-l-lg">Maelezo</th>
+                      <th className="py-2.5 px-3">Tarehe</th>
+                      <th className="py-2.5 px-3">Njia</th>
                       <th className="py-2.5 px-3 text-right rounded-r-lg">Kiasi (TSh)</th>
                     </tr>
                   </thead>
@@ -1072,38 +1143,35 @@ export default function CustomerManagement({
                     {activeCustomerHistory.payments.length > 0 ? (
                       activeCustomerHistory.payments.map(pay => (
                         <tr key={pay.id} className="border-b border-slate-100/50">
-                          <td className="py-2 px-3 text-slate-700">{pay.notes || 'Malipo ya Deni'}</td>
+                          <td className="py-2 px-3">{pay.notes || 'Malipo ya Deni'}</td>
                           <td className="py-2 px-3 font-mono text-slate-400">{pay.date}</td>
-                          <td className="py-2 px-3 text-slate-600 font-bold">{pay.paymentMethod}</td>
+                          <td className="py-2 px-3 font-bold">{pay.paymentMethod}</td>
                           <td className="py-2 px-3 text-right font-bold text-success">TSh {pay.amount.toLocaleString()}</td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={4} className="py-4 text-center text-slate-400">Hakuna malipo yoyote yaliyorekodiwa bado.</td>
+                        <td colSpan={4} className="py-4 text-center text-slate-400">Hakuna malipo bado.</td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
 
-              {/* Signatures */}
               <div className="pt-12 grid grid-cols-2 gap-12 text-xs">
                 <div className="border-t border-slate-200 pt-3 text-center">
-                  <p className="font-bold text-slate-800">Mhasibu / Sahihi ya Mmiliki</p>
+                  <p className="font-bold text-slate-800">Sahihi ya Mmiliki</p>
                   <p className="text-slate-400 mt-1">{settings.businessName}</p>
                 </div>
                 <div className="border-t border-slate-200 pt-3 text-center">
-                  <p className="font-bold text-slate-800">Sahihi ya Mteja (Customer Signature)</p>
+                  <p className="font-bold text-slate-800">Sahihi ya Mteja</p>
                   <p className="text-slate-400 mt-1">{activeCustomer.fullName}</p>
                 </div>
               </div>
-
             </div>
           </div>
         </div>
       )}
-
     </div>
   );
 }
