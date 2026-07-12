@@ -223,8 +223,8 @@ export const onRequest = async (context: any) => {
       console.log('Creating supplier:', data);
       
       await context.env.DB.prepare(
-        `INSERT INTO suppliers (id, name, phone_number, amount, paid_amount, due_date, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        `INSERT INTO suppliers (id, name, phone_number, amount, paid_amount, due_date, product_type, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
       ).bind(
         data.id || `sup-${Date.now()}`,
         data.name,
@@ -232,6 +232,7 @@ export const onRequest = async (context: any) => {
         data.amount || 0,
         data.paidAmount || 0,
         data.dueDate,
+        data.productType || '',
         data.notes || ''
       ).run();
       
@@ -244,8 +245,17 @@ export const onRequest = async (context: any) => {
       const data = await context.request.json();
       
       await context.env.DB.prepare(
-        `UPDATE suppliers SET name = ?, phone_number = ?, amount = ?, paid_amount = ?, due_date = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`
-      ).bind(data.name, data.phoneNumber, data.amount, data.paidAmount || 0, data.dueDate, data.notes || '', id).run();
+        `UPDATE suppliers SET name = ?, phone_number = ?, amount = ?, paid_amount = ?, due_date = ?, product_type = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`
+      ).bind(
+        data.name, 
+        data.phoneNumber, 
+        data.amount, 
+        data.paidAmount || 0, 
+        data.dueDate, 
+        data.productType || '', 
+        data.notes || '', 
+        id
+      ).run();
       
       return new Response(JSON.stringify({ success: true }), { headers });
     }
