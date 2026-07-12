@@ -5,12 +5,12 @@
 
 import React, { useState, useMemo } from 'react';
 import { Supplier } from '../types';
-import { LocalDatabase } from '../db';
+import { api } from '../services/api';
 import FormAIOCR from './FormAIOCR';
 import { 
   Users, Plus, Phone, Calendar, Clipboard, 
   Trash2, CreditCard, ChevronRight, Check, X, AlertCircle, Edit2,
-  ArrowLeft, History, Printer, Building
+  ArrowLeft, History, Printer, Building, Loader2
 } from 'lucide-react';
 
 interface SupplierManagementProps {
@@ -22,6 +22,10 @@ export default function SupplierManagement({
   suppliers,
   onUpdate
 }: SupplierManagementProps) {
+  // Loading state
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
@@ -120,143 +124,134 @@ export default function SupplierManagement({
     };
   }, [suppliers]);
 
-  // Handlers
-  const handleAddSupplier = (e: React.FormEvent) => {
+  // ============================================
+  // API HANDLERS
+  // ============================================
+
+  const handleAddSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !phoneNumber || !amount || !dueDate) return;
 
-    const currentSuppliers = LocalDatabase.getSuppliers();
-    const newSup: Supplier = {
-      id: 'sup-' + Date.now(),
-      name,
-      phoneNumber,
-      amount: Number(amount),
-      paidAmount: 0,
-      dueDate,
-      notes,
-      createdAt: new Date().toISOString().split('T')[0]
-    };
-
-    currentSuppliers.push(newSup);
-    LocalDatabase.saveSuppliers(currentSuppliers);
-    LocalDatabase.logTransaction('Supplier Created', `Registered supplier/creditor: ${name}`, Number(amount));
-    
-    onUpdate();
-    setIsAddModalOpen(false);
-    resetForm();
+    setIsLoading(true);
+    setError(null);
+    try {
+      await api.suppliers.create({
+        id: 'sup-' + Date.now(),
+        name,
+        phoneNumber,
+        amount: Number(amount),
+        paidAmount: 0,
+        dueDate,
+        notes,
+        createdAt: new Date().toISOString().split('T')[0]
+      });
+      
+      onUpdate();
+      setIsAddModalOpen(false);
+      resetForm();
+    } catch (err: any) {
+      setError('Imeshindwa kumsajili msambazaji: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleEditSupplier = (e: React.FormEvent) => {
+  const handleEditSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSupplier || !name || !phoneNumber || !amount || !dueDate) return;
 
-    const currentSuppliers = LocalDatabase.getSuppliers();
-    const updated = currentSuppliers.map(s => {
-      if (s.id === selectedSupplier.id) {
-        return {
-          ...s,
-          name,
-          phoneNumber,
-          amount: Number(amount),
-          dueDate,
-          notes
-        };
-      }
-      return s;
-    });
-
-    LocalDatabase.saveSuppliers(updated);
-    LocalDatabase.logTransaction('Supplier Updated', `Updated details of supplier: ${name}`, Number(amount));
-    onUpdate();
-    setIsEditModalOpen(false);
-    setSelectedSupplier(null);
+    setIsLoading(true);
+    setError(null);
+    try {
+      await api.suppliers.update(selectedSupplier.id, {
+        name,
+        phoneNumber,
+        amount: Number(amount),
+        paidAmount: selectedSupplier.paidAmount,
+        dueDate,
+        notes
+      });
+      
+      onUpdate();
+      setIsEditModalOpen(false);
+      setSelectedSupplier(null);
+    } catch (err: any) {
+      setError('Imeshindwa kuhariri msambazaji: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handlePaySupplier = (e: React.FormEvent) => {
+  const handlePaySupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSupplier || !payAmount) return;
 
-    const currentSuppliers = LocalDatabase.getSuppliers();
-    const updated = currentSuppliers.map(s => {
-      if (s.id === selectedSupplier.id) {
-        const paymentsList = s.payments || [];
-        const newPayment = {
-          id: 'pay-' + Date.now(),
-          amount: Number(payAmount),
-          date: new Date().toISOString().split('T')[0],
-          notes: payNotes || 'Malipo ya deni la msambazaji',
-          createdAt: new Date().toISOString()
-        };
-        const updatedPayments = [...paymentsList, newPayment];
-        const newPaid = s.paidAmount + Number(payAmount);
-        return {
-          ...s,
-          paidAmount: Math.min(s.amount, newPaid),
-          payments: updatedPayments
-        };
-      }
-      return s;
-    });
-
-    LocalDatabase.saveSuppliers(updated);
-    LocalDatabase.logTransaction('Supplier Paid', `Paid supplier ${selectedSupplier.name} amount TSh ${Number(payAmount).toLocaleString()}`, Number(payAmount));
-    
-    onUpdate();
-    setIsPayModalOpen(false);
-    setPayAmount('');
-    setPayNotes('');
-    setSelectedSupplier(null);
+    setIsLoading(true);
+    setError(null);
+    try {
+      await api.supplierPayments.create({
+        id: 'spay-' + Date.now(),
+        supplierId: selectedSupplier.id,
+        amount: Number(payAmount),
+        date: new Date().toISOString().split('T')[0],
+        notes: payNotes || 'Malipo ya deni la msambazaji'
+      });
+      
+      onUpdate();
+      setIsPayModalOpen(false);
+      setPayAmount('');
+      setPayNotes('');
+      setSelectedSupplier(null);
+    } catch (err: any) {
+      setError('Imeshindwa kurekodi malipo: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleCreateSupplierProduct = (e: React.FormEvent) => {
+  const handleCreateSupplierProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeSupplier || !newProductDesc || !newProductAmount || !newProductDueDate) return;
 
-    const currentSuppliers = LocalDatabase.getSuppliers();
-    const updated = currentSuppliers.map(s => {
-      if (s.id === activeSupplier.id) {
-        const productsList = s.products || [];
-        const newProduct = {
-          id: 'prod-' + Date.now(),
-          description: newProductDesc,
-          amount: Number(newProductAmount),
-          dueDate: newProductDueDate,
-          notes: newProductNotes,
-          createdAt: new Date().toISOString().split('T')[0]
-        };
-        const updatedProducts = [...productsList, newProduct];
-        const totalAmount = s.amount + Number(newProductAmount);
-        return {
-          ...s,
-          amount: totalAmount,
-          dueDate: newProductDueDate, // update to latest due date
-          products: updatedProducts
-        };
-      }
-      return s;
-    });
-
-    LocalDatabase.saveSuppliers(updated);
-    LocalDatabase.logTransaction('Supplier Updated', `Ongeza mzigo mpya kutoka kwa ${activeSupplier.name}: ${newProductDesc}`, Number(newProductAmount));
-    onUpdate();
-    setIsAddProductModalOpen(false);
-    
-    // Clear product form states
-    setNewProductDesc('');
-    setNewProductAmount('');
-    setNewProductDueDate('');
-    setNewProductNotes('');
+    setIsLoading(true);
+    setError(null);
+    try {
+      await api.supplierProducts.create({
+        id: 'prod-' + Date.now(),
+        supplierId: activeSupplier.id,
+        description: newProductDesc,
+        amount: Number(newProductAmount),
+        dueDate: newProductDueDate,
+        notes: newProductNotes
+      });
+      
+      onUpdate();
+      setIsAddProductModalOpen(false);
+      
+      setNewProductDesc('');
+      setNewProductAmount('');
+      setNewProductDueDate('');
+      setNewProductNotes('');
+    } catch (err: any) {
+      setError('Imeshindwa kuongeza mzigo: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleDeleteSupplier = (id: string, sName: string) => {
-    if (!confirm(`Je, una uhakika unataka kumfuta mkopeshaji/muuzaji huyu: ${sName}?`)) return;
+  const handleDeleteSupplier = async (id: string, sName: string) => {
+    if (!confirm(`Je, una uhakika unataka kumfuta ${sName}?`)) return;
 
-    const currentSuppliers = LocalDatabase.getSuppliers();
-    const filtered = currentSuppliers.filter(s => s.id !== id);
-    LocalDatabase.saveSuppliers(filtered);
-    LocalDatabase.logTransaction('Supplier Updated', `Deleted supplier/creditor: ${sName}`);
-    
-    onUpdate();
+    setIsLoading(true);
+    try {
+      await api.suppliers.delete(id);
+      onUpdate();
+      if (selectedSupplierId === id) setSelectedSupplierId('');
+    } catch (err: any) {
+      alert('Imeshindwa kumfuta: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const resetForm = () => {
@@ -282,14 +277,31 @@ export default function SupplierManagement({
     setIsPayModalOpen(true);
   };
 
-  // Fetch settings dynamically
+  // Fetch settings (mock for now - will come from API sync)
   const settings = useMemo(() => {
-    return LocalDatabase.getSettings();
-  }, [suppliers]);
+    return {
+      businessName: 'Sonko Sound',
+      businessAddress: 'Dar es Salaam, Tanzania',
+      businessPhone: '255XXXXXXXXX'
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
       
+      {/* Error Banner */}
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-center justify-between gap-3 animate-fade-in">
+          <div className="flex items-center gap-2 text-rose-700 text-xs">
+            <AlertCircle size={16} />
+            <span>{error}</span>
+          </div>
+          <button onClick={() => setError(null)} className="text-rose-500 hover:text-rose-700">
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {activeSupplier && activeSupplierStats ? (
         /* SUPPLIER PROFILE FULL PAGE VIEW */
         <div className="space-y-6 text-xs text-left animate-fade-in">
@@ -321,10 +333,19 @@ export default function SupplierManagement({
               <div className="flex items-center gap-2 self-start sm:self-center">
                 <button 
                   onClick={() => openEditModal(activeSupplier)}
-                  className="py-2.5 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors flex items-center gap-1.5 font-bold"
+                  disabled={isLoading}
+                  className="py-2.5 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors flex items-center gap-1.5 font-bold disabled:opacity-50"
                   title="Hariri Maelezo"
                 >
                   <Edit2 size={14} /> Hariri Maelezo (Edit)
+                </button>
+                <button 
+                  onClick={() => handleDeleteSupplier(activeSupplier.id, activeSupplier.name)}
+                  disabled={isLoading}
+                  className="py-2.5 px-4 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition-colors flex items-center gap-1.5 font-bold disabled:opacity-50"
+                  title="Futa"
+                >
+                  <Trash2 size={14} /> Futa
                 </button>
                 <button 
                   onClick={() => setSelectedSupplierId('')}
@@ -376,14 +397,16 @@ export default function SupplierManagement({
               <div className="pt-4 flex flex-wrap gap-2">
                 <button 
                   onClick={() => setIsAddProductModalOpen(true)}
-                  className="bg-accent hover:bg-accent/90 text-white font-bold py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition"
+                  disabled={isLoading}
+                  className="bg-accent hover:bg-accent/90 text-white font-bold py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
                 >
                   <Plus size={14} /> Deni Jipya / Ongeza Mzigo
                 </button>
                 {activeSupplierStats.remainingOwed > 0 && (
                   <button 
                     onClick={() => { setSelectedSupplier(activeSupplier); setIsPayModalOpen(true); }}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition"
+                    disabled={isLoading}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
                   >
                     <CreditCard size={14} /> Lipa Deni (Record Payment)
                   </button>
@@ -480,7 +503,7 @@ export default function SupplierManagement({
             </div>
 
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Baki ya Kulipa (Outstanding I Owe)</span>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Baki ya Kulipa (Outstanding)</span>
               <h3 className="text-2xl font-black text-rose-600 mt-2">TSh {stats.remainingOwed.toLocaleString()}</h3>
               <p className="text-[10px] text-rose-500 mt-1">Madeni yaliyosalia kulipwa</p>
             </div>
@@ -490,17 +513,26 @@ export default function SupplierManagement({
           {/* Header and Add button */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-5 rounded-3xl border border-slate-100 shadow-sm gap-4">
             <div>
-              <h2 className="text-md font-bold text-slate-850">Suppliers (Watu Wanao nidai)</h2>
+              <h2 className="text-md font-bold text-slate-850">Suppliers (Wauzaji)</h2>
               <p className="text-xs text-slate-400 mt-1">Dhibiti wauzaji wa huduma au watu uliokopa fedha kwa ajili ya kuendesha biashara yako.</p>
             </div>
 
             <button 
               onClick={() => { resetForm(); setIsAddModalOpen(true); }}
-              className="bg-accent hover:bg-accent/90 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition"
+              disabled={isLoading}
+              className="bg-accent hover:bg-accent/90 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
             >
               <Plus size={15} /> Sajili msambazaji Mpya
             </button>
           </div>
+
+          {/* Loading indicator */}
+          {isLoading && (
+            <div className="flex items-center justify-center gap-2 text-xs text-slate-400 py-2">
+              <Loader2 size={14} className="animate-spin" />
+              <span>Inasasisha data...</span>
+            </div>
+          )}
 
           {/* Creditors List */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -556,7 +588,8 @@ export default function SupplierManagement({
                         {rem > 0 && (
                           <button
                             onClick={() => openPayModal(sup)}
-                            className="bg-accent/10 hover:bg-accent/20 text-accent p-2 rounded-xl transition"
+                            disabled={isLoading}
+                            className="bg-accent/10 hover:bg-accent/20 text-accent p-2 rounded-xl transition disabled:opacity-50"
                             title="Lipa deni"
                           >
                             <CreditCard size={13} />
@@ -564,14 +597,16 @@ export default function SupplierManagement({
                         )}
                         <button
                           onClick={() => openEditModal(sup)}
-                          className="text-slate-400 hover:text-slate-600 p-2 rounded-xl hover:bg-slate-50 transition"
+                          disabled={isLoading}
+                          className="text-slate-400 hover:text-slate-600 p-2 rounded-xl hover:bg-slate-50 transition disabled:opacity-50"
                           title="Hariri"
                         >
                           <Edit2 size={13} />
                         </button>
                         <button
                           onClick={() => handleDeleteSupplier(sup.id, sup.name)}
-                          className="text-rose-500 hover:text-rose-600 p-2 rounded-xl hover:bg-rose-50 transition"
+                          disabled={isLoading}
+                          className="text-rose-500 hover:text-rose-600 p-2 rounded-xl hover:bg-rose-50 transition disabled:opacity-50"
                           title="Futa"
                         >
                           <Trash2 size={13} />
@@ -585,7 +620,7 @@ export default function SupplierManagement({
             ) : (
               <div className="col-span-full bg-white p-12 text-center rounded-3xl border border-slate-100 shadow-sm text-slate-400">
                 <Users size={40} className="mx-auto text-slate-300 mb-3" />
-                <p className="text-sm font-semibold">Hakuna mikopo au wauzaji uliowaandika bado.</p>
+                <p className="text-sm font-semibold">Hakuna wauzaji uliowaandika bado.</p>
                 <p className="text-xs mt-1">Bonyeza "Sajili msambazaji Mpya" kuanza.</p>
               </div>
             )}
@@ -680,15 +715,24 @@ export default function SupplierManagement({
                 <button 
                   type="button" 
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition"
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
                 >
                   Ghairi
                 </button>
                 <button 
-                  type="submit" 
-                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition"
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
                 >
-                  Hifadhi
+                  {isLoading ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Inasajili...
+                    </>
+                  ) : (
+                    'Hifadhi'
+                  )}
                 </button>
               </div>
             </form>
@@ -707,7 +751,7 @@ export default function SupplierManagement({
               <X size={18} />
             </button>
             
-            <h3 className="text-md font-bold text-slate-850">Hariri Maelezo ya Mkopeshaji</h3>
+            <h3 className="text-md font-bold text-slate-850">Hariri Maelezo ya Msambazaji</h3>
             
             <form onSubmit={handleEditSupplier} className="space-y-4 text-xs text-left">
               <div>
@@ -768,15 +812,24 @@ export default function SupplierManagement({
                 <button 
                   type="button" 
                   onClick={() => { setIsEditModalOpen(false); setSelectedSupplier(null); }}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition"
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
                 >
                   Ghairi
                 </button>
                 <button 
-                  type="submit" 
-                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition"
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
                 >
-                  Hifadhi Mabadiliko
+                  {isLoading ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Inahifadhi...
+                    </>
+                  ) : (
+                    'Hifadhi Mabadiliko'
+                  )}
                 </button>
               </div>
             </form>
@@ -795,8 +848,10 @@ export default function SupplierManagement({
               <X size={18} />
             </button>
             
-            <h3 className="text-md font-bold text-slate-850">Rekodi Malipo ya Mkopeshaji</h3>
-            <p className="text-xs text-slate-400">Lipa {selectedSupplier.name}. Salio la deni lililobaki: TSh {(selectedSupplier.amount - selectedSupplier.paidAmount).toLocaleString()}</p>
+            <h3 className="text-md font-bold text-slate-850">Rekodi Malipo ya Msambazaji</h3>
+            <p className="text-xs text-slate-400">
+              Lipa {selectedSupplier.name}. Salio la deni lililobaki: TSh {(selectedSupplier.amount - selectedSupplier.paidAmount).toLocaleString()}
+            </p>
             
             <form onSubmit={handlePaySupplier} className="space-y-4 text-xs text-left">
               <div>
@@ -807,7 +862,7 @@ export default function SupplierManagement({
                   value={payAmount} 
                   onChange={(e) => setPayAmount(e.target.value)}
                   placeholder="Mfano: 50000"
-                  className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent" 
+                  className="w-full p-2.5 border border-slate-200 rounded-xl" 
                 />
               </div>
 
@@ -818,7 +873,7 @@ export default function SupplierManagement({
                   value={payNotes} 
                   onChange={(e) => setPayNotes(e.target.value)}
                   placeholder="Mfano: Malipo ya m-pesa au pesa taslimu"
-                  className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent" 
+                  className="w-full p-2.5 border border-slate-200 rounded-xl" 
                 />
               </div>
 
@@ -826,15 +881,24 @@ export default function SupplierManagement({
                 <button 
                   type="button" 
                   onClick={() => { setIsPayModalOpen(false); setSelectedSupplier(null); }}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition"
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
                 >
                   Ghairi
                 </button>
                 <button 
-                  type="submit" 
-                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition"
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
                 >
-                  Hifadhi Malipo
+                  {isLoading ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Inarekodi...
+                    </>
+                  ) : (
+                    'Hifadhi Malipo'
+                  )}
                 </button>
               </div>
             </form>
@@ -916,15 +980,24 @@ export default function SupplierManagement({
                 <button 
                   type="button" 
                   onClick={() => setIsAddProductModalOpen(false)}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition"
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
                 >
                   Ghairi
                 </button>
                 <button 
-                  type="submit" 
-                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition"
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
                 >
-                  Hifadhi Mzigo
+                  {isLoading ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Inahifadhi...
+                    </>
+                  ) : (
+                    'Hifadhi Mzigo'
+                  )}
                 </button>
               </div>
             </form>
@@ -932,12 +1005,11 @@ export default function SupplierManagement({
         </div>
       )}
 
-      {/* MODAL 5: Supplier statement print block */}
+      {/* MODAL 5: Statement */}
       {isStatementOpen && activeSupplier && activeSupplierStats && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-3xl w-full p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in" id="printable-statement-container">
             
-            {/* Control buttons */}
             <div className="absolute top-6 right-6 flex items-center gap-2 print:hidden">
               <button 
                 onClick={() => window.print()}
@@ -953,110 +1025,101 @@ export default function SupplierManagement({
               </button>
             </div>
 
-            {/* Printable Area */}
             <div className="space-y-6 pt-4 text-slate-700">
-              
-              {/* Invoice Header */}
               <div className="flex justify-between items-start border-b border-slate-200 pb-6">
                 <div>
-                  <h2 className="text-xl font-extrabold text-slate-800 uppercase tracking-tight flex items-center gap-1.5 font-bold">
+                  <h2 className="text-xl font-extrabold text-slate-800 uppercase tracking-tight">
                     {settings.businessName}
                   </h2>
-                  <p className="text-xs text-slate-500 mt-1 font-bold">Anuani: {settings.businessAddress}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">Simu ya Biashara: {settings.businessPhone}</p>
+                  <p className="text-xs text-slate-500 mt-1">Anuani: {settings.businessAddress}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Simu: {settings.businessPhone}</p>
                 </div>
                 <div className="text-right">
                   <span className="inline-block text-[10px] uppercase tracking-wider font-extrabold px-3 py-1 bg-slate-100 text-slate-600 rounded-full">
-                    Taarifa ya Hesabu ya Msambazaji
+                    Taarifa ya Msambazaji
                   </span>
                   <p className="text-[11px] text-slate-400 mt-2">Muda: {new Date().toLocaleDateString('sw-TZ')}</p>
                 </div>
               </div>
 
-              {/* Supplier Details in Statement */}
               <div className="grid grid-cols-2 gap-8 py-4 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
                 <div>
-                  <h4 className="text-[10px] font-bold text-slate-400 uppercase">MSAMBAZAJI / MKOPESHAJI:</h4>
-                  <h3 className="text-sm font-bold text-slate-800 mt-1 font-bold">{activeSupplier.name}</h3>
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase">MSAMBAZAJI:</h4>
+                  <h3 className="text-sm font-bold text-slate-800 mt-1">{activeSupplier.name}</h3>
                   <p className="text-xs text-slate-500 mt-0.5">Simu: {activeSupplier.phoneNumber}</p>
                 </div>
                 <div className="text-right">
-                  <h4 className="text-[10px] font-bold text-slate-400 uppercase">SALIO TUNALODAIWA (TSh):</h4>
-                  <h3 className="text-lg font-black text-rose-600 mt-1 font-bold">TSh {activeSupplierStats.remainingOwed.toLocaleString()}</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Asilimia Lipwa: {Math.round(activeSupplierStats.percentagePaid)}%</p>
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase">SALIO (TSh):</h4>
+                  <h3 className="text-lg font-black text-rose-600 mt-1">TSh {activeSupplierStats.remainingOwed.toLocaleString()}</h3>
                 </div>
               </div>
 
-              {/* Products list inside Statement */}
               <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-1.5 uppercase tracking-wide">
-                  Historia ya Bidhaa na Mizigo (Supply History)
+                <h4 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-1.5 uppercase">
+                  Historia ya Bidhaa
                 </h4>
                 <table className="w-full text-left text-xs text-slate-600">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 font-bold">
-                      <th className="py-2.5 px-3 rounded-l-lg">Bidhaa / Maelezo</th>
-                      <th className="py-2.5 px-3">Tarehe ya Kupokea</th>
-                      <th className="py-2.5 px-3">Ukomo (Due Date)</th>
+                      <th className="py-2.5 px-3 rounded-l-lg">Bidhaa</th>
+                      <th className="py-2.5 px-3">Tarehe</th>
+                      <th className="py-2.5 px-3">Ukomo</th>
                       <th className="py-2.5 px-3 text-right rounded-r-lg">Gharama (TSh)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {activeSupplierProducts.map(prod => (
                       <tr key={prod.id} className="border-b border-slate-100/50">
-                        <td className="py-2 px-3 font-semibold text-slate-800 font-bold">{prod.description}</td>
+                        <td className="py-2 px-3 font-semibold">{prod.description}</td>
                         <td className="py-2 px-3 font-mono text-slate-400">{prod.createdAt}</td>
                         <td className="py-2 px-3 font-mono text-slate-400">{prod.dueDate}</td>
-                        <td className="py-2 px-3 text-right font-bold text-slate-800 font-bold">TSh {prod.amount.toLocaleString()}</td>
+                        <td className="py-2 px-3 text-right font-bold">TSh {prod.amount.toLocaleString()}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              {/* Payment list inside Statement */}
               <div className="space-y-2 pt-2">
-                <h4 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-1.5 uppercase tracking-wide">
-                  Historia ya Malipo Yaliyofanywa (Payment History)
+                <h4 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-1.5 uppercase">
+                  Historia ya Malipo
                 </h4>
                 <table className="w-full text-left text-xs text-slate-600">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 font-bold">
-                      <th className="py-2.5 px-3 rounded-l-lg">Maelezo ya Malipo</th>
-                      <th className="py-2.5 px-3">Tarehe Iliyolipwa</th>
-                      <th className="py-2.5 px-3 text-right rounded-r-lg font-bold">Kiasi Kilicholipwa (TSh)</th>
+                      <th className="py-2.5 px-3 rounded-l-lg">Maelezo</th>
+                      <th className="py-2.5 px-3">Tarehe</th>
+                      <th className="py-2.5 px-3 text-right rounded-r-lg">Kiasi (TSh)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {activeSupplierPayments.length > 0 ? (
                       activeSupplierPayments.map(pay => (
                         <tr key={pay.id} className="border-b border-slate-100/50">
-                          <td className="py-2 px-3 text-slate-700">{pay.notes || 'Malipo ya Deni'}</td>
+                          <td className="py-2 px-3">{pay.notes || 'Malipo ya Deni'}</td>
                           <td className="py-2 px-3 font-mono text-slate-400">{pay.date}</td>
-                          <td className="py-2 px-3 text-right font-bold text-success font-bold">TSh {pay.amount.toLocaleString()}</td>
+                          <td className="py-2 px-3 text-right font-bold text-success">TSh {pay.amount.toLocaleString()}</td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={3} className="py-4 text-center text-slate-400">Hakuna malipo yoyote yaliyofanyika bado.</td>
+                        <td colSpan={3} className="py-4 text-center text-slate-400">Hakuna malipo bado.</td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
 
-              {/* Signatures */}
               <div className="pt-12 grid grid-cols-2 gap-12 text-xs">
                 <div className="border-t border-slate-200 pt-3 text-center">
-                  <p className="font-bold text-slate-800">Sahihi ya Msambazaji / Mkopeshaji</p>
+                  <p className="font-bold text-slate-800">Sahihi ya Msambazaji</p>
                   <p className="text-slate-400 mt-1">{activeSupplier.name}</p>
                 </div>
                 <div className="border-t border-slate-200 pt-3 text-center">
-                  <p className="font-bold text-slate-800">Sahihi ya Mpokeaji / Mmiliki</p>
+                  <p className="font-bold text-slate-800">Sahihi ya Mpokeaji</p>
                   <p className="text-slate-400 mt-1">{settings.businessName}</p>
                 </div>
               </div>
-
             </div>
           </div>
         </div>
