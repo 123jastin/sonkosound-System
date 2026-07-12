@@ -12,7 +12,7 @@ export interface Customer {
   address: string;
   businessName?: string;
   notes: string;
-  photoUrl?: string; // Optional avatar placeholder / local data URL
+  photoUrl?: string;
   createdAt: string;
 }
 
@@ -22,9 +22,9 @@ export type DebtStatus = 'Active' | 'Due Today' | 'Due Soon' | 'Overdue' | 'Paid
 export interface Debt {
   id: string;
   customerId: string;
-  amount: number; // in TSh
-  dateBorrowed: string; // YYYY-MM-DD
-  dueDate: string; // YYYY-MM-DD
+  amount: number;
+  dateBorrowed: string;
+  dueDate: string;
   description: string;
   category: DebtCategory;
   notes: string;
@@ -37,8 +37,8 @@ export type PaymentMethod = 'M-Pesa' | 'Tigo Pesa' | 'Airtel Money' | 'HaloPesa'
 export interface Payment {
   id: string;
   debtId: string;
-  amount: number; // in TSh
-  date: string; // YYYY-MM-DD
+  amount: number;
+  date: string;
   paymentMethod: PaymentMethod;
   notes: string;
   createdAt: string;
@@ -65,9 +65,10 @@ export interface Supplier {
   id: string;
   name: string;
   phoneNumber: string;
-  amount: number; // sum of all product amounts
-  paidAmount: number; // sum of all supplier payments
-  dueDate: string; // YYYY-MM-DD (latest or initial due date)
+  amount: number;
+  paidAmount: number;
+  dueDate: string;
+  productType?: string;  // ADDED: Product type like "Mizigo/Products", "Huduma", "Mkopo"
   notes: string;
   createdAt: string;
   products?: SupplierProduct[];
@@ -89,7 +90,6 @@ export interface NotificationItem {
   type: NotificationType;
   message: string;
   date: string;
-  read: boolean;
   customerId?: string;
   debtId?: string;
 }
@@ -116,16 +116,6 @@ export interface TransactionRecord {
 
 export interface BusinessSettings {
   businessName: string;
-  businessLogoUrl: string; // Data URL or icon identifier
-  businessPhone: string;
   businessAddress: string;
-  defaultReminderDays: number; // days before due date to alert
-  darkMode: boolean;
-}
-
-export interface UserSession {
-  isAuthenticated: boolean;
-  businessName: string;
-  username: string;
-  lastActive: string;
+  businessPhone: string;
 }
