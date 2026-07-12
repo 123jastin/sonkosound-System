@@ -47,6 +47,7 @@ export default function SupplierManagement({
   const [amount, setAmount] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
+  const [productType, setProductType] = useState('');
 
   // Form states - Pay supplier
   const [payAmount, setPayAmount] = useState('');
@@ -82,7 +83,7 @@ export default function SupplierManagement({
     // Fallback virtual product
     return [{
       id: 'initial-' + activeSupplier.id,
-      description: activeSupplier.notes || 'Mzigo / Bidhaa za Kwanza (Initial Order)',
+      description: activeSupplier.productType || activeSupplier.notes || 'Mzigo / Bidhaa za Kwanza (Initial Order)',
       amount: activeSupplier.amount,
       dueDate: activeSupplier.dueDate,
       notes: activeSupplier.notes,
@@ -131,7 +132,7 @@ export default function SupplierManagement({
 
   const handleAddSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !phoneNumber || !amount || !dueDate) return;
+    if (!name || !phoneNumber || !amount || !dueDate || !productType) return;
 
     setIsLoading(true);
     setError(null);
@@ -143,7 +144,8 @@ export default function SupplierManagement({
         amount: Number(amount),
         paidAmount: 0,
         dueDate,
-        notes,
+        productType,
+        notes: notes || productType,
         createdAt: new Date().toISOString().split('T')[0]
       });
       
@@ -170,6 +172,7 @@ export default function SupplierManagement({
         amount: Number(amount),
         paidAmount: selectedSupplier.paidAmount,
         dueDate,
+        productType,
         notes
       });
       
@@ -273,6 +276,7 @@ export default function SupplierManagement({
     setAmount('');
     setDueDate('');
     setNotes('');
+    setProductType('');
   };
 
   const openEditModal = (sup: Supplier) => {
@@ -282,6 +286,7 @@ export default function SupplierManagement({
     setAmount(sup.amount.toString());
     setDueDate(sup.dueDate);
     setNotes(sup.notes);
+    setProductType(sup.productType || '');
     setIsEditModalOpen(true);
   };
 
@@ -343,6 +348,11 @@ export default function SupplierManagement({
                   <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1 font-mono">
                     <Calendar size={12} /> Usajili: {activeSupplier.createdAt}
                   </p>
+                  {activeSupplier.productType && (
+                    <span className="inline-block mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-accent/10 text-accent">
+                      {activeSupplier.productType}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -591,6 +601,11 @@ export default function SupplierManagement({
                         <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
                           <Phone size={12} /> {sup.phoneNumber}
                         </p>
+                        {sup.productType && (
+                          <span className="inline-block mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-accent/10 text-accent">
+                            {sup.productType}
+                          </span>
+                        )}
                       </div>
                       <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
                         rem <= 0 ? 'bg-success/10 text-success' : 'bg-rose-100 text-rose-700'
@@ -666,7 +681,7 @@ export default function SupplierManagement({
         </>
       )}
 
-      {/* MODAL 1: Add Supplier */}
+      {/* MODAL 1: Add Supplier - WITH PRODUCT TYPE FIELD */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -684,34 +699,53 @@ export default function SupplierManagement({
                 if (data.deni) setAmount(data.deni.toString());
                 const combinedNotes = [data.maelezo_ya_bidhaa, data.notes].filter(Boolean).join('. ');
                 if (combinedNotes) setNotes(combinedNotes);
+                if (data.maelezo_ya_bidhaa) setProductType(data.maelezo_ya_bidhaa);
               }}
             />
             
             <form onSubmit={handleAddSupplier} className="space-y-4 text-xs text-left">
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina Kamili *</label>
-                <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Mfano: Ally Said" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Mfano: Ally Said" className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent focus:border-accent" />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Simu *</label>
-                  <input type="tel" required value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder="0715332211" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                  <input type="tel" required value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder="0715332211" className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent focus:border-accent" />
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kiasi Unachodaiwa *</label>
-                  <input type="number" required value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="TSh" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                  <input type="number" required value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="TSh" className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent focus:border-accent" />
                 </div>
+              </div>
+
+              {/* PRODUCT TYPE - Same as customer debt form */}
+              <div>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Bidhaa (Product Type) *</label>
+                <input
+                  type="text"
+                  required
+                  value={productType}
+                  onChange={(e) => setProductType(e.target.value)}
+                  placeholder="Mfano: Mizigo/Products, Huduma, Mkopo n.k."
+                  className="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:ring-accent focus:border-accent"
+                />
               </div>
 
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Ukomo wa Malipo *</label>
-                <input type="date" required value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                <input type="date" required value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent focus:border-accent" />
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Notes za Ziada</label>
-                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Maelezo mengineyo..." className="w-full p-2.5 border border-slate-200 rounded-xl h-20" />
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo ya Ziada (Optional)</label>
+                <textarea 
+                  value={notes} 
+                  onChange={(e) => setNotes(e.target.value)} 
+                  placeholder="Maelezo mengineyo ya bidhaa..." 
+                  className="w-full p-2.5 border border-slate-200 rounded-xl h-20 focus:ring-accent focus:border-accent" 
+                />
               </div>
 
               <div className="pt-2 flex justify-end gap-2">
@@ -727,7 +761,7 @@ export default function SupplierManagement({
         </div>
       )}
 
-      {/* MODAL 2: Edit Supplier */}
+      {/* MODAL 2: Edit Supplier - UPDATED WITH PRODUCT TYPE */}
       {isEditModalOpen && selectedSupplier && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -738,25 +772,39 @@ export default function SupplierManagement({
             <form onSubmit={handleEditSupplier} className="space-y-4 text-xs text-left">
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina Kamili *</label>
-                <input type="text" required value={name} onChange={(e) => setName(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                <input type="text" required value={name} onChange={(e) => setName(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent focus:border-accent" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Simu *</label>
-                  <input type="tel" required value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                  <input type="tel" required value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent focus:border-accent" />
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kiasi Kamili *</label>
-                  <input type="number" required value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                  <input type="number" required value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent focus:border-accent" />
                 </div>
               </div>
+              
+              {/* Product Type Field */}
+              <div>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Bidhaa (Product Type) *</label>
+                <input
+                  type="text"
+                  required
+                  value={productType}
+                  onChange={(e) => setProductType(e.target.value)}
+                  placeholder="Mfano: Mizigo/Products, Huduma, Mkopo n.k."
+                  className="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:ring-accent focus:border-accent"
+                />
+              </div>
+              
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Ukomo wa Malipo *</label>
-                <input type="date" required value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                <input type="date" required value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent focus:border-accent" />
               </div>
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Notes</label>
-                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl h-20" />
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo ya Ziada (Optional)</label>
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl h-20 focus:ring-accent focus:border-accent" />
               </div>
               <div className="pt-2 flex justify-end gap-2">
                 <button type="button" onClick={() => { setIsEditModalOpen(false); setSelectedSupplier(null); }} disabled={isLoading} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50">Ghairi</button>
@@ -881,7 +929,7 @@ export default function SupplierManagement({
                     >
                       TSh {amount >= 1000 ? `${(amount/1000).toFixed(0)}k` : amount.toLocaleString()}
                     </button>
-                  ));
+                  );
                 })()}
               </div>
 
@@ -965,21 +1013,21 @@ export default function SupplierManagement({
             <form onSubmit={handleCreateSupplierProduct} className="space-y-4 text-xs text-left">
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo ya Mzigo/Bidhaa *</label>
-                <input type="text" required value={newProductDesc} onChange={(e) => setNewProductDesc(e.target.value)} placeholder="Mfano: Fresh Groceries Supply" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                <input type="text" required value={newProductDesc} onChange={(e) => setNewProductDesc(e.target.value)} placeholder="Mfano: Fresh Groceries Supply" className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent focus:border-accent" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kiasi (TSh) *</label>
-                  <input type="number" required value={newProductAmount} onChange={(e) => setNewProductAmount(e.target.value)} placeholder="30000" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                  <input type="number" required value={newProductAmount} onChange={(e) => setNewProductAmount(e.target.value)} placeholder="30000" className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent focus:border-accent" />
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Ukomo *</label>
-                  <input type="date" required value={newProductDueDate} onChange={(e) => setNewProductDueDate(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                  <input type="date" required value={newProductDueDate} onChange={(e) => setNewProductDueDate(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent focus:border-accent" />
                 </div>
               </div>
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Notes</label>
-                <textarea value={newProductNotes} onChange={(e) => setNewProductNotes(e.target.value)} placeholder="Notes yoyote..." className="w-full p-2.5 border border-slate-200 rounded-xl h-20" />
+                <textarea value={newProductNotes} onChange={(e) => setNewProductNotes(e.target.value)} placeholder="Notes yoyote..." className="w-full p-2.5 border border-slate-200 rounded-xl h-20 focus:ring-accent focus:border-accent" />
               </div>
               <div className="pt-2 flex justify-end gap-2">
                 <button type="button" onClick={() => setIsAddProductModalOpen(false)} disabled={isLoading} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50">Ghairi</button>
@@ -1021,6 +1069,9 @@ export default function SupplierManagement({
                   <h4 className="text-[10px] font-bold text-slate-400 uppercase">MSAMBAZAJI:</h4>
                   <h3 className="text-sm font-bold text-slate-800 mt-1">{activeSupplier.name}</h3>
                   <p className="text-xs text-slate-500 mt-0.5">Simu: {activeSupplier.phoneNumber}</p>
+                  {activeSupplier.productType && (
+                    <p className="text-[10px] text-slate-500 mt-0.5">Bidhaa: {activeSupplier.productType}</p>
+                  )}
                 </div>
                 <div className="text-right">
                   <h4 className="text-[10px] font-bold text-slate-400 uppercase">SALIO (TSh):</h4>
