@@ -906,32 +906,35 @@ export default function SupplierManagement({
               </div>
 
               {/* Quick amount buttons */}
-              <div className="flex gap-2">
-                {(() => {
-                  const totalRemaining = selectedSupplier.amount - selectedSupplier.paidAmount;
-                  const amounts = [
-                    Math.min(10000, totalRemaining),
-                    Math.min(50000, totalRemaining),
-                    Math.min(100000, totalRemaining),
-                    totalRemaining
-                  ].filter((v, i, a) => v > 0 && a.indexOf(v) === i).slice(0, 4);
-                  
-                  return amounts.map(amount => (
-                    <button
-                      key={amount}
-                      type="button"
-                      onClick={() => setPayAmount(amount.toString())}
-                      className={`flex-1 py-2 px-2 rounded-xl text-[10px] font-bold border transition ${
-                        payAmount === amount.toString()
-                          ? 'bg-accent text-white border-accent'
-                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      TSh {amount >= 1000 ? `${(amount/1000).toFixed(0)}k` : amount.toLocaleString()}
-                    </button>
-                  );
-                })()}
-              </div>
+
+
+                <div className="flex gap-2">
+  {(() => {
+    const totalRemaining = selectedSupplier.amount - selectedSupplier.paidAmount;
+    const amounts = [
+      Math.min(10000, totalRemaining),
+      Math.min(50000, totalRemaining),
+      Math.min(100000, totalRemaining),
+      totalRemaining
+    ].filter((v, i, a) => v > 0 && a.indexOf(v) === i).slice(0, 4);
+    
+    return amounts.map(amount => (
+      <button
+        key={amount}
+        type="button"
+        onClick={() => setPayAmount(amount.toString())}
+        className={`flex-1 py-2 px-2 rounded-xl text-[10px] font-bold border transition ${
+          payAmount === amount.toString()
+            ? 'bg-accent text-white border-accent'
+            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+        }`}
+      >
+        TSh {amount >= 1000 ? `${(amount / 1000).toFixed(0)}k` : amount.toLocaleString()}
+      </button>
+    ));
+  })()}
+</div>
+              
 
               {/* Notes */}
               <div>
