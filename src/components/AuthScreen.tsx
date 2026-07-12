@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { LocalDatabase, hashPassword } from '../db';
-import { Lock, Eye, EyeOff, Shield, RefreshCw, KeyRound, Phone, MapPin, Building } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { api } from '../services/api';
+import { Lock, Eye, EyeOff, Shield, RefreshCw, KeyRound, Phone, MapPin, Building, Loader2 } from 'lucide-react';
 
 interface AuthScreenProps {
   onAuthenticated: () => void;
@@ -15,29 +15,67 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [pin, setPin] = useState('');
   const [showPin, setShowPin] = useState(false);
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [isForgotMode, setIsForgotMode] = useState(false);
   const [hintAnswer, setHintAnswer] = useState('');
   const [hintError, setHintError] = useState('');
   const [recoveredPin, setRecoveredPin] = useState('');
+  const [isRecovering, setIsRecovering] = useState(false);
   
-  const settings = LocalDatabase.getSettings();
+  // Business settings from API
+  const [settings, setSettings] = useState({
+    businessName: 'My Business',
+    businessAddress: '',
+    businessPhone: ''
+  });
+  const [settingsLoading, setSettingsLoading] = useState(true);
 
-  const handleLogin = (e: React.FormEvent) => {
+  // Fetch business settings on mount
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const fetchSettings = async () => {
+    try {
+      const data = await api.settings.get();
+      setSettings({
+        businessName: data.business_name || 'My Business',
+        businessAddress: data.business_address || '',
+        businessPhone: data.business_phone || ''
+      });
+    } catch (err) {
+      console.error('Failed to fetch settings:', err);
+      // Use defaults
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pin) {
       setError('Tafadhali weka PIN ya kuingia');
       return;
     }
 
-    const hashedInput = hashPassword(pin);
-    const storedHash = LocalDatabase.getPasswordHash();
+    setIsLoading(true);
+    setError('');
 
-    if (hashedInput === storedHash) {
-      setError('');
-      onAuthenticated();
-    } else {
-      setError('PIN si sahihi. Tafadhali jaribu tena.');
-      setPin('');
+    try {
+      const result = await api.auth.login(pin);
+      
+      if (result.success) {
+        setError('');
+        onAuthenticated();
+      } else {
+        setError('PIN si sahihi. Tafadhali jaribu tena.');
+        setPin('');
+      }
+    } catch (err: any) {
+      console.error('Login failed:', err);
+      setError('Imeshindwa kuunganisha kwenye seva. Jaribu tena.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -56,18 +94,36 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     setPin('');
   };
 
-  const handleRecovery = (e: React.FormEvent) => {
+  const handleRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Default security recovery is based on business details as verification
-    const cleanAnswer = hintAnswer.trim().toLowerCase();
-    const phone = settings.businessPhone.trim().toLowerCase();
-    
-    if (cleanAnswer === phone || cleanAnswer === 'kariakoo' || cleanAnswer === '1234') {
-      setHintError('');
-      setRecoveredPin('1234'); // Default reset to 1234 on recovery success
-      LocalDatabase.savePassword('1234');
-    } else {
-      setHintError('Nambari ya simu ya biashara haijalingana. Jaribu tena au weka "1234" kama jibu la dharura.');
+    if (!hintAnswer) {
+      setHintError('Tafadhali jaza jibu la swali la usalama.');
+      return;
+    }
+
+    setIsRecovering(true);
+    setHintError('');
+
+    try {
+      // Verify by comparing with stored business phone
+      const data = await api.settings.get();
+      const phone = (data.business_phone || '').trim().toLowerCase();
+      const answer = hintAnswer.trim().toLowerCase();
+      
+      if (answer === phone || answer === 'kariakoo' || answer === '1234') {
+        // Reset password to default '1234'
+        await api.settings.changePassword(answer === phone ? answer : '1234', '1234');
+        
+        setHintError('');
+        setRecoveredPin('1234');
+      } else {
+        setHintError('Nambari ya simu ya biashara haijalingana. Jaribu tena au weka "1234" kama jibu la dharura.');
+      }
+    } catch (err: any) {
+      console.error('Recovery failed:', err);
+      setHintError('Imeshindwa kurejesha PIN. Hakikisha umeunganishwa kwenye mtandao.');
+    } finally {
+      setIsRecovering(false);
     }
   };
 
@@ -76,11 +132,15 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
           <div className="h-16 w-16 rounded-2xl bg-accent flex items-center justify-center text-white shadow-lg shadow-accent/20">
-            <Shield size={32} />
+            {settingsLoading ? (
+              <Loader2 size={32} className="animate-spin" />
+            ) : (
+              <Shield size={32} />
+            )}
           </div>
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900 tracking-tight">
-          {settings.businessName}
+          {settingsLoading ? 'Inapakia...' : settings.businessName}
         </h2>
         <p className="mt-2 text-center text-sm text-slate-500">
           Usimamizi Salama wa Madeni na Wateja • Sonko Sound
@@ -106,10 +166,14 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                       id="pin-input"
                       type={showPin ? 'text' : 'password'}
                       value={pin}
-                      onChange={(e) => setPin(e.target.value)}
+                      onChange={(e) => {
+                        setPin(e.target.value);
+                        setError('');
+                      }}
                       placeholder="••••"
                       maxLength={8}
-                      className="block w-full rounded-xl border-slate-200 py-3 px-4 text-center text-2xl tracking-widest font-semibold focus:border-accent focus:ring-accent bg-slate-50 border"
+                      disabled={isLoading}
+                      className="block w-full rounded-xl border-slate-200 py-3 px-4 text-center text-2xl tracking-widest font-semibold focus:border-accent focus:ring-accent bg-slate-50 border disabled:opacity-50"
                     />
                     <button
                       type="button"
@@ -120,7 +184,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                     </button>
                   </div>
                   {error && (
-                    <p className="mt-2 text-center text-sm text-rose-500 font-medium" id="login-error-msg">
+                    <p className="mt-2 text-center text-sm text-rose-500 font-medium animate-fade-in" id="login-error-msg">
                       ⚠️ {error}
                     </p>
                   )}
@@ -133,7 +197,8 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                       key={num}
                       type="button"
                       onClick={() => handlePinPadClick(num)}
-                      className="h-14 rounded-2xl bg-slate-50 border border-slate-100 font-semibold text-lg text-slate-800 hover:bg-slate-100 active:bg-accent/10 active:text-accent transition duration-100 focus:outline-none flex items-center justify-center"
+                      disabled={isLoading}
+                      className="h-14 rounded-2xl bg-slate-50 border border-slate-100 font-semibold text-lg text-slate-800 hover:bg-slate-100 active:bg-accent/10 active:text-accent transition duration-100 focus:outline-none flex items-center justify-center disabled:opacity-50"
                     >
                       {num}
                     </button>
@@ -141,21 +206,24 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                   <button
                     type="button"
                     onClick={handleClear}
-                    className="h-14 rounded-2xl bg-rose-50 border border-rose-100 font-medium text-sm text-rose-700 hover:bg-rose-100 active:bg-rose-200 transition duration-100 focus:outline-none flex items-center justify-center"
+                    disabled={isLoading}
+                    className="h-14 rounded-2xl bg-rose-50 border border-rose-100 font-medium text-sm text-rose-700 hover:bg-rose-100 active:bg-rose-200 transition duration-100 focus:outline-none flex items-center justify-center disabled:opacity-50"
                   >
                     Futa
                   </button>
                   <button
                     type="button"
                     onClick={() => handlePinPadClick('0')}
-                    className="h-14 rounded-2xl bg-slate-50 border border-slate-100 font-semibold text-lg text-slate-800 hover:bg-slate-100 active:bg-accent/10 active:text-accent transition duration-100 focus:outline-none flex items-center justify-center"
+                    disabled={isLoading}
+                    className="h-14 rounded-2xl bg-slate-50 border border-slate-100 font-semibold text-lg text-slate-800 hover:bg-slate-100 active:bg-accent/10 active:text-accent transition duration-100 focus:outline-none flex items-center justify-center disabled:opacity-50"
                   >
                     0
                   </button>
                   <button
                     type="button"
                     onClick={handleBackspace}
-                    className="h-14 rounded-2xl bg-slate-100 font-medium text-sm text-slate-600 hover:bg-slate-200 transition duration-100 focus:outline-none flex items-center justify-center"
+                    disabled={isLoading}
+                    className="h-14 rounded-2xl bg-slate-100 font-medium text-sm text-slate-600 hover:bg-slate-200 transition duration-100 focus:outline-none flex items-center justify-center disabled:opacity-50"
                   >
                     ⌫
                   </button>
@@ -165,9 +233,17 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                   <button
                     type="submit"
                     id="submit-login-btn"
-                    className="w-full flex justify-center py-3 px-4 border border-transparent rounded-2xl shadow-sm text-sm font-semibold text-white bg-accent hover:bg-accent/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent transition-colors"
+                    disabled={isLoading}
+                    className="w-full flex justify-center py-3 px-4 border border-transparent rounded-2xl shadow-sm text-sm font-semibold text-white bg-accent hover:bg-accent/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Ingia Kwenye Mfumo
+                    {isLoading ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 size={16} className="animate-spin" />
+                        Inaingia...
+                      </span>
+                    ) : (
+                      'Ingia Kwenye Mfumo'
+                    )}
                   </button>
                 </div>
               </form>
@@ -175,12 +251,17 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               <div className="mt-6 flex items-center justify-between text-xs">
                 <button
                   type="button"
-                  onClick={() => setIsForgotMode(true)}
+                  onClick={() => {
+                    setIsForgotMode(true);
+                    setHintAnswer('');
+                    setHintError('');
+                    setRecoveredPin('');
+                  }}
                   className="text-accent hover:text-accent/90 font-medium"
                 >
                   Umesahau PIN? Recover
                 </button>
-                <span className="text-slate-400">Ledger v1.0.0</span>
+                <span className="text-slate-400">Ledger v2.0.0</span>
               </div>
             </div>
           ) : (
@@ -209,13 +290,17 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                         type="text"
                         required
                         value={hintAnswer}
-                        onChange={(e) => setHintAnswer(e.target.value)}
+                        onChange={(e) => {
+                          setHintAnswer(e.target.value);
+                          setHintError('');
+                        }}
+                        disabled={isRecovering}
                         placeholder="Mfano: 0700000000"
-                        className="block w-full pl-10 pr-3 py-2.5 rounded-xl text-sm border-0 focus:ring-accent"
+                        className="block w-full pl-10 pr-3 py-2.5 rounded-xl text-sm border-0 focus:ring-accent disabled:opacity-50"
                       />
                     </div>
                     {hintError && (
-                      <p className="mt-2 text-xs text-rose-500 font-medium">
+                      <p className="mt-2 text-xs text-rose-500 font-medium animate-fade-in">
                         ⚠️ {hintError}
                       </p>
                     )}
@@ -224,9 +309,17 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                   <div className="pt-2">
                     <button
                       type="submit"
-                      className="w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-white bg-accent hover:bg-accent/90 transition"
+                      disabled={isRecovering}
+                      className="w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-white bg-accent hover:bg-accent/90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
-                      Kagua na Weka upya PIN
+                      {isRecovering ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Inakagua...
+                        </>
+                      ) : (
+                        'Kagua na Weka upya PIN'
+                      )}
                     </button>
                   </div>
                   <button
@@ -236,21 +329,27 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                       setHintAnswer('');
                       setHintError('');
                     }}
-                    className="w-full text-center text-xs text-slate-500 hover:text-slate-700 pt-2 font-medium"
+                    disabled={isRecovering}
+                    className="w-full text-center text-xs text-slate-500 hover:text-slate-700 pt-2 font-medium disabled:opacity-50"
                   >
                     Rudi kwenye Login
                   </button>
                 </form>
               ) : (
-                <div className="text-center space-y-4">
-                  <p className="text-sm text-slate-600">
-                    PIN yako imewekwa upya kuwa ya msingi kwa usalama.
+                <div className="text-center space-y-4 animate-fade-in">
+                  <div className="flex items-center justify-center">
+                    <span className="inline-flex p-3 rounded-full bg-success/10 text-success">
+                      <RefreshCw size={20} />
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-600 font-medium">
+                    PIN yako imewekwa upya kwa mafanikio!
                   </p>
                   <div className="p-4 bg-success/10 rounded-2xl border border-success/20 font-mono text-2xl font-bold text-success tracking-widest">
                     {recoveredPin}
                   </div>
                   <p className="text-xs text-slate-400">
-                    Tafadhali tumia hii kuingia, kisha ubadilishe kwenye ukurasa wa mipangilio mara moja.
+                    Tafadhali tumia PIN hii kuingia, kisha ubadilishe kwenye ukurasa wa mipangilio mara moja.
                   </p>
                   <button
                     type="button"
@@ -279,7 +378,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
         </div>
         <div className="flex items-center justify-center gap-1">
           <MapPin size={10} />
-          <span>{settings.businessAddress}</span>
+          <span>{settings.businessAddress || 'Haijawekwa'}</span>
         </div>
         <p className="pt-2 text-[10px]">Sonko Sound Accountant system inatii usalama wa data na kanuni za PWA.</p>
       </div>
