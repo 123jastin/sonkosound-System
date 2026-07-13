@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, Sparkles, X, RefreshCw, Upload, AlertCircle } from 'lucide-react';
+import { Camera, Sparkles, X, RefreshCw, Upload, AlertCircle, Image as ImageIcon, CheckCircle } from 'lucide-react';
+import { api } from '../services/api';
 
 interface FormAIOCRProps {
   onSuccess: (data: {
@@ -19,6 +20,7 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
   const [isLoading, setIsLoading] = useState(false);
   const [loadingText, setLoadingText] = useState("Inachukua picha...");
   const [cameraActive, setCameraActive] = useState(false);
+  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -47,7 +49,7 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
     setCameraActive(false);
     try {
       const constraints = {
-        video: { facingMode: 'environment' } // Prefer back camera
+        video: { facingMode: 'environment' }
       };
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       setStream(mediaStream);
@@ -72,6 +74,7 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
 
   const handleOpenScanner = () => {
     setIsOpen(true);
+    setUploadedUrl(null);
     startCamera();
   };
 
@@ -79,13 +82,58 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
     stopCamera();
     setIsOpen(false);
     setError(null);
+    setUploadedUrl(null);
+  };
+
+  // Upload image to R2 and return the URL
+  const uploadToR2 = async (blob: Blob, fileName: string): Promise<string | null> => {
+    try {
+      setLoadingText("Inapakia picha kwenye cloud...");
+      const file = new File([blob], fileName, { type: 'image/jpeg' });
+      const result = await api.upload.image(file);
+      
+      if (result.success && result.url) {
+        console.log('Image uploaded to R2:', result.url);
+        return result.url;
+      }
+      console.warn('R2 upload failed, continuing with base64');
+      return null;
+    } catch (err) {
+      console.warn('R2 upload error:', err);
+      return null;
+    }
+  };
+
+  // Convert base64 to blob
+  const base64ToBlob = (base64: string): Blob => {
+    const parts = base64.split(';base64,');
+    const contentType = parts[0].split(':')[1] || 'image/jpeg';
+    const raw = window.atob(parts[1]);
+    const rawLength = raw.length;
+    const uInt8Array = new Uint8Array(rawLength);
+    
+    for (let i = 0; i < rawLength; ++i) {
+      uInt8Array[i] = raw.charCodeAt(i);
+    }
+    
+    return new Blob([uInt8Array], { type: contentType });
   };
 
   // Process and send image to backend
   const processImageBase64 = async (base64Data: string) => {
     setIsLoading(true);
     setLoadingText("Inasoma mwandiko wa karatasi...");
+    setError(null);
+    
     try {
+      // Try to upload to R2 first (for storage)
+      const blob = base64ToBlob(base64Data);
+      const r2Url = await uploadToR2(blob, `ocr-${Date.now()}.jpg`);
+      if (r2Url) {
+        setUploadedUrl(r2Url);
+      }
+
+      // Send to OCR API (always works with base64)
       const response = await fetch("/api/ocr", {
         method: "POST",
         headers: {
@@ -93,7 +141,8 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
         },
         body: JSON.stringify({
           image: base64Data,
-          mimeType: "image/jpeg"
+          mimeType: "image/jpeg",
+          r2Url: r2Url || undefined
         })
       });
 
@@ -107,10 +156,10 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
         onSuccess(result.data);
         handleCloseScanner();
       } else {
-        throw new Error("AI haikuweza kuchambua picha hii.");
+        throw new Error(result.error || "AI haikuweza kuchambua picha hii.");
       }
     } catch (err: any) {
-      console.error(err);
+      console.error('OCR Error:', err);
       setError(err.message || "Imefeli kuchakata picha. Tafadhali jaribu tena au weka kwa mkono.");
     } finally {
       setIsLoading(false);
@@ -136,10 +185,24 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
     }
   };
 
-  // Handle local file upload (fallback)
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle local file upload
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    setError(null);
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setError("Tafadhali chagua faili ya picha (JPEG, PNG, WebP).");
+      return;
+    }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Picha ni kubwa sana. Ukubwa unaoruhusiwa ni 10MB.");
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = () => {
@@ -215,6 +278,14 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
                     <p className="font-bold text-emerald-400 text-xs animate-pulse">Inachambua Picha...</p>
                     <p className="text-[10px] text-slate-400">{loadingText}</p>
                   </div>
+                  
+                  {/* Show upload progress */}
+                  {uploadedUrl && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-400">
+                      <CheckCircle size={12} />
+                      <span>Picha imepakiwa kwenye cloud</span>
+                    </div>
+                  )}
                 </div>
               ) : cameraActive ? (
                 /* Video live stream with guide overlay */
@@ -275,12 +346,15 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
               {/* File upload fallback widget */}
               {!isLoading && (
                 <div className="pt-2 border-t border-slate-800 flex flex-col items-center">
-                  <span className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Au pakia picha kutoka kifaa chako</span>
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">
+                    Au pakia picha kutoka kifaa chako
+                  </span>
                   <input
                     type="file"
                     ref={fileInputRef}
                     onChange={handleFileUpload}
                     accept="image/*"
+                    capture="environment"
                     className="hidden"
                   />
                   <button
@@ -290,6 +364,11 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
                   >
                     <Upload size={13} className="text-slate-400" /> Chagua Faili (Upload Photo)
                   </button>
+                  
+                  {/* Added: Drag & Drop hint */}
+                  <p className="text-[9px] text-slate-600 mt-2 text-center">
+                    Inasaidia: JPEG, PNG, WebP • Max 10MB
+                  </p>
                 </div>
               )}
             </div>
