@@ -1,9 +1,9 @@
-// functions/api/ocr.ts
+
+// functions/api/ocr.ts - Fixed Groq Vision
 
 export const onRequestPost = async (context: any) => {
   try {
     const { image } = await context.request.json();
-    
     const GROQ_API_KEY = context.env.GROQ_API_KEY;
     
     if (!GROQ_API_KEY) {
@@ -14,154 +14,92 @@ export const onRequestPost = async (context: any) => {
       });
     }
 
-    // Try multiple models in order of preference
-    const models = [
-      'llama-3.2-90b-vision-preview',  // Vision model
-      'llama-3.2-11b-vision-preview',   // Older vision (might still work)
-      'llama-3.1-8b-instant',           // Text only fallback
-    ];
+    // Clean the base64 image
+    let cleanImage = image;
+    if (image.includes('data:image')) {
+      cleanImage = image.split(';base64,')[1] || image;
+    }
 
-    let lastError = '';
-    
-    for (const model of models) {
-      try {
-        console.log(`Trying model: ${model}`);
-        
-        // For vision models, send image directly
-        // For text-only models, describe the task differently
-        const isVisionModel = model.includes('vision');
-        
-        const messages = isVisionModel ? [
+    console.log('Image type:', typeof image);
+    console.log('Image length:', image.length);
+
+    // Try the correct Groq vision model
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.2-90b-vision-preview',
+        messages: [
           {
             role: 'user',
             content: [
               {
                 type: 'text',
-                text: `Extract these fields from this document/image (Swahili/Tanzania context). Return ONLY JSON:
-{
-  "name": "full name",
-  "number": "phone number",
-  "deni": amount as number,
-  "maelezo_ya_bidhaa": "product description",
-  "notes": "notes"
-}
-Return ONLY JSON, no other text.`
+                text: 'Look at this image and extract ALL text information. Return as JSON: {"name":"","number":"","deni":0,"maelezo_ya_bidhaa":"","notes":""}. Numbers only for deni (no TSh or commas).'
               },
               {
                 type: 'image_url',
-                image_url: { url: image }
+                image_url: {
+                  url: `data:image/jpeg;base64,${cleanImage}`
+                }
               }
             ]
           }
-        ] : [
-          {
-            role: 'user',
-            content: `I have a document image. Extract these fields and return ONLY JSON (Swahili context): {"name":"full name","number":"phone","deni":amount,"maelezo_ya_bidhaa":"product","notes":"notes"}. Leave empty string for missing fields. The image contains text similar to a receipt or debt record from Tanzania.`
-          }
-        ];
+        ],
+        temperature: 0,
+        max_tokens: 1000
+      })
+    });
 
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${GROQ_API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: model,
-            messages: messages,
-            temperature: 0.1,
-            max_tokens: 500
-          })
-        });
-
-        const result = await response.json();
-
-        if (result.error) {
-          console.error(`Model ${model} failed:`, result.error.message);
-          lastError = result.error.message;
-          continue; // Try next model
-        }
-
-        // Success! Extract content
-        const content = result.choices?.[0]?.message?.content || '';
-        console.log(`Model ${model} response:`, content);
-
-        let extractedData;
-        try {
-          const jsonStr = content
-            .replace(/```json\s*/g, '')
-            .replace(/```\s*/g, '')
-            .trim();
-          extractedData = JSON.parse(jsonStr);
-        } catch {
-          extractedData = {
-            name: extractValue(content, 'name'),
-            number: extractValue(content, 'number'),
-            deni: extractNumber(content, 'deni'),
-            maelezo_ya_bidhaa: extractValue(content, 'maelezo_ya_bidhaa'),
-            notes: extractValue(content, 'notes')
-          };
-        }
-
-        const cleanData = {
-          name: String(extractedData?.name || '').trim(),
-          number: String(extractedData?.number || '').trim(),
-          deni: Number(extractedData?.deni) || 0,
-          maelezo_ya_bidhaa: String(extractedData?.maelezo_ya_bidhaa || '').trim(),
-          notes: String(extractedData?.notes || '').trim()
-        };
-
-        console.log('Extracted data:', cleanData);
-
-        return Response.json({
-          success: true,
-          data: cleanData,
-          model: model
-        });
-
-      } catch (err: any) {
-        console.error(`Model ${model} error:`, err.message);
-        lastError = err.message;
-        continue; // Try next model
-      }
+    const result = await response.json();
+    
+    if (result.error) {
+      console.error('Groq error:', result.error);
+      return Response.json({
+        success: false,
+        error: result.error.message,
+        data: { name: '', number: '', deni: 0, maelezo_ya_bidhaa: '', notes: '' }
+      });
     }
 
-    // All models failed
+    const content = result.choices?.[0]?.message?.content || '';
+    console.log('Groq response:', content);
+
+    // Try to parse JSON from response
+    let data;
+    try {
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        data = JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.log('JSON parse failed, using fallback');
+    }
+
+    if (!data) {
+      data = { name: '', number: '', deni: 0, maelezo_ya_bidhaa: '', notes: '' };
+    }
+
     return Response.json({
-      success: false,
-      error: `All AI models failed. Last error: ${lastError}`,
-      data: { name: '', number: '', deni: 0, maelezo_ya_bidhaa: '', notes: '' }
+      success: true,
+      data: {
+        name: String(data.name || '').trim(),
+        number: String(data.number || '').trim(),
+        deni: Number(data.deni) || 0,
+        maelezo_ya_bidhaa: String(data.maelezo_ya_bidhaa || '').trim(),
+        notes: String(data.notes || '').trim()
+      }
     });
 
   } catch (error: any) {
     console.error('OCR Error:', error);
     return Response.json({
       success: false,
-      error: error.message || 'AI processing failed',
+      error: error.message,
       data: { name: '', number: '', deni: 0, maelezo_ya_bidhaa: '', notes: '' }
     });
   }
 };
-
-function extractValue(text: string, field: string): string {
-  const patterns = [
-    new RegExp(`"${field}"\\s*:\\s*"([^"]*)"`, 'i'),
-    new RegExp(`${field}\\s*:\\s*"([^"]*)"`, 'i'),
-  ];
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) return match[1];
-  }
-  return '';
-}
-
-function extractNumber(text: string, field: string): number {
-  const patterns = [
-    new RegExp(`"${field}"\\s*:\\s*(\\d+(?:\\.\\d+)?)`, 'i'),
-  ];
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) return parseFloat(match[1]);
-  }
-  return 0;
-}
