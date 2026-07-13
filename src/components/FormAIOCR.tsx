@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, Sparkles, X, RefreshCw, Upload, AlertCircle, Image as ImageIcon, CheckCircle } from 'lucide-react';
+import { Camera, Sparkles, X, RefreshCw, Upload, AlertCircle, CheckCircle } from 'lucide-react';
 import { api } from '../services/api';
 
 interface FormAIOCRProps {
@@ -185,7 +185,7 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
     }
   };
 
-  // Handle local file upload
+  // Handle local file upload (opens gallery)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -233,6 +233,7 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
       {isOpen && (
         <div className="fixed inset-0 z-55 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 rounded-3xl max-w-lg w-full p-6 text-white space-y-4 shadow-2xl relative border border-slate-800 text-xs text-left animate-scale-in">
+            
             {/* Header info */}
             <div className="flex justify-between items-center pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2">
@@ -343,18 +344,17 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
                 )}
               </div>
 
-              {/* File upload fallback widget */}
+              {/* File upload from gallery - NO capture attribute */}
               {!isLoading && (
                 <div className="pt-2 border-t border-slate-800 flex flex-col items-center">
                   <span className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">
-                    Au pakia picha kutoka kifaa chako
+                    Au pakia picha kutoka kwenye gallery
                   </span>
                   <input
                     type="file"
                     ref={fileInputRef}
                     onChange={handleFileUpload}
                     accept="image/*"
-                    capture="environment"
                     className="hidden"
                   />
                   <button
@@ -362,10 +362,9 @@ export default function FormAIOCR({ onSuccess, label = "Changanua kwa AI Camera"
                     onClick={() => fileInputRef.current?.click()}
                     className="flex items-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700 hover:border-slate-600 rounded-xl text-[11px] font-bold transition cursor-pointer"
                   >
-                    <Upload size={13} className="text-slate-400" /> Chagua Faili (Upload Photo)
+                    <Upload size={13} className="text-slate-400" /> Chagua Kutoka Gallery
                   </button>
                   
-                  {/* Added: Drag & Drop hint */}
                   <p className="text-[9px] text-slate-600 mt-2 text-center">
                     Inasaidia: JPEG, PNG, WebP • Max 10MB
                   </p>
