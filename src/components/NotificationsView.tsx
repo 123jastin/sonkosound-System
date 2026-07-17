@@ -1,34 +1,48 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NotificationItem, Customer } from '../types';
 import { api } from '../services/api';
 import { 
   Bell, ArrowLeft, Trash2, Calendar, Phone, CheckCircle2, 
   AlertTriangle, AlertCircle, Sparkles, MessageCircle, 
-  Send, Loader2
+  Send, Loader2, Check
 } from 'lucide-react';
 
 interface NotificationsViewProps {
   notifications: NotificationItem[];
   customers: Customer[];
+  suppliers?: any[];
+  debts?: any[];
+  payments?: any[];
   setCurrentTab: (tab: string) => void;
   setSelectedCustomerId: (id: string | null) => void;
   onClearAll?: () => void;
-  debts?: any[];
-  payments?: any[];
 }
 
 export default function NotificationsView({
   notifications,
   customers,
+  suppliers = [],
+  debts = [],
+  payments = [],
   setCurrentTab,
   setSelectedCustomerId,
-  onClearAll,
-  debts = [],
-  payments = []
+  onClearAll
 }: NotificationsViewProps) {
   const [filterType, setFilterType] = useState<string>('All');
-  const [isSendingReminders, setIsSendingReminders] = useState(false);
-  const [reminderResult, setReminderResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [sendingIds, setSendingIds] = useState<Set<string>>(new Set());
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+  const [autoSent, setAutoSent] = useState(false);
+
+  // Auto-send SMS when notifications page loads with due today items
+  useEffect(() => {
+    if (autoSent) return;
+    
+    const todayNotifications = notifications.filter(n => n.type === 'Due Today');
+    if (todayNotifications.length > 0) {
+      handleSendAllReminders();
+      setAutoSent(true);
+    }
+  }, [notifications]);
 
   const filteredNotifications = notifications.filter(item => {
     if (filterType === 'All') return true;
@@ -38,45 +52,83 @@ export default function NotificationsView({
     return true;
   });
 
-  // Count of today's due debts
   const todayDueCount = notifications.filter(n => n.type === 'Due Today').length;
 
-  const handleSendReminders = async () => {
-    if (todayDueCount === 0) {
-      setReminderResult({ success: false, message: 'Hakuna madeni yanayotakiwa kulipwa leo.' });
-      return;
-    }
+  // Send all reminders automatically
+  const handleSendAllReminders = async () => {
+    if (todayDueCount === 0) return;
 
-    if (!confirm(`Tuma vikumbusho vya SMS kwa wateja ${todayDueCount} wanaotakiwa kulipa leo?`)) return;
-
-    setIsSendingReminders(true);
+    setIsSendingAll(true);
     setReminderResult(null);
 
     try {
       const result = await api.reminders.send({
         debts,
         customers,
-        payments
+        payments,
+        suppliers,
       });
 
       if (result.success) {
         setReminderResult({
           success: true,
-          message: `✅ Vikumbusho vimetumwa kwa wateja ${result.data.customerSent}! Nakala zimetumwa kwako pia.`
+          message: `✅ Tumesend vikumbusho kwa wateja ${result.data.customerSent} na wauzaji ${result.data.supplierSent || 0}.`,
         });
+        // Mark all due today as sent
+        const todayIds = notifications.filter(n => n.type === 'Due Today').map(n => n.id);
+        setSentIds(new Set(todayIds));
       } else {
         setReminderResult({
           success: false,
-          message: `❌ ${result.error || 'Imeshindwa kutuma vikumbusho.'}`
+          message: `❌ ${result.error || 'Imeshindwa kutuma.'}`,
         });
       }
     } catch (err: any) {
       setReminderResult({
         success: false,
-        message: `❌ ${err.message || 'Hitilafu ya mtandao.'}`
+        message: `❌ ${err.message || 'Hitilafu ya mtandao.'}`,
       });
     } finally {
-      setIsSendingReminders(false);
+      setIsSendingAll(false);
+    }
+  };
+
+  // Send individual SMS for a specific notification
+  const handleSendSingleReminder = async (item: NotificationItem) => {
+    if (sendingIds.has(item.id) || sentIds.has(item.id)) return;
+
+    setSendingIds(prev => new Set(prev).add(item.id));
+
+    try {
+      // Find the specific debt or supplier for this notification
+      const relevantDebts = item.debtId 
+        ? debts.filter((d: any) => d.id === item.debtId)
+        : [];
+      const relevantSuppliers = !item.debtId && item.type === 'Due Today'
+        ? suppliers.filter((s: any) => {
+            const remaining = (s.amount || 0) - (s.paidAmount || 0);
+            return remaining > 0 && s.dueDate === new Date().toISOString().split('T')[0];
+          })
+        : [];
+
+      const result = await api.reminders.send({
+        debts: relevantDebts,
+        customers,
+        payments,
+        suppliers: relevantSuppliers,
+      });
+
+      if (result.success) {
+        setSentIds(prev => new Set(prev).add(item.id));
+      }
+    } catch (err: any) {
+      console.error('Failed to send single reminder:', err);
+    } finally {
+      setSendingIds(prev => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
     }
   };
 
@@ -104,15 +156,15 @@ export default function NotificationsView({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Send SMS Reminders Button */}
+          {/* Manual Send All Button */}
           {todayDueCount > 0 && (
             <button
-              onClick={handleSendReminders}
-              disabled={isSendingReminders}
+              onClick={handleSendAllReminders}
+              disabled={isSendingAll}
               className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] py-2 px-3 rounded-xl flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
-              title="Tuma vikumbusho vya SMS kwa wateja wote wanaotakiwa kulipa leo"
+              title="Tuma vikumbusho vyote vya leo"
             >
-              {isSendingReminders ? (
+              {isSendingAll ? (
                 <>
                   <Loader2 size={13} className="animate-spin" />
                   Inatuma...
@@ -120,7 +172,7 @@ export default function NotificationsView({
               ) : (
                 <>
                   <Send size={13} />
-                  Tuma SMS ({todayDueCount})
+                  Tuma Zote ({todayDueCount})
                 </>
               )}
             </button>
@@ -147,7 +199,21 @@ export default function NotificationsView({
           <div className="flex items-center gap-2">
             {reminderResult.success ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
             <span>{reminderResult.message}</span>
+            <button 
+              onClick={() => setReminderResult(null)}
+              className="ml-auto text-current opacity-50 hover:opacity-100"
+            >
+              ✕
+            </button>
           </div>
+        </div>
+      )}
+
+      {/* Auto-send status */}
+      {autoSent && todayDueCount > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3 text-[11px] text-blue-700 flex items-center gap-2">
+          <CheckCircle2 size={14} />
+          <span>Vikumbusho vya leo vimetumwa kiotomatiki. Unaweza kutuma tena kwa kubofya ikoni ya <Send size={10} className="inline" /> kwenye kila kitu.</span>
         </div>
       )}
 
@@ -215,6 +281,10 @@ export default function NotificationsView({
               IconComponent = Sparkles;
             }
 
+            const isSending = sendingIds.has(item.id);
+            const isSent = sentIds.has(item.id);
+            const canSend = item.type === 'Due Today' && item.customerId && !isSent;
+
             return (
               <div
                 key={item.id}
@@ -232,6 +302,11 @@ export default function NotificationsView({
                     <span className="text-[10px] text-slate-400 font-mono">
                       Tarehe: {item.date}
                     </span>
+                    {isSent && (
+                      <span className="text-[9px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                        <Check size={10} /> Imetumwa
+                      </span>
+                    )}
                   </div>
                   
                   <p className="text-xs font-semibold leading-relaxed text-slate-800">
@@ -264,6 +339,7 @@ export default function NotificationsView({
                         </span>
 
                         <div className="flex items-center gap-1.5">
+                          {/* Call Button */}
                           <a
                             href={`tel:${customer.phoneNumber}`}
                             className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition border border-slate-200"
@@ -272,6 +348,7 @@ export default function NotificationsView({
                             <Phone size={13} className="stroke-[2.5]" />
                           </a>
 
+                          {/* WhatsApp Button */}
                           <a
                             href={waUrl}
                             target="_blank"
@@ -283,6 +360,27 @@ export default function NotificationsView({
                             <span>WhatsApp</span>
                           </a>
 
+                          {/* Individual Send SMS Button */}
+                          {canSend && (
+                            <button
+                              onClick={() => handleSendSingleReminder(item)}
+                              disabled={isSending}
+                              className={`p-1.5 rounded-xl transition border text-[10px] font-extrabold flex items-center gap-1 ${
+                                isSending 
+                                  ? 'bg-slate-100 text-slate-400 border-slate-200' 
+                                  : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-200'
+                              }`}
+                              title="Tuma SMS kwa mteja huyu"
+                            >
+                              {isSending ? (
+                                <Loader2 size={13} className="animate-spin" />
+                              ) : (
+                                <Send size={13} className="stroke-[2.5]" />
+                              )}
+                            </button>
+                          )}
+
+                          {/* Profile Button */}
                           <button
                             onClick={() => {
                               setSelectedCustomerId(item.customerId!);
