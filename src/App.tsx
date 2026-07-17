@@ -71,7 +71,7 @@ function generateNotificationsFromData(
       notifications.push({
         id: `due-today-${debt.id}`,
         type: 'Due Today',
-        message: `Leo ni siku ya mwisho kwa ${customer?.fullName || 'Mteja'} kulipa TSh ${remaining.toLocaleString()} kwa "${debt.description}".`,
+        message: `Leo ni siku ya mwisho kwa ${customer?.fullName || 'Mteja'} kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}".`,
         date: today,
         customerId: debt.customerId,
         debtId: debt.id
@@ -80,7 +80,7 @@ function generateNotificationsFromData(
       notifications.push({
         id: `due-tomorrow-${debt.id}`,
         type: 'Due Tomorrow',
-        message: `Kesho ${customer?.fullName || 'Mteja'} anatakiwa kulipa TSh ${remaining.toLocaleString()} kwa "${debt.description}".`,
+        message: `Kesho ${customer?.fullName || 'Mteja'} anatakiwa kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}".`,
         date: today,
         customerId: debt.customerId,
         debtId: debt.id
