@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { NotificationItem, Customer } from '../types';
-import { Bell, ArrowLeft, Trash2, Calendar, Phone, CheckCircle2, AlertTriangle, AlertCircle, Sparkles, MessageCircle } from 'lucide-react';
+import { api } from '../services/api';
+import { 
+  Bell, ArrowLeft, Trash2, Calendar, Phone, CheckCircle2, 
+  AlertTriangle, AlertCircle, Sparkles, MessageCircle, 
+  Send, Loader2
+} from 'lucide-react';
 
 interface NotificationsViewProps {
   notifications: NotificationItem[];
@@ -8,6 +13,8 @@ interface NotificationsViewProps {
   setCurrentTab: (tab: string) => void;
   setSelectedCustomerId: (id: string | null) => void;
   onClearAll?: () => void;
+  debts?: any[];
+  payments?: any[];
 }
 
 export default function NotificationsView({
@@ -15,9 +22,13 @@ export default function NotificationsView({
   customers,
   setCurrentTab,
   setSelectedCustomerId,
-  onClearAll
+  onClearAll,
+  debts = [],
+  payments = []
 }: NotificationsViewProps) {
   const [filterType, setFilterType] = useState<string>('All');
+  const [isSendingReminders, setIsSendingReminders] = useState(false);
+  const [reminderResult, setReminderResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const filteredNotifications = notifications.filter(item => {
     if (filterType === 'All') return true;
@@ -26,6 +37,48 @@ export default function NotificationsView({
     if (filterType === 'Paid') return item.type === 'Fully Paid' || item.type === 'Payment Received';
     return true;
   });
+
+  // Count of today's due debts
+  const todayDueCount = notifications.filter(n => n.type === 'Due Today').length;
+
+  const handleSendReminders = async () => {
+    if (todayDueCount === 0) {
+      setReminderResult({ success: false, message: 'Hakuna madeni yanayotakiwa kulipwa leo.' });
+      return;
+    }
+
+    if (!confirm(`Tuma vikumbusho vya SMS kwa wateja ${todayDueCount} wanaotakiwa kulipa leo?`)) return;
+
+    setIsSendingReminders(true);
+    setReminderResult(null);
+
+    try {
+      const result = await api.reminders.send({
+        debts,
+        customers,
+        payments
+      });
+
+      if (result.success) {
+        setReminderResult({
+          success: true,
+          message: `✅ Vikumbusho vimetumwa kwa wateja ${result.data.customerSent}! Nakala zimetumwa kwako pia.`
+        });
+      } else {
+        setReminderResult({
+          success: false,
+          message: `❌ ${result.error || 'Imeshindwa kutuma vikumbusho.'}`
+        });
+      }
+    } catch (err: any) {
+      setReminderResult({
+        success: false,
+        message: `❌ ${err.message || 'Hitilafu ya mtandao.'}`
+      });
+    } finally {
+      setIsSendingReminders(false);
+    }
+  };
 
   return (
     <div className="space-y-6 text-xs text-left">
@@ -42,29 +95,69 @@ export default function NotificationsView({
           <div>
             <h2 className="text-md font-extrabold text-slate-800 flex items-center gap-2">
               <Bell size={18} className="text-rose-500 animate-bounce" />
-              Arifu na Vikumbusho Leo (Notifications Hub)
+              Arifu na Vikumbusho Leo
             </h2>
-            <p className="text-xs text-slate-400 mt-1">Angalia vikumbusho vyote vya malipo, madeni yaliyopitisha muda na updates za biashara yako.</p>
+            <p className="text-xs text-slate-400 mt-1">
+              Vikumbusho vya malipo, madeni yaliyopitisha muda na updates za biashara yako.
+            </p>
           </div>
         </div>
 
-        {onClearAll && notifications.length > 0 && (
-          <button
-            onClick={onClearAll}
-            className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-[11px] py-2 px-3 rounded-xl flex items-center gap-1.5 transition-colors self-start md:self-auto"
-          >
-            <Trash2 size={13} /> Futa Zote (Clear All)
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Send SMS Reminders Button */}
+          {todayDueCount > 0 && (
+            <button
+              onClick={handleSendReminders}
+              disabled={isSendingReminders}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] py-2 px-3 rounded-xl flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+              title="Tuma vikumbusho vya SMS kwa wateja wote wanaotakiwa kulipa leo"
+            >
+              {isSendingReminders ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  Inatuma...
+                </>
+              ) : (
+                <>
+                  <Send size={13} />
+                  Tuma SMS ({todayDueCount})
+                </>
+              )}
+            </button>
+          )}
+
+          {onClearAll && notifications.length > 0 && (
+            <button
+              onClick={onClearAll}
+              className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-[11px] py-2 px-3 rounded-xl flex items-center gap-1.5 transition-colors"
+            >
+              <Trash2 size={13} /> Futa Zote
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Reminder Result Message */}
+      {reminderResult && (
+        <div className={`p-4 rounded-2xl border text-xs font-medium ${
+          reminderResult.success 
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
+            : 'bg-rose-50 border-rose-200 text-rose-700'
+        }`}>
+          <div className="flex items-center gap-2">
+            {reminderResult.success ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+            <span>{reminderResult.message}</span>
+          </div>
+        </div>
+      )}
 
       {/* Tabs / Filters */}
       <div className="flex gap-2 overflow-x-auto pb-1 select-none">
         {[
           { id: 'All', label: `Zote (${notifications.length})` },
-          { id: 'Overdue', label: `Zilizopitisha Muda (${notifications.filter(n => n.type === 'Overdue').length})` },
+          { id: 'Overdue', label: `Zilizopitisha (${notifications.filter(n => n.type === 'Overdue').length})` },
           { id: 'Due Today', label: `Leo & Kesho (${notifications.filter(n => n.type === 'Due Today' || n.type === 'Due Tomorrow').length})` },
-          { id: 'Paid', label: `Malipo ya Hivi Karibuni (${notifications.filter(n => n.type === 'Fully Paid' || n.type === 'Payment Received').length})` }
+          { id: 'Paid', label: `Malipo (${notifications.filter(n => n.type === 'Fully Paid' || n.type === 'Payment Received').length})` }
         ].map(tab => (
           <button
             key={tab.id}
@@ -84,7 +177,6 @@ export default function NotificationsView({
       <div className="space-y-3">
         {filteredNotifications.length > 0 ? (
           filteredNotifications.map(item => {
-            // Get appropriate styles & icon depending on type
             let bgClass = 'bg-slate-50 border-slate-100 text-slate-700';
             let iconColor = 'text-slate-500';
             let badgeText = 'Taarifa';
@@ -94,25 +186,25 @@ export default function NotificationsView({
             if (item.type === 'Overdue') {
               bgClass = 'bg-rose-50/70 border-rose-100 text-rose-950';
               iconColor = 'text-rose-600';
-              badgeText = 'IMEKITHIRI (Overdue)';
+              badgeText = 'IMEKITHIRI';
               badgeClass = 'bg-rose-100 text-rose-800';
               IconComponent = AlertCircle;
             } else if (item.type === 'Due Today') {
               bgClass = 'bg-amber-50/70 border-amber-100 text-amber-950';
               iconColor = 'text-amber-600';
-              badgeText = 'LEO (Due Today)';
+              badgeText = 'LEO';
               badgeClass = 'bg-amber-100 text-amber-800';
               IconComponent = AlertTriangle;
             } else if (item.type === 'Due Tomorrow') {
               bgClass = 'bg-amber-50/40 border-amber-100/60 text-slate-800';
               iconColor = 'text-amber-500';
-              badgeText = 'KESHO (Due Tomorrow)';
+              badgeText = 'KESHO';
               badgeClass = 'bg-amber-100/60 text-amber-800';
               IconComponent = Calendar;
             } else if (item.type === 'Fully Paid' || item.type === 'Payment Received') {
               bgClass = 'bg-emerald-50/70 border-emerald-100 text-emerald-950';
               iconColor = 'text-emerald-600';
-              badgeText = 'MALIPO (Paid)';
+              badgeText = 'MALIPO';
               badgeClass = 'bg-emerald-100 text-emerald-800';
               IconComponent = CheckCircle2;
             } else if (item.type === 'New Customer Added') {
@@ -152,23 +244,17 @@ export default function NotificationsView({
 
                     const formatWhatsAppNumber = (phone: string): string => {
                       let cleaned = phone.trim().replace(/\s+/g, '');
-                      if (cleaned.startsWith('0')) {
-                        return '+255' + cleaned.slice(1);
-                      }
-                      if (!cleaned.startsWith('+') && !cleaned.startsWith('255')) {
-                        return '+255' + cleaned;
-                      }
-                      if (cleaned.startsWith('255')) {
-                        return '+' + cleaned;
-                      }
+                      if (cleaned.startsWith('0')) return '+255' + cleaned.slice(1);
+                      if (!cleaned.startsWith('+') && !cleaned.startsWith('255')) return '+255' + cleaned;
+                      if (cleaned.startsWith('255')) return '+' + cleaned;
                       return cleaned;
                     };
 
                     const phoneFormattedForWa = formatWhatsAppNumber(customer.phoneNumber).replace('+', '');
                     const isFinished = item.type === 'Fully Paid' || item.type === 'Payment Received';
                     const waMessage = isFinished 
-                      ? "Habari, asante sana kwa kumaliza deni kalibu tena 🙏"
-                      : "Habari, Ningependa kukukumbusha kwamba leo ndio siku ya kulipa";
+                      ? "Habari, asante sana kwa kumaliza deni karibu tena 🙏"
+                      : "Habari, ningependa kukukumbusha kwamba leo ndio siku ya kulipa deni lako.";
                     const waUrl = `https://wa.me/${phoneFormattedForWa}?text=${encodeURIComponent(waMessage)}`;
 
                     return (
@@ -178,7 +264,6 @@ export default function NotificationsView({
                         </span>
 
                         <div className="flex items-center gap-1.5">
-                          {/* Call Icon Button */}
                           <a
                             href={`tel:${customer.phoneNumber}`}
                             className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition border border-slate-200"
@@ -187,7 +272,6 @@ export default function NotificationsView({
                             <Phone size={13} className="stroke-[2.5]" />
                           </a>
 
-                          {/* WhatsApp Icon Button */}
                           <a
                             href={waUrl}
                             target="_blank"
@@ -199,7 +283,6 @@ export default function NotificationsView({
                             <span>WhatsApp</span>
                           </a>
 
-                          {/* Profile Button */}
                           <button
                             onClick={() => {
                               setSelectedCustomerId(item.customerId!);
@@ -207,7 +290,7 @@ export default function NotificationsView({
                             }}
                             className="text-[10px] font-extrabold text-slate-900 hover:text-accent bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl transition shadow-sm"
                           >
-                            Wasifu (Profile) →
+                            Wasifu →
                           </button>
                         </div>
                       </div>
