@@ -36,91 +36,17 @@ async function safeFetch(url: string, options?: RequestInit): Promise<any> {
   }
 }
 
-// ============================================
-// TYPE DEFINITIONS FOR API
-// ============================================
-interface CustomerData {
-  id: string;
-  fullName: string;
-  phoneNumber: string;
-  address?: string;
-  businessName?: string;
-  notes?: string;
-  photoUrl?: string;
-}
-
-interface DebtData {
-  id: string;
-  customerId: string;
-  amount: number;
-  dateBorrowed: string;
-  dueDate: string;
-  description: string;
-  category?: string;
-  notes?: string;
-  status?: string;
-}
-
-interface PaymentData {
-  id: string;
-  debtId: string;
-  amount: number;
-  date: string;
-  paymentMethod?: string;
-  notes?: string;
-}
-
-interface SupplierData {
-  id: string;
-  name: string;
-  phoneNumber: string;
-  amount: number;
-  paidAmount?: number;
-  dueDate: string;
-  productType?: string;
-  notes?: string;
-  createdAt?: string;
-}
-
-interface SupplierProductData {
-  id: string;
-  supplierId: string;
-  description: string;
-  amount: number;
-  dueDate: string;
-  notes?: string;
-}
-
-interface SupplierPaymentData {
-  id: string;
-  supplierId: string;
-  amount: number;
-  date: string;
-  notes?: string;
-}
-
-interface SettingsData {
-  businessName: string;
-  businessAddress: string;
-  businessPhone: string;
-}
-
-// ============================================
-// API SERVICE
-// ============================================
 export const api = {
   // ============================================
   // SETTINGS
   // ============================================
   settings: {
-    get: (): Promise<any> => safeFetch(`${API_BASE}/settings`),
-    
-    update: (data: SettingsData): Promise<any> => safeFetch(`${API_BASE}/settings`, {
+    get: () => safeFetch(`${API_BASE}/settings`),
+    update: (data: any) => safeFetch(`${API_BASE}/settings`, {
       method: 'PUT',
       body: JSON.stringify(data)
     }),
-    
-    changePassword: (currentPin: string, newPin: string): Promise<any> => safeFetch(`${API_BASE}/settings/password`, {
+    changePassword: (currentPin: string, newPin: string) => safeFetch(`${API_BASE}/settings/password`, {
       method: 'PUT',
       body: JSON.stringify({ currentPin, newPin })
     })
@@ -130,7 +56,7 @@ export const api = {
   // AUTH
   // ============================================
   auth: {
-    login: (pin: string): Promise<any> => safeFetch(`${API_BASE}/auth/login`, {
+    login: (pin: string) => safeFetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       body: JSON.stringify({ pin: pin.trim() })
     })
@@ -140,19 +66,16 @@ export const api = {
   // CUSTOMERS
   // ============================================
   customers: {
-    list: (): Promise<any[]> => safeFetch(`${API_BASE}/customers`),
-    
-    create: (data: CustomerData): Promise<any> => safeFetch(`${API_BASE}/customers`, {
+    list: () => safeFetch(`${API_BASE}/customers`),
+    create: (data: any) => safeFetch(`${API_BASE}/customers`, {
       method: 'POST',
       body: JSON.stringify(data)
     }),
-    
-    update: (id: string, data: Partial<CustomerData>): Promise<any> => safeFetch(`${API_BASE}/customers/${id}`, {
+    update: (id: string, data: any) => safeFetch(`${API_BASE}/customers/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
     }),
-    
-    delete: (id: string): Promise<any> => safeFetch(`${API_BASE}/customers/${id}`, {
+    delete: (id: string) => safeFetch(`${API_BASE}/customers/${id}`, {
       method: 'DELETE'
     })
   },
@@ -161,19 +84,16 @@ export const api = {
   // DEBTS
   // ============================================
   debts: {
-    list: (): Promise<any[]> => safeFetch(`${API_BASE}/debts`),
-    
-    create: (data: DebtData): Promise<any> => safeFetch(`${API_BASE}/debts`, {
+    list: () => safeFetch(`${API_BASE}/debts`),
+    create: (data: any) => safeFetch(`${API_BASE}/debts`, {
       method: 'POST',
       body: JSON.stringify(data)
     }),
-    
-    update: (id: string, data: Partial<DebtData>): Promise<any> => safeFetch(`${API_BASE}/debts/${id}`, {
+    update: (id: string, data: any) => safeFetch(`${API_BASE}/debts/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
     }),
-    
-    delete: (id: string): Promise<any> => safeFetch(`${API_BASE}/debts/${id}`, {
+    delete: (id: string) => safeFetch(`${API_BASE}/debts/${id}`, {
       method: 'DELETE'
     })
   },
@@ -182,9 +102,8 @@ export const api = {
   // PAYMENTS
   // ============================================
   payments: {
-    list: (): Promise<any[]> => safeFetch(`${API_BASE}/payments`),
-    
-    create: (data: PaymentData): Promise<any> => safeFetch(`${API_BASE}/payments`, {
+    list: () => safeFetch(`${API_BASE}/payments`),
+    create: (data: any) => safeFetch(`${API_BASE}/payments`, {
       method: 'POST',
       body: JSON.stringify(data)
     })
@@ -194,19 +113,16 @@ export const api = {
   // SUPPLIERS
   // ============================================
   suppliers: {
-    list: (): Promise<any[]> => safeFetch(`${API_BASE}/suppliers`),
-    
-    create: (data: SupplierData): Promise<any> => safeFetch(`${API_BASE}/suppliers`, {
+    list: () => safeFetch(`${API_BASE}/suppliers`),
+    create: (data: any) => safeFetch(`${API_BASE}/suppliers`, {
       method: 'POST',
       body: JSON.stringify(data)
     }),
-    
-    update: (id: string, data: Partial<SupplierData>): Promise<any> => safeFetch(`${API_BASE}/suppliers/${id}`, {
+    update: (id: string, data: any) => safeFetch(`${API_BASE}/suppliers/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
     }),
-    
-    delete: (id: string): Promise<any> => safeFetch(`${API_BASE}/suppliers/${id}`, {
+    delete: (id: string) => safeFetch(`${API_BASE}/suppliers/${id}`, {
       method: 'DELETE'
     })
   },
@@ -215,7 +131,7 @@ export const api = {
   // SUPPLIER PRODUCTS
   // ============================================
   supplierProducts: {
-    create: (data: SupplierProductData): Promise<any> => safeFetch(`${API_BASE}/supplier-products`, {
+    create: (data: any) => safeFetch(`${API_BASE}/supplier-products`, {
       method: 'POST',
       body: JSON.stringify(data)
     })
@@ -225,7 +141,7 @@ export const api = {
   // SUPPLIER PAYMENTS
   // ============================================
   supplierPayments: {
-    create: (data: SupplierPaymentData): Promise<any> => safeFetch(`${API_BASE}/supplier-payments`, {
+    create: (data: any) => safeFetch(`${API_BASE}/supplier-payments`, {
       method: 'POST',
       body: JSON.stringify(data)
     })
@@ -235,16 +151,63 @@ export const api = {
   // OCR
   // ============================================
   ocr: {
-    scan: (image: string): Promise<any> => safeFetch(`${API_BASE}/ocr`, {
+    scan: (image: string) => safeFetch(`${API_BASE}/ocr`, {
       method: 'POST',
       body: JSON.stringify({ image })
     })
   },
 
   // ============================================
+  // PARSE TEXT (Groq AI)
+  // ============================================
+  parseText: {
+    analyze: (text: string) => safeFetch(`${API_BASE}/parse-text`, {
+      method: 'POST',
+      body: JSON.stringify({ text })
+    })
+  },
+
+  // ============================================
+  // UPLOAD (R2 Storage)
+  // ============================================
+  upload: {
+    image: async (file: File): Promise<{ success: boolean; url?: string; error?: string }> => {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      try {
+        const response = await fetch(`${API_BASE}/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+        
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          return response.json();
+        }
+        
+        return { success: false, error: 'Invalid server response' };
+      } catch (err: any) {
+        return { success: false, error: err.message || 'Upload failed' };
+      }
+    }
+  },
+
+  // ============================================
+  // SMS REMINDERS (Beem Africa)
+  // ============================================
+  reminders: {
+    send: (data: { debts: any[]; customers: any[]; payments: any[] }) => 
+      safeFetch(`${API_BASE}/send-reminders`, {
+        method: 'POST',
+        body: JSON.stringify(data)
+      })
+  },
+
+  // ============================================
   // EXPORT
   // ============================================
   export: {
-    data: (): Promise<any> => safeFetch(`${API_BASE}/export`)
+    data: () => safeFetch(`${API_BASE}/export`)
   }
 };
