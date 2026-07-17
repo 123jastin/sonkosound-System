@@ -24,12 +24,10 @@ const normalizePhone = (value: any) => {
   let v = String(value || '').trim();
   v = v.replace(/[^\d+]/g, '');
   if (!v) return '';
-
   if (v.startsWith('+')) v = v.slice(1);
   if (v.startsWith('00')) v = v.slice(2);
   if (v.startsWith('0')) v = '255' + v.slice(1);
   if (!v.startsWith('255')) v = '255' + v;
-
   return v;
 };
 
@@ -47,15 +45,8 @@ async function sendSingleSMS(params: {
     schedule_time: '',
     encoding: 0,
     message: params.message,
-    recipients: [
-      {
-        recipient_id: 1,
-        dest_addr: params.phone,
-      },
-    ],
+    recipients: [{ recipient_id: 1, dest_addr: params.phone }],
   };
-
-  console.log('📤 Sending to:', params.phone);
 
   const auth = toBase64(`${params.apiKey}:${params.secretKey}`);
 
@@ -70,8 +61,6 @@ async function sendSingleSMS(params: {
     });
 
     const rawText = await response.text();
-    console.log('📥 Status:', response.status, '| Response:', rawText);
-
     let parsed: any = null;
     try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
 
@@ -93,55 +82,46 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const debts = Array.isArray(body?.debts) ? body.debts : [];
     const customers = Array.isArray(body?.customers) ? body.customers : [];
     const payments = Array.isArray(body?.payments) ? body.payments : [];
+    const suppliers = Array.isArray(body?.suppliers) ? body.suppliers : []; // NEW
 
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255656738253';
 
     const today = new Date().toISOString().split('T')[0];
 
     console.log('========================================');
     console.log('📨 SEND REMINDERS -', today);
+    console.log('👥 Customers:', customers.length, '| 🚚 Suppliers:', suppliers.length);
     console.log('========================================');
 
     const results: any[] = [];
     let customerSent = 0;
     let customerFailed = 0;
+    let supplierSent = 0;
+    let supplierFailed = 0;
     let ownerSent = 0;
 
+    // ============================================
+    // 1. CUSTOMER DEBTS
+    // ============================================
     for (const debt of debts) {
       const customer = customers.find((c: any) => c.id === debt.customerId);
-      
-      if (!customer || !customer.phoneNumber) {
-        console.log(`⏭️ Skipping: No customer or phone for debt "${debt.description}"`);
-        continue;
-      }
+      if (!customer || !customer.phoneNumber) continue;
 
       const debtPayments = payments.filter((p: any) => p.debtId === debt.id);
       const totalPaid = debtPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
       const remaining = (debt.amount || 0) - totalPaid;
 
-      console.log(`📋 ${customer.fullName}: "${debt.description}" | Remaining: ${remaining} | Due: ${debt.dueDate}`);
-
       if (remaining <= 0) continue;
       if (debt.dueDate !== today) continue;
 
       const customerPhone = normalizePhone(customer.phoneNumber);
-      const ownerPhone = normalizePhone(MY_PHONE);
 
-      console.log(`📱 Customer: ${customer.phoneNumber} → ${customerPhone}`);
-      console.log(`📱 Owner: ${MY_PHONE} → ${ownerPhone}`);
-
-      if (!customerPhone) continue;
-
-      // Message to Customer - SIMPLE AND CLEAN
+      // Message to Customer
       const customerMessage = `Habari ${customer.fullName}, leo ni siku ya mwisho kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}". Asante.`;
 
-      // Message to Owner - INCLUDES CUSTOMER NAME
-      const ownerMessage = `Amekumbushwa ${customer.fullName} (${customer.phoneNumber}) kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}".`;
-
-      // Send to CUSTOMER
-      console.log(`📤 Sending to CUSTOMER: ${customerPhone}`);
+      // Send to Customer
       const custResult = await sendSingleSMS({
         apiKey: BEEM_API_KEY,
         secretKey: BEEM_SECRET_KEY,
@@ -151,28 +131,45 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       });
 
       results.push({
-        to: 'customer',
+        type: 'customer',
         name: customer.fullName,
         phone: customerPhone,
         message: customerMessage,
         success: custResult.success,
-        error: custResult.error,
       });
 
-      if (custResult.success) {
-        customerSent++;
-        console.log(`✅ Customer SMS sent to ${customer.fullName}`);
-      } else {
-        customerFailed++;
-        console.log(`❌ Customer SMS failed: ${custResult.error}`);
-      }
+      if (custResult.success) customerSent++;
+      else customerFailed++;
 
-      // Small delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Send to OWNER (only if customer message sent successfully, or always)
-      console.log(`📤 Sending to OWNER: ${ownerPhone}`);
+      // Owner copy
+      const ownerMsg = `Imekukumbushwa ${customer.fullName} (${customer.phoneNumber}) kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}".`;
       const ownerResult = await sendSingleSMS({
+        apiKey: BEEM_API_KEY,
+        secretKey: BEEM_SECRET_KEY,
+        message: ownerMsg,
+        phone: normalizePhone(MY_PHONE),
+        source_addr: 'Sonko Sound',
+      });
+      if (ownerResult.success) ownerSent++;
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    // ============================================
+    // 2. SUPPLIER PAYMENTS (NEW)
+    // ============================================
+    for (const supplier of suppliers) {
+      const remaining = (supplier.amount || 0) - (supplier.paidAmount || 0);
+
+      if (remaining <= 0) continue;
+      if (supplier.dueDate !== today) continue;
+
+      const ownerPhone = normalizePhone(MY_PHONE);
+
+      // Message to Owner ONLY (not to supplier)
+      const ownerMessage = `⏰ Leo ni siku ya mwisho kumlipa ${supplier.name}. Deni: TSh ${remaining.toLocaleString()} ya "${supplier.notes || 'Bidhaa'}". Simu: ${supplier.phoneNumber || 'Haina'}.`;
+
+      const result = await sendSingleSMS({
         apiKey: BEEM_API_KEY,
         secretKey: BEEM_SECRET_KEY,
         message: ownerMessage,
@@ -181,24 +178,23 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       });
 
       results.push({
-        to: 'owner',
-        name: 'Wewe',
+        type: 'supplier',
+        name: supplier.name,
         phone: ownerPhone,
         message: ownerMessage,
-        success: ownerResult.success,
-        error: ownerResult.error,
+        success: result.success,
       });
 
-      if (ownerResult.success) {
-        ownerSent++;
-        console.log(`✅ Owner copy sent`);
-      }
+      if (result.success) supplierSent++;
+      else supplierFailed++;
 
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     console.log('========================================');
-    console.log(`✅ Customer: ${customerSent} | ❌ Failed: ${customerFailed} | 📋 Owner: ${ownerSent}`);
+    console.log(`✅ Customers: ${customerSent} | ❌ Failed: ${customerFailed}`);
+    console.log(`✅ Suppliers: ${supplierSent} | ❌ Failed: ${supplierFailed}`);
+    console.log(`📋 Owner copies: ${ownerSent}`);
     console.log('========================================');
 
     return json({
@@ -207,10 +203,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         date: today,
         customerSent,
         customerFailed,
+        supplierSent,
+        supplierFailed,
         ownerSent,
         results,
       },
-      message: `✅ Wateja: ${customerSent} | 📋 Nakala kwako: ${ownerSent}`,
+      message: `✅ Wateja: ${customerSent} | 🚚 Wauzaji: ${supplierSent} | 📋 Nakala: ${ownerSent}`,
     });
   } catch (error: any) {
     console.error('❌ Error:', error);
