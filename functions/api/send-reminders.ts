@@ -138,7 +138,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const customerMessage = `Habari ${customer.fullName}, leo ni siku ya mwisho kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}". Asante.`;
 
       // Message to Owner - INCLUDES CUSTOMER NAME
-      const ownerMessage = `Imekukumbushwa ${customer.fullName} (${customer.phoneNumber}) kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}".`;
+      const ownerMessage = `Amekumbushwa ${customer.fullName} (${customer.phoneNumber}) kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}".`;
 
       // Send to CUSTOMER
       console.log(`📤 Sending to CUSTOMER: ${customerPhone}`);
