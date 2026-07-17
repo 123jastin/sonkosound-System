@@ -4,7 +4,7 @@ import { api } from '../services/api';
 import { 
   Bell, ArrowLeft, Trash2, Calendar, Phone, CheckCircle2, 
   AlertTriangle, AlertCircle, Sparkles, MessageCircle, 
-  Send, Loader2, Check
+  Send, Loader2, Check, Truck
 } from 'lucide-react';
 
 interface NotificationsViewProps {
@@ -34,36 +34,30 @@ export default function NotificationsView({
   const [sendingIds, setSendingIds] = useState<Set<string>>(new Set());
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
   const autoSentRef = useRef(false);
+  const initializedRef = useRef(false);
 
-  // Auto-send ONCE per day when page loads with due today items
+  // Auto-send ONCE per day - only runs on first load
   useEffect(() => {
-    // Check if already sent today
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+
     const lastSentDate = localStorage.getItem('ledger_last_auto_send_date');
     const today = new Date().toISOString().split('T')[0];
     
-    // Only auto-send if not already sent today
-    if (lastSentDate === today) {
-      // Already sent today - just mark as sent without sending again
-      autoSentRef.current = true;
-      const todayNotifications = notifications.filter(n => n.type === 'Due Today');
-      if (todayNotifications.length > 0) {
-        setSentIds(new Set(todayNotifications.map(n => n.id)));
-      }
-      return;
-    }
-
-    // Not sent today - check if there are due items
     const todayNotifications = notifications.filter(n => n.type === 'Due Today');
-    if (todayNotifications.length > 0 && !autoSentRef.current) {
+    
+    // Only auto-send if not already sent today AND there are due items
+    if (lastSentDate !== today && todayNotifications.length > 0 && !autoSentRef.current) {
       autoSentRef.current = true;
       handleAutoSend(today);
+    } else if (lastSentDate === today && todayNotifications.length > 0) {
+      // Already sent today - just mark as sent
+      setSentIds(new Set(todayNotifications.map(n => n.id)));
     }
-  }, [notifications]);
+  }, []); // Empty dependency - runs only once on mount
 
-  // Auto-send function (runs once)
   const handleAutoSend = async (today: string) => {
     setIsSendingAll(true);
-    setReminderResult(null);
 
     try {
       const result = await api.reminders.send({
@@ -74,13 +68,13 @@ export default function NotificationsView({
       });
 
       if (result.success) {
-        // Save that we sent today
         localStorage.setItem('ledger_last_auto_send_date', today);
         
         setReminderResult({
           success: true,
-          message: `✅ Vikumbusho vya leo vimetumwa kiotomatiki kwa wateja ${result.data.customerSent} na wauzaji ${result.data.supplierSent || 0}.`,
+          message: `✅ Vikumbusho vya leo vimetumwa kiotomatiki (Wateja: ${result.data.customerSent}, Wauzaji: ${result.data.supplierSent || 0}).`,
         });
+        
         const todayIds = notifications.filter(n => n.type === 'Due Today').map(n => n.id);
         setSentIds(new Set(todayIds));
       }
@@ -104,11 +98,11 @@ export default function NotificationsView({
   // Manual send all
   const handleSendAllReminders = async () => {
     if (todayDueCount === 0) {
-      setReminderResult({ success: false, message: 'Hakuna madeni yanayotakiwa kulipwa leo.' });
+      setReminderResult({ success: false, message: 'Hakuna vikumbusho vya leo.' });
       return;
     }
 
-    if (!confirm(`Tuma vikumbusho vya SMS kwa wateja ${todayDueCount} wanaotakiwa kulipa leo?`)) return;
+    if (!confirm(`Tuma vikumbusho vyote vya leo (${todayDueCount})?`)) return;
 
     setIsSendingAll(true);
     setReminderResult(null);
@@ -127,21 +121,15 @@ export default function NotificationsView({
         
         setReminderResult({
           success: true,
-          message: `✅ Vikumbusho vimetumwa kwa wateja ${result.data.customerSent} na wauzaji ${result.data.supplierSent || 0}.`,
+          message: `✅ Wateja: ${result.data.customerSent} | Wauzaji: ${result.data.supplierSent || 0}`,
         });
         const todayIds = notifications.filter(n => n.type === 'Due Today').map(n => n.id);
         setSentIds(new Set(todayIds));
       } else {
-        setReminderResult({
-          success: false,
-          message: `❌ ${result.error || 'Imeshindwa kutuma.'}`,
-        });
+        setReminderResult({ success: false, message: `❌ ${result.error || 'Imeshindwa kutuma.'}` });
       }
     } catch (err: any) {
-      setReminderResult({
-        success: false,
-        message: `❌ ${err.message || 'Hitilafu ya mtandao.'}`,
-      });
+      setReminderResult({ success: false, message: `❌ ${err.message}` });
     } finally {
       setIsSendingAll(false);
     }
@@ -154,29 +142,26 @@ export default function NotificationsView({
     setSendingIds(prev => new Set(prev).add(item.id));
 
     try {
+      // For customer debt
       const relevantDebts = item.debtId 
         ? debts.filter((d: any) => d.id === item.debtId)
         : [];
       
-      const relevantSuppliers = !item.debtId && (item.type === 'Due Today' || item.type === 'Overdue')
-        ? suppliers.filter((s: any) => {
-            const remaining = (s.amount || 0) - (s.paidAmount || 0);
-            return remaining > 0;
-          })
-        : [];
-
+      // For supplier (only sends to admin, not supplier)
+      const isSupplierNotification = item.id.startsWith('supplier-');
+      
       const result = await api.reminders.send({
         debts: relevantDebts,
         customers,
         payments,
-        suppliers: relevantSuppliers,
+        suppliers: isSupplierNotification ? suppliers : [],
       });
 
       if (result.success) {
         setSentIds(prev => new Set(prev).add(item.id));
       }
     } catch (err: any) {
-      console.error('Failed to send single reminder:', err);
+      console.error('Send failed:', err);
     } finally {
       setSendingIds(prev => {
         const next = new Set(prev);
@@ -184,6 +169,60 @@ export default function NotificationsView({
         return next;
       });
     }
+  };
+
+  // Get icon for notification type
+  const getNotificationStyle = (item: NotificationItem) => {
+    const isSupplier = item.id.startsWith('supplier-');
+    
+    if (item.type === 'Overdue') {
+      return {
+        bgClass: 'bg-rose-50/70 border-rose-100 text-rose-950',
+        iconColor: 'text-rose-600',
+        badgeText: 'IMEKITHIRI',
+        badgeClass: 'bg-rose-100 text-rose-800',
+        IconComponent: AlertCircle,
+        label: isSupplier ? '🚚 Mlipaji' : '👤 Mteja'
+      };
+    }
+    if (item.type === 'Due Today') {
+      return {
+        bgClass: 'bg-amber-50/70 border-amber-100 text-amber-950',
+        iconColor: 'text-amber-600',
+        badgeText: 'LEO',
+        badgeClass: 'bg-amber-100 text-amber-800',
+        IconComponent: AlertTriangle,
+        label: isSupplier ? '🚚 Mlipaji' : '👤 Mteja'
+      };
+    }
+    if (item.type === 'Due Tomorrow') {
+      return {
+        bgClass: 'bg-amber-50/40 border-amber-100/60 text-slate-800',
+        iconColor: 'text-amber-500',
+        badgeText: 'KESHO',
+        badgeClass: 'bg-amber-100/60 text-amber-800',
+        IconComponent: Calendar,
+        label: isSupplier ? '🚚 Mlipaji' : '👤 Mteja'
+      };
+    }
+    if (item.type === 'Fully Paid' || item.type === 'Payment Received') {
+      return {
+        bgClass: 'bg-emerald-50/70 border-emerald-100 text-emerald-950',
+        iconColor: 'text-emerald-600',
+        badgeText: 'MALIPO',
+        badgeClass: 'bg-emerald-100 text-emerald-800',
+        IconComponent: CheckCircle2,
+        label: '👤 Mteja'
+      };
+    }
+    return {
+      bgClass: 'bg-slate-50 border-slate-100 text-slate-700',
+      iconColor: 'text-slate-500',
+      badgeText: 'TAARIFA',
+      badgeClass: 'bg-slate-200/60 text-slate-600',
+      IconComponent: Bell,
+      label: ''
+    };
   };
 
   return (
@@ -197,10 +236,10 @@ export default function NotificationsView({
           </button>
           <div>
             <h2 className="text-md font-extrabold text-slate-800 flex items-center gap-2">
-              <Bell size={18} className="text-rose-500 animate-bounce" />
-              Arifu na Vikumbusho Leo
+              <Bell size={18} className="text-rose-500" />
+              Arifu na Vikumbusho
             </h2>
-            <p className="text-xs text-slate-400 mt-1">Vikumbusho vya malipo na updates za biashara yako.</p>
+            <p className="text-xs text-slate-400 mt-1">Wateja wanaodaiwa na wauzaji wanaotakiwa kulipwa.</p>
           </div>
         </div>
 
@@ -213,19 +252,19 @@ export default function NotificationsView({
           )}
           {onClearAll && notifications.length > 0 && (
             <button onClick={onClearAll} className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-[11px] py-2 px-3 rounded-xl flex items-center gap-1.5 transition-colors">
-              <Trash2 size={13} /> Futa Zote
+              <Trash2 size={13} /> Futa
             </button>
           )}
         </div>
       </div>
 
-      {/* Result Message */}
+      {/* Result */}
       {reminderResult && (
         <div className={`p-4 rounded-2xl border text-xs font-medium ${reminderResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
           <div className="flex items-center gap-2">
             {reminderResult.success ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
             <span>{reminderResult.message}</span>
-            <button onClick={() => setReminderResult(null)} className="ml-auto text-current opacity-50 hover:opacity-100">✕</button>
+            <button onClick={() => setReminderResult(null)} className="ml-auto opacity-50 hover:opacity-100">✕</button>
           </div>
         </div>
       )}
@@ -249,51 +288,42 @@ export default function NotificationsView({
       <div className="space-y-3">
         {filteredNotifications.length > 0 ? (
           filteredNotifications.map(item => {
-            let bgClass = 'bg-slate-50 border-slate-100 text-slate-700';
-            let iconColor = 'text-slate-500';
-            let badgeText = 'Taarifa';
-            let badgeClass = 'bg-slate-200/60 text-slate-600';
-            let IconComponent = Bell;
-
-            if (item.type === 'Overdue') {
-              bgClass = 'bg-rose-50/70 border-rose-100 text-rose-950'; iconColor = 'text-rose-600';
-              badgeText = 'IMEKITHIRI'; badgeClass = 'bg-rose-100 text-rose-800'; IconComponent = AlertCircle;
-            } else if (item.type === 'Due Today') {
-              bgClass = 'bg-amber-50/70 border-amber-100 text-amber-950'; iconColor = 'text-amber-600';
-              badgeText = 'LEO'; badgeClass = 'bg-amber-100 text-amber-800'; IconComponent = AlertTriangle;
-            } else if (item.type === 'Due Tomorrow') {
-              bgClass = 'bg-amber-50/40 border-amber-100/60 text-slate-800'; iconColor = 'text-amber-500';
-              badgeText = 'KESHO'; badgeClass = 'bg-amber-100/60 text-amber-800'; IconComponent = Calendar;
-            } else if (item.type === 'Fully Paid' || item.type === 'Payment Received') {
-              bgClass = 'bg-emerald-50/70 border-emerald-100 text-emerald-950'; iconColor = 'text-emerald-600';
-              badgeText = 'MALIPO'; badgeClass = 'bg-emerald-100 text-emerald-800'; IconComponent = CheckCircle2;
-            } else if (item.type === 'New Customer Added') {
-              bgClass = 'bg-teal-50/70 border-teal-100 text-teal-950'; iconColor = 'text-teal-600';
-              badgeText = 'MTEJA MPYA'; badgeClass = 'bg-teal-100 text-teal-800'; IconComponent = Sparkles;
-            }
-
+            const isSupplier = item.id.startsWith('supplier-');
+            const { bgClass, iconColor, badgeText, badgeClass, IconComponent, label } = getNotificationStyle(item);
             const isSending = sendingIds.has(item.id);
             const isSent = sentIds.has(item.id);
-            const canSend = (item.type === 'Due Today' || item.type === 'Overdue') && item.customerId && !isSent;
+            // Show send button for Due Today & Overdue (both customer and supplier)
+            const canSend = (item.type === 'Due Today' || item.type === 'Overdue') && !isSent;
 
             return (
               <div key={item.id} className={`p-4 rounded-2xl border flex items-start gap-3.5 transition-all shadow-sm ${bgClass}`}>
-                <div className={`p-2 rounded-xl bg-white shadow-sm mt-0.5 ${iconColor}`}><IconComponent size={18} /></div>
+                <div className={`p-2 rounded-xl bg-white shadow-sm mt-0.5 ${iconColor}`}>
+                  {isSupplier ? <Truck size={18} /> : <IconComponent size={18} />}
+                </div>
                 
                 <div className="flex-1 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded ${badgeClass}`}>{badgeText}</span>
-                    <span className="text-[10px] text-slate-400 font-mono">Tarehe: {item.date}</span>
+                    {label && (
+                      <span className="text-[9px] text-slate-500 font-medium">{label}</span>
+                    )}
+                    <span className="text-[10px] text-slate-400 font-mono">{item.date}</span>
                     {isSent && (
                       <span className="text-[9px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full flex items-center gap-1">
                         <Check size={10} /> Imetumwa
+                      </span>
+                    )}
+                    {isSupplier && (
+                      <span className="text-[9px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-full">
+                        SMS kwako tu
                       </span>
                     )}
                   </div>
                   
                   <p className="text-xs font-semibold leading-relaxed text-slate-800">{item.message}</p>
 
-                  {item.customerId && (() => {
+                  {/* Action buttons for CUSTOMER notifications */}
+                  {item.customerId && !isSupplier && (() => {
                     const customer = customers.find(c => c.id === item.customerId);
                     if (!customer) return null;
 
@@ -306,33 +336,26 @@ export default function NotificationsView({
                     };
 
                     const phoneFormattedForWa = formatWhatsAppNumber(customer.phoneNumber).replace('+', '');
-                    const isFinished = item.type === 'Fully Paid' || item.type === 'Payment Received';
-                    const waMessage = isFinished 
-                      ? "Habari, asante sana kwa kumaliza deni karibu tena 🙏"
-                      : "Habari, ningependa kukukumbusha kwamba leo ndio siku ya kulipa deni lako.";
+                    const waMessage = "Habari, ningependa kukukumbusha kuhusu deni lako.";
                     const waUrl = `https://wa.me/${phoneFormattedForWa}?text=${encodeURIComponent(waMessage)}`;
 
                     return (
                       <div className="pt-2.5 flex items-center justify-between flex-wrap gap-2 border-t border-slate-100/50 mt-2">
-                        <span className="text-[10px] text-slate-400 font-medium font-mono">Simu: {customer.phoneNumber}</span>
+                        <span className="text-[10px] text-slate-400 font-mono">📱 {customer.phoneNumber}</span>
                         <div className="flex items-center gap-1.5">
-                          {/* Call */}
-                          <a href={`tel:${customer.phoneNumber}`} className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition border border-slate-200" title="Piga Simu">
-                            <Phone size={13} className="stroke-[2.5]" />
+                          <a href={`tel:${customer.phoneNumber}`} className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition border border-slate-200" title="Piga">
+                            <Phone size={13} />
                           </a>
-                          {/* WhatsApp */}
                           <a href={waUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl transition border border-emerald-100 text-[10px] font-extrabold" title="WhatsApp">
-                            <MessageCircle size={13} className="stroke-[2.5]" /><span>WhatsApp</span>
+                            <MessageCircle size={13} /><span>WhatsApp</span>
                           </a>
-                          {/* Individual Send SMS */}
                           {canSend && (
                             <button onClick={() => handleSendSingleReminder(item)} disabled={isSending}
-                              className={`p-1.5 rounded-xl transition border text-[10px] font-extrabold flex items-center gap-1 ${isSending ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-200'}`}
+                              className={`p-1.5 rounded-xl transition border ${isSending ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-200'}`}
                               title="Tuma SMS">
-                              {isSending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} className="stroke-[2.5]" />}
+                              {isSending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
                             </button>
                           )}
-                          {/* Profile */}
                           <button onClick={() => { setSelectedCustomerId(item.customerId!); setCurrentTab('customers'); }}
                             className="text-[10px] font-extrabold text-slate-900 hover:text-accent bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl transition shadow-sm">
                             Wasifu →
@@ -341,6 +364,26 @@ export default function NotificationsView({
                       </div>
                     );
                   })()}
+
+                  {/* Action buttons for SUPPLIER notifications */}
+                  {isSupplier && (
+                    <div className="pt-2.5 flex items-center justify-between flex-wrap gap-2 border-t border-slate-100/50 mt-2">
+                      <span className="text-[10px] text-slate-400">⚠️ Vikumbusho vinakwenda kwako (admin)</span>
+                      <div className="flex items-center gap-1.5">
+                        {canSend && (
+                          <button onClick={() => handleSendSingleReminder(item)} disabled={isSending}
+                            className={`px-2.5 py-1.5 rounded-xl transition border text-[10px] font-extrabold flex items-center gap-1 ${isSending ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-200'}`}
+                            title="Tuma SMS kwako">
+                            {isSending ? <Loader2 size={13} className="animate-spin" /> : <><Send size={13} /> Tuma SMS</>}
+                          </button>
+                        )}
+                        <button onClick={() => setCurrentTab('suppliers')}
+                          className="text-[10px] font-extrabold text-slate-900 hover:text-accent bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl transition shadow-sm">
+                          Wauzaji →
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );
