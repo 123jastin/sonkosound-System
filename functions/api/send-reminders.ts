@@ -1,411 +1,217 @@
-import { useState, useEffect } from 'react';
-import { NotificationItem, Customer } from '../types';
-import { api } from '../services/api';
-import { 
-  Bell, ArrowLeft, Trash2, Calendar, Phone, CheckCircle2, 
-  AlertTriangle, AlertCircle, Sparkles, MessageCircle, 
-  Send, Loader2, Check
-} from 'lucide-react';
+// functions/api/send-reminders.ts
+import type { PagesFunction } from '@cloudflare/workers-types';
 
-interface NotificationsViewProps {
-  notifications: NotificationItem[];
-  customers: Customer[];
-  suppliers?: any[];
-  debts?: any[];
-  payments?: any[];
-  setCurrentTab: (tab: string) => void;
-  setSelectedCustomerId: (id: string | null) => void;
-  onClearAll?: () => void;
-}
+type Env = {
+  DB: D1Database;
+};
 
-export default function NotificationsView({
-  notifications,
-  customers,
-  suppliers = [],
-  debts = [],
-  payments = [],
-  setCurrentTab,
-  setSelectedCustomerId,
-  onClearAll
-}: NotificationsViewProps) {
-  const [filterType, setFilterType] = useState<string>('All');
-  const [sendingIds, setSendingIds] = useState<Set<string>>(new Set());
-  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
-  const [autoSent, setAutoSent] = useState(false);
+const cors = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
 
-  // Auto-send SMS when notifications page loads with due today items
-  useEffect(() => {
-    if (autoSent) return;
-    
-    const todayNotifications = notifications.filter(n => n.type === 'Due Today');
-    if (todayNotifications.length > 0) {
-      handleSendAllReminders();
-      setAutoSent(true);
-    }
-  }, [notifications]);
-
-  const filteredNotifications = notifications.filter(item => {
-    if (filterType === 'All') return true;
-    if (filterType === 'Overdue') return item.type === 'Overdue';
-    if (filterType === 'Due Today') return item.type === 'Due Today' || item.type === 'Due Tomorrow';
-    if (filterType === 'Paid') return item.type === 'Fully Paid' || item.type === 'Payment Received';
-    return true;
+const json = (data: any, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });
 
-  const todayDueCount = notifications.filter(n => n.type === 'Due Today').length;
+export const onRequestOptions: PagesFunction = async () =>
+  new Response(null, { status: 204, headers: cors });
 
-  // Send all reminders automatically
-  const handleSendAllReminders = async () => {
-    if (todayDueCount === 0) return;
+const normalizePhone = (value: any) => {
+  let v = String(value || '').trim();
+  v = v.replace(/[^\d+]/g, '');
+  if (!v) return '';
+  if (v.startsWith('+')) v = v.slice(1);
+  if (v.startsWith('00')) v = v.slice(2);
+  if (v.startsWith('0')) v = '255' + v.slice(1);
+  if (!v.startsWith('255')) v = '255' + v;
+  return v;
+};
 
-    setIsSendingAll(true);
-    setReminderResult(null);
+const toBase64 = (value: string) => btoa(value);
 
-    try {
-      const result = await api.reminders.send({
-        debts,
-        customers,
-        payments,
-        suppliers,
-      });
-
-      if (result.success) {
-        setReminderResult({
-          success: true,
-          message: `✅ Tumesend vikumbusho kwa wateja ${result.data.customerSent} na wauzaji ${result.data.supplierSent || 0}.`,
-        });
-        // Mark all due today as sent
-        const todayIds = notifications.filter(n => n.type === 'Due Today').map(n => n.id);
-        setSentIds(new Set(todayIds));
-      } else {
-        setReminderResult({
-          success: false,
-          message: `❌ ${result.error || 'Imeshindwa kutuma.'}`,
-        });
-      }
-    } catch (err: any) {
-      setReminderResult({
-        success: false,
-        message: `❌ ${err.message || 'Hitilafu ya mtandao.'}`,
-      });
-    } finally {
-      setIsSendingAll(false);
-    }
+async function sendSingleSMS(params: {
+  apiKey: string;
+  secretKey: string;
+  message: string;
+  phone: string;
+  source_addr?: string;
+}) {
+  const payload: any = {
+    source_addr: params.source_addr || 'Sonko Sound',
+    schedule_time: '',
+    encoding: 0,
+    message: params.message,
+    recipients: [{ recipient_id: 1, dest_addr: params.phone }],
   };
 
-  // Send individual SMS for a specific notification
-  const handleSendSingleReminder = async (item: NotificationItem) => {
-    if (sendingIds.has(item.id) || sentIds.has(item.id)) return;
+  const auth = toBase64(`${params.apiKey}:${params.secretKey}`);
 
-    setSendingIds(prev => new Set(prev).add(item.id));
+  try {
+    const response = await fetch('https://apisms.beem.africa/v1/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${auth}`,
+      },
+      body: JSON.stringify(payload),
+    });
 
-    try {
-      // Find the specific debt or supplier for this notification
-      const relevantDebts = item.debtId 
-        ? debts.filter((d: any) => d.id === item.debtId)
-        : [];
-      const relevantSuppliers = !item.debtId && item.type === 'Due Today'
-        ? suppliers.filter((s: any) => {
-            const remaining = (s.amount || 0) - (s.paidAmount || 0);
-            return remaining > 0 && s.dueDate === new Date().toISOString().split('T')[0];
-          })
-        : [];
+    const rawText = await response.text();
+    let parsed: any = null;
+    try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
 
-      const result = await api.reminders.send({
-        debts: relevantDebts,
-        customers,
-        payments,
-        suppliers: relevantSuppliers,
-      });
-
-      if (result.success) {
-        setSentIds(prev => new Set(prev).add(item.id));
-      }
-    } catch (err: any) {
-      console.error('Failed to send single reminder:', err);
-    } finally {
-      setSendingIds(prev => {
-        const next = new Set(prev);
-        next.delete(item.id);
-        return next;
-      });
-    }
-  };
-
-  return (
-    <div className="space-y-6 text-xs text-left">
-      {/* Header with Back button */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-5 rounded-3xl border border-slate-100 shadow-sm gap-4">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setCurrentTab('dashboard')}
-            className="p-2 hover:bg-slate-50 text-slate-500 hover:text-slate-700 rounded-xl border border-slate-100 transition-colors"
-            title="Rudi"
-          >
-            <ArrowLeft size={16} />
-          </button>
-          <div>
-            <h2 className="text-md font-extrabold text-slate-800 flex items-center gap-2">
-              <Bell size={18} className="text-rose-500 animate-bounce" />
-              Arifu na Vikumbusho Leo
-            </h2>
-            <p className="text-xs text-slate-400 mt-1">
-              Vikumbusho vya malipo, madeni yaliyopitisha muda na updates za biashara yako.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Manual Send All Button */}
-          {todayDueCount > 0 && (
-            <button
-              onClick={handleSendAllReminders}
-              disabled={isSendingAll}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] py-2 px-3 rounded-xl flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
-              title="Tuma vikumbusho vyote vya leo"
-            >
-              {isSendingAll ? (
-                <>
-                  <Loader2 size={13} className="animate-spin" />
-                  Inatuma...
-                </>
-              ) : (
-                <>
-                  <Send size={13} />
-                  Tuma Zote ({todayDueCount})
-                </>
-              )}
-            </button>
-          )}
-
-          {onClearAll && notifications.length > 0 && (
-            <button
-              onClick={onClearAll}
-              className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-[11px] py-2 px-3 rounded-xl flex items-center gap-1.5 transition-colors"
-            >
-              <Trash2 size={13} /> Futa Zote
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Reminder Result Message */}
-      {reminderResult && (
-        <div className={`p-4 rounded-2xl border text-xs font-medium ${
-          reminderResult.success 
-            ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
-            : 'bg-rose-50 border-rose-200 text-rose-700'
-        }`}>
-          <div className="flex items-center gap-2">
-            {reminderResult.success ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-            <span>{reminderResult.message}</span>
-            <button 
-              onClick={() => setReminderResult(null)}
-              className="ml-auto text-current opacity-50 hover:opacity-100"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Auto-send status */}
-      {autoSent && todayDueCount > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3 text-[11px] text-blue-700 flex items-center gap-2">
-          <CheckCircle2 size={14} />
-          <span>Vikumbusho vya leo vimetumwa kiotomatiki. Unaweza kutuma tena kwa kubofya ikoni ya <Send size={10} className="inline" /> kwenye kila kitu.</span>
-        </div>
-      )}
-
-      {/* Tabs / Filters */}
-      <div className="flex gap-2 overflow-x-auto pb-1 select-none">
-        {[
-          { id: 'All', label: `Zote (${notifications.length})` },
-          { id: 'Overdue', label: `Zilizopitisha (${notifications.filter(n => n.type === 'Overdue').length})` },
-          { id: 'Due Today', label: `Leo & Kesho (${notifications.filter(n => n.type === 'Due Today' || n.type === 'Due Tomorrow').length})` },
-          { id: 'Paid', label: `Malipo (${notifications.filter(n => n.type === 'Fully Paid' || n.type === 'Payment Received').length})` }
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setFilterType(tab.id)}
-            className={`py-1.5 px-3 rounded-lg border text-[11px] font-bold whitespace-nowrap transition-colors ${
-              filterType === tab.id
-                ? 'bg-slate-900 border-slate-900 text-white'
-                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Notifications List */}
-      <div className="space-y-3">
-        {filteredNotifications.length > 0 ? (
-          filteredNotifications.map(item => {
-            let bgClass = 'bg-slate-50 border-slate-100 text-slate-700';
-            let iconColor = 'text-slate-500';
-            let badgeText = 'Taarifa';
-            let badgeClass = 'bg-slate-200/60 text-slate-600';
-            let IconComponent = Bell;
-
-            if (item.type === 'Overdue') {
-              bgClass = 'bg-rose-50/70 border-rose-100 text-rose-950';
-              iconColor = 'text-rose-600';
-              badgeText = 'IMEKITHIRI';
-              badgeClass = 'bg-rose-100 text-rose-800';
-              IconComponent = AlertCircle;
-            } else if (item.type === 'Due Today') {
-              bgClass = 'bg-amber-50/70 border-amber-100 text-amber-950';
-              iconColor = 'text-amber-600';
-              badgeText = 'LEO';
-              badgeClass = 'bg-amber-100 text-amber-800';
-              IconComponent = AlertTriangle;
-            } else if (item.type === 'Due Tomorrow') {
-              bgClass = 'bg-amber-50/40 border-amber-100/60 text-slate-800';
-              iconColor = 'text-amber-500';
-              badgeText = 'KESHO';
-              badgeClass = 'bg-amber-100/60 text-amber-800';
-              IconComponent = Calendar;
-            } else if (item.type === 'Fully Paid' || item.type === 'Payment Received') {
-              bgClass = 'bg-emerald-50/70 border-emerald-100 text-emerald-950';
-              iconColor = 'text-emerald-600';
-              badgeText = 'MALIPO';
-              badgeClass = 'bg-emerald-100 text-emerald-800';
-              IconComponent = CheckCircle2;
-            } else if (item.type === 'New Customer Added') {
-              bgClass = 'bg-teal-50/70 border-teal-100 text-teal-950';
-              iconColor = 'text-teal-600';
-              badgeText = 'MTEJA MPYA';
-              badgeClass = 'bg-teal-100 text-teal-800';
-              IconComponent = Sparkles;
-            }
-
-            const isSending = sendingIds.has(item.id);
-            const isSent = sentIds.has(item.id);
-            const canSend = item.type === 'Due Today' && item.customerId && !isSent;
-
-            return (
-              <div
-                key={item.id}
-                className={`p-4 rounded-2xl border flex items-start gap-3.5 transition-all shadow-sm ${bgClass}`}
-              >
-                <div className={`p-2 rounded-xl bg-white shadow-sm mt-0.5 ${iconColor}`}>
-                  <IconComponent size={18} />
-                </div>
-                
-                <div className="flex-1 space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded ${badgeClass}`}>
-                      {badgeText}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      Tarehe: {item.date}
-                    </span>
-                    {isSent && (
-                      <span className="text-[9px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full flex items-center gap-1">
-                        <Check size={10} /> Imetumwa
-                      </span>
-                    )}
-                  </div>
-                  
-                  <p className="text-xs font-semibold leading-relaxed text-slate-800">
-                    {item.message}
-                  </p>
-
-                  {item.customerId && (() => {
-                    const customer = customers.find(c => c.id === item.customerId);
-                    if (!customer) return null;
-
-                    const formatWhatsAppNumber = (phone: string): string => {
-                      let cleaned = phone.trim().replace(/\s+/g, '');
-                      if (cleaned.startsWith('0')) return '+255' + cleaned.slice(1);
-                      if (!cleaned.startsWith('+') && !cleaned.startsWith('255')) return '+255' + cleaned;
-                      if (cleaned.startsWith('255')) return '+' + cleaned;
-                      return cleaned;
-                    };
-
-                    const phoneFormattedForWa = formatWhatsAppNumber(customer.phoneNumber).replace('+', '');
-                    const isFinished = item.type === 'Fully Paid' || item.type === 'Payment Received';
-                    const waMessage = isFinished 
-                      ? "Habari, asante sana kwa kumaliza deni karibu tena 🙏"
-                      : "Habari, ningependa kukukumbusha kwamba leo ndio siku ya kulipa deni lako.";
-                    const waUrl = `https://wa.me/${phoneFormattedForWa}?text=${encodeURIComponent(waMessage)}`;
-
-                    return (
-                      <div className="pt-2.5 flex items-center justify-between flex-wrap gap-2 border-t border-slate-100/50 mt-2">
-                        <span className="text-[10px] text-slate-400 font-medium font-mono">
-                          Simu: {customer.phoneNumber}
-                        </span>
-
-                        <div className="flex items-center gap-1.5">
-                          {/* Call Button */}
-                          <a
-                            href={`tel:${customer.phoneNumber}`}
-                            className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition border border-slate-200"
-                            title="Piga Simu"
-                          >
-                            <Phone size={13} className="stroke-[2.5]" />
-                          </a>
-
-                          {/* WhatsApp Button */}
-                          <a
-                            href={waUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl transition border border-emerald-100 text-[10px] font-extrabold"
-                            title="Tuma Ujumbe WhatsApp"
-                          >
-                            <MessageCircle size={13} className="stroke-[2.5]" />
-                            <span>WhatsApp</span>
-                          </a>
-
-                          {/* Individual Send SMS Button */}
-                          {canSend && (
-                            <button
-                              onClick={() => handleSendSingleReminder(item)}
-                              disabled={isSending}
-                              className={`p-1.5 rounded-xl transition border text-[10px] font-extrabold flex items-center gap-1 ${
-                                isSending 
-                                  ? 'bg-slate-100 text-slate-400 border-slate-200' 
-                                  : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-200'
-                              }`}
-                              title="Tuma SMS kwa mteja huyu"
-                            >
-                              {isSending ? (
-                                <Loader2 size={13} className="animate-spin" />
-                              ) : (
-                                <Send size={13} className="stroke-[2.5]" />
-                              )}
-                            </button>
-                          )}
-
-                          {/* Profile Button */}
-                          <button
-                            onClick={() => {
-                              setSelectedCustomerId(item.customerId!);
-                              setCurrentTab('customers');
-                            }}
-                            className="text-[10px] font-extrabold text-slate-900 hover:text-accent bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl transition shadow-sm"
-                          >
-                            Wasifu →
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-            );
-          })
-        ) : (
-          <div className="bg-white rounded-3xl border border-slate-100 p-12 text-center text-slate-400 shadow-sm">
-            <Bell size={40} className="mx-auto text-slate-300 mb-3" />
-            <p className="text-sm font-semibold">Hakuna arifu au vikumbusho vilivyopatikana.</p>
-            <p className="text-xs mt-1">Chaguo la kichujio ulichoweka hakina kumbukumbu zozote kwa sasa.</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+    return {
+      success: response.ok && !parsed?.error,
+      status: response.status,
+      data: parsed,
+      error: !response.ok ? (parsed?.message || parsed?.error_description || rawText) : null,
+    };
+  } catch (err: any) {
+    return { success: false, status: 0, data: null, error: err.message };
+  }
 }
+
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+  try {
+    const body = await request.json().catch(() => null);
+
+    const debts = Array.isArray(body?.debts) ? body.debts : [];
+    const customers = Array.isArray(body?.customers) ? body.customers : [];
+    const payments = Array.isArray(body?.payments) ? body.payments : [];
+    const suppliers = Array.isArray(body?.suppliers) ? body.suppliers : []; // NEW
+
+    const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
+    const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
+
+    const today = new Date().toISOString().split('T')[0];
+
+    console.log('========================================');
+    console.log('📨 SEND REMINDERS -', today);
+    console.log('👥 Customers:', customers.length, '| 🚚 Suppliers:', suppliers.length);
+    console.log('========================================');
+
+    const results: any[] = [];
+    let customerSent = 0;
+    let customerFailed = 0;
+    let supplierSent = 0;
+    let supplierFailed = 0;
+    let ownerSent = 0;
+
+    // ============================================
+    // 1. CUSTOMER DEBTS
+    // ============================================
+    for (const debt of debts) {
+      const customer = customers.find((c: any) => c.id === debt.customerId);
+      if (!customer || !customer.phoneNumber) continue;
+
+      const debtPayments = payments.filter((p: any) => p.debtId === debt.id);
+      const totalPaid = debtPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+      const remaining = (debt.amount || 0) - totalPaid;
+
+      if (remaining <= 0) continue;
+      if (debt.dueDate !== today) continue;
+
+      const customerPhone = normalizePhone(customer.phoneNumber);
+
+      // Message to Customer
+      const customerMessage = `Habari ${customer.fullName}, leo ni siku ya mwisho kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}". Asante.`;
+
+      // Send to Customer
+      const custResult = await sendSingleSMS({
+        apiKey: BEEM_API_KEY,
+        secretKey: BEEM_SECRET_KEY,
+        message: customerMessage,
+        phone: customerPhone,
+        source_addr: 'Sonko Sound',
+      });
+
+      results.push({
+        type: 'customer',
+        name: customer.fullName,
+        phone: customerPhone,
+        message: customerMessage,
+        success: custResult.success,
+      });
+
+      if (custResult.success) customerSent++;
+      else customerFailed++;
+
+      // Owner copy
+      const ownerMsg = `Imemkumbusha ${customer.fullName} (${customer.phoneNumber}) kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}".`;
+      const ownerResult = await sendSingleSMS({
+        apiKey: BEEM_API_KEY,
+        secretKey: BEEM_SECRET_KEY,
+        message: ownerMsg,
+        phone: normalizePhone(MY_PHONE),
+        source_addr: 'Sonko Sound',
+      });
+      if (ownerResult.success) ownerSent++;
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    // ============================================
+    // 2. SUPPLIER PAYMENTS (NEW)
+    // ============================================
+    for (const supplier of suppliers) {
+      const remaining = (supplier.amount || 0) - (supplier.paidAmount || 0);
+
+      if (remaining <= 0) continue;
+      if (supplier.dueDate !== today) continue;
+
+      const ownerPhone = normalizePhone(MY_PHONE);
+
+      // Message to Owner ONLY (not to supplier)
+      const ownerMessage = `⏰ Leo ni siku ya mwisho kumlipa ${supplier.name}. Deni: TSh ${remaining.toLocaleString()} ya "${supplier.notes || 'Bidhaa'}". Simu: ${supplier.phoneNumber || 'Haina'}.`;
+
+      const result = await sendSingleSMS({
+        apiKey: BEEM_API_KEY,
+        secretKey: BEEM_SECRET_KEY,
+        message: ownerMessage,
+        phone: ownerPhone,
+        source_addr: 'Sonko Sound',
+      });
+
+      results.push({
+        type: 'supplier',
+        name: supplier.name,
+        phone: ownerPhone,
+        message: ownerMessage,
+        success: result.success,
+      });
+
+      if (result.success) supplierSent++;
+      else supplierFailed++;
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    console.log('========================================');
+    console.log(`✅ Customers: ${customerSent} | ❌ Failed: ${customerFailed}`);
+    console.log(`✅ Suppliers: ${supplierSent} | ❌ Failed: ${supplierFailed}`);
+    console.log(`📋 Owner copies: ${ownerSent}`);
+    console.log('========================================');
+
+    return json({
+      success: true,
+      data: {
+        date: today,
+        customerSent,
+        customerFailed,
+        supplierSent,
+        supplierFailed,
+        ownerSent,
+        results,
+      },
+      message: `✅ Wateja: ${customerSent} | 🚚 Wauzaji: ${supplierSent} | 📋 Nakala: ${ownerSent}`,
+    });
+  } catch (error: any) {
+    console.error('❌ Error:', error);
+    return json({ success: false, error: error?.message }, 500);
+  }
+};
