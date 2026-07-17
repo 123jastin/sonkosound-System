@@ -20,41 +20,45 @@ const json = (data: any, status = 200) =>
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
-const makeId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-
 const normalizePhone = (value: any) => {
   let v = String(value || '').trim();
   v = v.replace(/[^\d+]/g, '');
   if (!v) return '';
-  if (v.startsWith('00')) v = `+${v.slice(2)}`;
-  if (!v.startsWith('+') && v.startsWith('0') && v.length >= 10) v = `+255${v.slice(1)}`;
-  if (!v.startsWith('+') && /^\d+$/.test(v)) {
-    if (v.startsWith('255')) v = `+${v}`;
-    else if (v.length >= 9) v = `+${v}`;
-  }
+  
+  // Convert to 255XXXXXXXXX format (no +)
   if (v.startsWith('+')) v = v.slice(1);
+  if (v.startsWith('00')) v = v.slice(2);
+  if (v.startsWith('0')) v = '255' + v.slice(1);
+  if (!v.startsWith('255')) v = '255' + v;
+  
   return v;
 };
 
 const toBase64 = (value: string) => btoa(value);
 
-async function sendViaBeem(params: {
+async function sendSingleSMS(params: {
   apiKey: string;
   secretKey: string;
   message: string;
-  recipients: Array<{ recipient_id: number; dest_addr: string }>;
+  phone: string;
   source_addr?: string;
 }) {
   const payload: any = {
+    source_addr: params.source_addr || 'INFO',
     schedule_time: '',
     encoding: 0,
     message: params.message,
-    recipients: params.recipients,
+    recipients: [
+      {
+        recipient_id: 1,
+        dest_addr: params.phone,
+      },
+    ],
   };
 
-  if (params.source_addr && String(params.source_addr).trim()) {
-    payload.source_addr = String(params.source_addr).trim();
-  }
+  console.log('📤 Sending SMS to:', params.phone);
+  console.log('📤 Message:', params.message);
+  console.log('📤 Payload:', JSON.stringify(payload));
 
   const auth = toBase64(`${params.apiKey}:${params.secretKey}`);
 
@@ -68,113 +72,149 @@ async function sendViaBeem(params: {
   });
 
   const rawText = await response.text();
-  let parsed: any = null;
-  try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
+  console.log('📥 Beem response status:', response.status);
+  console.log('📥 Beem response body:', rawText);
 
-  if (!response.ok) {
-    throw new Error(parsed?.message || parsed?.error || `Beem HTTP ${response.status}`);
+  let parsed: any = null;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    parsed = { raw: rawText };
   }
 
-  return parsed;
+  return {
+    success: response.ok,
+    status: response.status,
+    data: parsed,
+  };
 }
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => null);
-    
+
     const debts = Array.isArray(body?.debts) ? body.debts : [];
     const customers = Array.isArray(body?.customers) ? body.customers : [];
     const payments = Array.isArray(body?.payments) ? body.payments : [];
 
-    // Beem credentials
+    // Use your Beem credentials
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
     const MY_PHONE = env.MY_PHONE_NUMBER || '255656738253';
 
     const today = new Date().toISOString().split('T')[0];
-    
-    const messagesSent: Array<{ customer: string; phone: string; message: string; success: boolean }> = [];
+
+    console.log('=== SEND REMINDERS START ===');
+    console.log('Today:', today);
+    console.log('Total debts:', debts.length);
+    console.log('Total customers:', customers.length);
+
+    const results: any[] = [];
     let customerSent = 0;
     let ownerSent = 0;
 
-    // Process debts due TODAY only
     for (const debt of debts) {
       const customer = customers.find((c: any) => c.id === debt.customerId);
-      if (!customer || !customer.phoneNumber) continue;
+      if (!customer || !customer.phoneNumber) {
+        console.log(`⏭️ Skipping debt ${debt.id}: No customer or phone`);
+        continue;
+      }
 
       const debtPayments = payments.filter((p: any) => p.debtId === debt.id);
       const totalPaid = debtPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
       const remaining = (debt.amount || 0) - totalPaid;
 
-      // ONLY debts due TODAY with remaining balance
-      if (remaining <= 0) continue;
-      if (debt.dueDate !== today) continue;
+      console.log(`📋 Debt: ${debt.description}, Due: ${debt.dueDate}, Remaining: ${remaining}`);
+
+      // ONLY debts due TODAY
+      if (remaining <= 0) {
+        console.log(`⏭️ Skipping: Already paid`);
+        continue;
+      }
+      if (debt.dueDate !== today) {
+        console.log(`⏭️ Skipping: Due date ${debt.dueDate} is not today ${today}`);
+        continue;
+      }
 
       const customerPhone = normalizePhone(customer.phoneNumber);
-      if (!customerPhone) continue;
+      console.log(`📱 Customer: ${customer.fullName}, Phone: ${customer.phoneNumber} → ${customerPhone}`);
+
+      if (!customerPhone) {
+        console.log(`⏭️ Skipping: Invalid phone`);
+        continue;
+      }
 
       // Message to Customer
       const customerMessage = `Leo ni siku ya mwisho kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}".`;
-      
-      // Message to Owner (includes supplier/customer name)
+
+      // Message to Owner
       const ownerMessage = `Leo ni siku ya mwisho kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}" Kwa ${customer.fullName}.`;
 
-      try {
-        // Send to Customer
-        await sendViaBeem({
-          apiKey: BEEM_API_KEY,
-          secretKey: BEEM_SECRET_KEY,
-          message: customerMessage,
-          recipients: [{ recipient_id: 1, dest_addr: customerPhone }],
-          source_addr: 'Sonko Sound',
-        });
+      // Send to Customer
+      console.log(`📤 Sending to customer: ${customer.fullName}`);
+      const customerResult = await sendSingleSMS({
+        apiKey: BEEM_API_KEY,
+        secretKey: BEEM_SECRET_KEY,
+        message: customerMessage,
+        phone: customerPhone,
+        source_addr: 'Sonko Sound',
+      });
 
-        messagesSent.push({
-          customer: customer.fullName,
-          phone: customerPhone,
-          message: customerMessage,
-          success: true,
-        });
+      results.push({
+        customer: customer.fullName,
+        phone: customerPhone,
+        type: 'customer',
+        message: customerMessage,
+        success: customerResult.success,
+        beemResponse: customerResult.data,
+      });
+
+      if (customerResult.success) {
         customerSent++;
-      } catch (err: any) {
-        console.error(`Failed to send to ${customer.fullName}:`, err.message);
-        messagesSent.push({
-          customer: customer.fullName,
-          phone: customerPhone,
-          message: customerMessage,
-          success: false,
-        });
       }
 
-      // Send copy to Owner (MY number)
-      try {
-        const ownerPhone = normalizePhone(MY_PHONE);
-        await sendViaBeem({
-          apiKey: BEEM_API_KEY,
-          secretKey: BEEM_SECRET_KEY,
-          message: ownerMessage,
-          recipients: [{ recipient_id: 1, dest_addr: ownerPhone }],
-          source_addr: 'Sonko Sound',
-        });
+      // Send copy to Owner
+      const ownerPhone = normalizePhone(MY_PHONE);
+      console.log(`📤 Sending copy to owner: ${ownerPhone}`);
+      const ownerResult = await sendSingleSMS({
+        apiKey: BEEM_API_KEY,
+        secretKey: BEEM_SECRET_KEY,
+        message: ownerMessage,
+        phone: ownerPhone,
+        source_addr: 'Sonko Sound',
+      });
+
+      results.push({
+        customer: 'OWNER',
+        phone: ownerPhone,
+        type: 'owner',
+        message: ownerMessage,
+        success: ownerResult.success,
+        beemResponse: ownerResult.data,
+      });
+
+      if (ownerResult.success) {
         ownerSent++;
-      } catch (err: any) {
-        console.error('Failed to send to owner:', err.message);
       }
 
-      // Small delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Small delay between sends
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
+
+    console.log('=== SEND REMINDERS END ===');
+    console.log('Customer sent:', customerSent);
+    console.log('Owner sent:', ownerSent);
 
     return json({
       success: true,
       data: {
         date: today,
-        totalDueToday: messagesSent.length,
+        totalDueToday: results.filter(r => r.type === 'customer').length,
         customerSent,
         ownerNotifications: ownerSent,
-        messages: messagesSent,
+        results,
       },
-      message: `Sent ${customerSent} reminders for ${today}`,
+      message: `Sent ${customerSent} customer reminders and ${ownerSent} owner copies`,
     });
   } catch (error: any) {
     console.error('send-reminders error:', error);
