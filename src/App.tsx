@@ -32,16 +32,18 @@ function getDaysDiff(currentDate: string, dueDate: string): number {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 }
 
-// Utility: Generate notifications from data - USES TODAY'S DATE
+// Utility: Generate notifications from data - WITH SUPPLIERS
 function generateNotificationsFromData(
   customers: Customer[],
   debts: Debt[],
   payments: Payment[],
+  suppliers: Supplier[],
   currentDate?: string
 ): NotificationItem[] {
   const today = currentDate || new Date().toISOString().split('T')[0];
   const notifications: NotificationItem[] = [];
 
+  // --- CUSTOMER DEBTS ---
   debts.forEach(debt => {
     const customer = customers.find(c => c.id === debt.customerId);
     const debtPayments = payments.filter(p => p.debtId === debt.id);
@@ -82,7 +84,47 @@ function generateNotificationsFromData(
     }
   });
 
-  // Payment received notifications
+  // --- SUPPLIER PAYMENTS ---
+  suppliers.forEach(supplier => {
+    const remaining = supplier.amount - supplier.paidAmount;
+    
+    if (remaining <= 0) return;
+
+    const daysDiff = getDaysDiff(today, supplier.dueDate);
+    const supplierName = supplier.name || 'Msambazaji';
+    const productDesc = supplier.productType || supplier.notes || 'Bidhaa';
+    
+    if (daysDiff > 0) {
+      notifications.push({
+        id: `supplier-overdue-${supplier.id}`,
+        type: 'Overdue',
+        message: `Umepitisha siku ${daysDiff} bila kumlipa ${supplierName}. Deni: TSh ${remaining.toLocaleString()} ya "${productDesc}".`,
+        date: today,
+        customerId: undefined,
+        debtId: undefined
+      });
+    } else if (daysDiff === 0) {
+      notifications.push({
+        id: `supplier-due-today-${supplier.id}`,
+        type: 'Due Today',
+        message: `Leo ni siku ya mwisho kumlipa ${supplierName}. Deni: TSh ${remaining.toLocaleString()} ya "${productDesc}".`,
+        date: today,
+        customerId: undefined,
+        debtId: undefined
+      });
+    } else if (daysDiff === -1) {
+      notifications.push({
+        id: `supplier-due-tomorrow-${supplier.id}`,
+        type: 'Due Tomorrow',
+        message: `Kesho ni siku ya mwisho kumlipa ${supplierName}. Deni: TSh ${remaining.toLocaleString()} ya "${productDesc}".`,
+        date: today,
+        customerId: undefined,
+        debtId: undefined
+      });
+    }
+  });
+
+  // --- PAYMENT RECEIVED ---
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayStr = yesterday.toISOString().split('T')[0];
@@ -109,7 +151,7 @@ function generateNotificationsFromData(
   const priority: Record<string, number> = { 'Overdue': 0, 'Due Today': 1, 'Due Tomorrow': 2, 'Payment Received': 3 };
   notifications.sort((a, b) => (priority[a.type] || 99) - (priority[b.type] || 99));
 
-  return notifications.slice(0, 20);
+  return notifications.slice(0, 30);
 }
 
 export default function App() {
@@ -231,10 +273,12 @@ export default function App() {
       setSuppliers(transformedSuppliers);
       setSettings(transformedSettings);
 
+      // Generate notifications WITH SUPPLIERS
       const generatedNotifications = generateNotificationsFromData(
         transformedCustomers,
         transformedDebts,
-        transformedPayments
+        transformedPayments,
+        transformedSuppliers
       );
       setNotifications(generatedNotifications);
 
@@ -433,7 +477,8 @@ export default function App() {
         {currentTab === 'notifications' && (
           <NotificationsView 
             notifications={notifications} 
-            customers={customers} 
+            customers={customers}
+            suppliers={suppliers}
             debts={debts}
             payments={payments}
             setCurrentTab={setCurrentTab} 
