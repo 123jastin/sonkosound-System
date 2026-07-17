@@ -96,7 +96,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    const MY_PHONE = env.MY_PHONE_NUMBER || '255656738253';
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
 
     const today = new Date().toISOString().split('T')[0];
 
