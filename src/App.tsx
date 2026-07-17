@@ -32,20 +32,15 @@ function getDaysDiff(currentDate: string, dueDate: string): number {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 }
 
-// Utility: Generate notifications from data - NOW USES TODAY'S DATE
+// Utility: Generate notifications from data - USES TODAY'S DATE
 function generateNotificationsFromData(
   customers: Customer[],
   debts: Debt[],
   payments: Payment[],
   currentDate?: string
 ): NotificationItem[] {
-  // USE TODAY'S REAL DATE instead of hardcoded
   const today = currentDate || new Date().toISOString().split('T')[0];
   const notifications: NotificationItem[] = [];
-
-  console.log('🔔 Generating notifications for date:', today);
-  console.log('🔔 Total debts:', debts.length);
-  console.log('🔔 Total payments:', payments.length);
 
   debts.forEach(debt => {
     const customer = customers.find(c => c.id === debt.customerId);
@@ -56,13 +51,12 @@ function generateNotificationsFromData(
     if (remaining <= 0) return;
 
     const daysDiff = getDaysDiff(today, debt.dueDate);
-    console.log(`🔔 Debt: ${debt.description}, Due: ${debt.dueDate}, Remaining: ${remaining}, DaysDiff: ${daysDiff}`);
     
     if (daysDiff > 0) {
       notifications.push({
         id: `overdue-${debt.id}`,
         type: 'Overdue',
-        message: `${customer?.fullName || 'Mteja'} amechelewa kulipa TSh ${remaining.toLocaleString()} kwa deni la "${debt.description}". Siku ${daysDiff} zimepita.`,
+        message: `${customer?.fullName || 'Mteja'} amechelewa kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}". Siku ${daysDiff} zimepita.`,
         date: today,
         customerId: debt.customerId,
         debtId: debt.id
@@ -88,7 +82,7 @@ function generateNotificationsFromData(
     }
   });
 
-  // Add payment received notifications
+  // Payment received notifications
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayStr = yesterday.toISOString().split('T')[0];
@@ -112,11 +106,8 @@ function generateNotificationsFromData(
     }
   });
 
-  // Sort by priority
   const priority: Record<string, number> = { 'Overdue': 0, 'Due Today': 1, 'Due Tomorrow': 2, 'Payment Received': 3 };
   notifications.sort((a, b) => (priority[a.type] || 99) - (priority[b.type] || 99));
-
-  console.log('🔔 Total notifications generated:', notifications.length);
 
   return notifications.slice(0, 20);
 }
@@ -240,12 +231,10 @@ export default function App() {
       setSuppliers(transformedSuppliers);
       setSettings(transformedSettings);
 
-      // Generate notifications with TODAY'S date
       const generatedNotifications = generateNotificationsFromData(
         transformedCustomers,
         transformedDebts,
         transformedPayments
-        // No date passed - will use new Date() automatically
       );
       setNotifications(generatedNotifications);
 
@@ -420,14 +409,38 @@ export default function App() {
 
       {/* MAIN VIEWPORT */}
       <main className="flex-1 p-4 md:p-8 overflow-y-auto max-w-7xl mx-auto w-full transition-all duration-300">
-        {currentTab === 'dashboard' && <Dashboard customers={customers} debts={debts} payments={payments} suppliers={suppliers} transactions={transactions} notifications={notifications} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />}
-        {currentTab === 'customers' && <CustomerManagement customers={customers} debts={debts} payments={payments} onUpdate={() => syncDatabaseStates(false)} selectedCustomerId={selectedCustomerId} setSelectedCustomerId={setSelectedCustomerId} />}
-        {currentTab === 'debts' && <DebtManagement debts={debts} customers={customers} payments={payments} onUpdate={() => syncDatabaseStates(false)} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />}
-        {currentTab === 'suppliers' && <SupplierManagement suppliers={suppliers} onUpdate={() => syncDatabaseStates(false)} />}
-        {currentTab === 'calendar' && <CalendarView debts={debts} customers={customers} payments={payments} suppliers={suppliers} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />}
-        {currentTab === 'reports' && <ReportsView customers={customers} debts={debts} payments={payments} suppliers={suppliers} />}
-        {currentTab === 'settings' && <SettingsView onUpdate={() => syncDatabaseStates(false)} onLogout={handleLogout} />}
-        {currentTab === 'notifications' && <NotificationsView notifications={notifications} customers={customers} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} onClearAll={() => setNotifications([])} />}
+        {currentTab === 'dashboard' && (
+          <Dashboard customers={customers} debts={debts} payments={payments} suppliers={suppliers} transactions={transactions} notifications={notifications} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />
+        )}
+        {currentTab === 'customers' && (
+          <CustomerManagement customers={customers} debts={debts} payments={payments} onUpdate={() => syncDatabaseStates(false)} selectedCustomerId={selectedCustomerId} setSelectedCustomerId={setSelectedCustomerId} />
+        )}
+        {currentTab === 'debts' && (
+          <DebtManagement debts={debts} customers={customers} payments={payments} onUpdate={() => syncDatabaseStates(false)} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />
+        )}
+        {currentTab === 'suppliers' && (
+          <SupplierManagement suppliers={suppliers} onUpdate={() => syncDatabaseStates(false)} />
+        )}
+        {currentTab === 'calendar' && (
+          <CalendarView debts={debts} customers={customers} payments={payments} suppliers={suppliers} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />
+        )}
+        {currentTab === 'reports' && (
+          <ReportsView customers={customers} debts={debts} payments={payments} suppliers={suppliers} />
+        )}
+        {currentTab === 'settings' && (
+          <SettingsView onUpdate={() => syncDatabaseStates(false)} onLogout={handleLogout} />
+        )}
+        {currentTab === 'notifications' && (
+          <NotificationsView 
+            notifications={notifications} 
+            customers={customers} 
+            debts={debts}
+            payments={payments}
+            setCurrentTab={setCurrentTab} 
+            setSelectedCustomerId={setSelectedCustomerId} 
+            onClearAll={() => setNotifications([])} 
+          />
+        )}
       </main>
     </div>
   );
