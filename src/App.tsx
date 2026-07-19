@@ -18,10 +18,12 @@ import CalendarView from './components/CalendarView';
 import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
 import NotificationsView from './components/NotificationsView';
+import MemoryPage from './components/MemoryPage';
 import { 
   LayoutDashboard, Users, BookOpen, Truck, Calendar, 
   FileSpreadsheet, Settings, LogOut, Menu, X, Shield, 
-  MapPin, Phone, Bell, Loader2, AlertTriangle, RefreshCw 
+  MapPin, Phone, Bell, Loader2, AlertTriangle, RefreshCw,
+  FolderOpen
 } from 'lucide-react';
 
 // Utility: Get days difference
@@ -273,12 +275,8 @@ export default function App() {
       setSuppliers(transformedSuppliers);
       setSettings(transformedSettings);
 
-      // Generate notifications WITH SUPPLIERS
       const generatedNotifications = generateNotificationsFromData(
-        transformedCustomers,
-        transformedDebts,
-        transformedPayments,
-        transformedSuppliers
+        transformedCustomers, transformedDebts, transformedPayments, transformedSuppliers
       );
       setNotifications(generatedNotifications);
 
@@ -319,6 +317,7 @@ export default function App() {
     { id: 'suppliers', label: 'Wauzaji (Suppliers)', icon: Truck },
     { id: 'calendar', label: 'Kalenda (Calendar)', icon: Calendar },
     { id: 'reports', label: 'Ripoti (Reports)', icon: FileSpreadsheet },
+    { id: 'memory', label: 'Kumbukumbu (Memory)', icon: FolderOpen },
     { id: 'settings', label: 'Mipangilio (Settings)', icon: Settings },
   ];
 
@@ -470,6 +469,9 @@ export default function App() {
         )}
         {currentTab === 'reports' && (
           <ReportsView customers={customers} debts={debts} payments={payments} suppliers={suppliers} />
+        )}
+        {currentTab === 'memory' && (
+          <MemoryPage />
         )}
         {currentTab === 'settings' && (
           <SettingsView onUpdate={() => syncDatabaseStates(false)} onLogout={handleLogout} />
