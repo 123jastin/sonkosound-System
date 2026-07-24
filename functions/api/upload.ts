@@ -18,12 +18,28 @@ export const onRequestPost = async (context: any) => {
       });
     }
 
-    // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    // Validate file type - ACCEPT IMAGES, PDFs, DOCUMENTS
+    const allowedTypes = [
+      // Images
+      'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp',
+      // PDFs
+      'application/pdf',
+      // Word Documents
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      // Excel
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      // Text
+      'text/plain', 'text/csv',
+      // Other common types
+      'application/zip', 'application/x-rar-compressed',
+    ];
+    
     if (!allowedTypes.includes(file.type)) {
       return new Response(JSON.stringify({ 
         success: false, 
-        error: 'Invalid file type. Allowed: JPEG, PNG, WebP, GIF' 
+        error: `Aina ya faili hairuhusiwi: ${file.type}. Ruhusiwa: JPEG, PNG, PDF, DOC, XLS, CSV` 
       }), {
         status: 400,
         headers: {
@@ -33,12 +49,12 @@ export const onRequestPost = async (context: any) => {
       });
     }
 
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    // Validate file size (max 20MB)
+    const maxSize = 20 * 1024 * 1024;
     if (file.size > maxSize) {
       return new Response(JSON.stringify({ 
         success: false, 
-        error: 'File too large. Maximum size: 10MB' 
+        error: 'Faili ni kubwa sana. Ukubwa unaoruhusiwa: 20MB' 
       }), {
         status: 400,
         headers: {
@@ -48,10 +64,10 @@ export const onRequestPost = async (context: any) => {
       });
     }
 
-    // Generate unique filename
+    // Generate unique filename with original extension
     const timestamp = Date.now();
     const randomStr = Math.random().toString(36).substring(2, 8);
-    const extension = file.name.split('.').pop() || 'jpg';
+    const extension = file.name.split('.').pop() || 'bin';
     const fileName = `uploads/${timestamp}-${randomStr}.${extension}`;
 
     // Upload to R2 bucket
@@ -59,11 +75,14 @@ export const onRequestPost = async (context: any) => {
       httpMetadata: {
         contentType: file.type,
         cacheControl: 'public, max-age=31536000',
+        contentDisposition: `inline; filename="${file.name}"`,
       }
     });
 
     // Construct the public URL using custom domain
     const publicUrl = `https://pics.sonkosound.store/${fileName}`;
+
+    console.log('✅ File uploaded:', { fileName, type: file.type, size: file.size, url: publicUrl });
 
     return new Response(JSON.stringify({
       success: true,
@@ -100,14 +119,12 @@ export const onRequestGet = async (context: any) => {
 
   if (fileName) {
     try {
-      // Retrieve file from R2
       const object = await context.env.MEDIA_BUCKET.get(fileName);
       
       if (!object) {
         return new Response('File not found', { status: 404 });
       }
 
-      // Return the file with proper headers
       const headers = new Headers();
       object.writeHttpMetadata(headers);
       headers.set('etag', object.httpEtag);
@@ -119,7 +136,7 @@ export const onRequestGet = async (context: any) => {
     }
   }
 
-  // List recent uploads (optional)
+  // List recent uploads
   try {
     const objects = await context.env.MEDIA_BUCKET.list({
       limit: 20,
