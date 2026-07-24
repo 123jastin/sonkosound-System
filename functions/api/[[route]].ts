@@ -1,3 +1,4 @@
+
 // functions/api/[[route]].ts
 
 export const onRequest = async (context: any) => {
@@ -97,7 +98,6 @@ export const onRequest = async (context: any) => {
       return new Response(JSON.stringify({ success: true }), { headers });
     }
 
-    // Match /api/customers/{id}
     const customerMatch = path.match(/^\/api\/customers\/(.+)$/);
     if (customerMatch && method === 'PUT') {
       const id = customerMatch[1];
@@ -196,7 +196,6 @@ export const onRequest = async (context: any) => {
     if (path === '/api/suppliers' && method === 'GET') {
       const { results: suppliers } = await context.env.DB.prepare('SELECT * FROM suppliers ORDER BY created_at DESC').all();
       
-      // Get products and payments for each supplier
       const suppliersWithDetails = await Promise.all(
         (suppliers || []).map(async (supplier: any) => {
           const { results: products } = await context.env.DB.prepare(
@@ -207,11 +206,7 @@ export const onRequest = async (context: any) => {
             'SELECT * FROM supplier_payments WHERE supplier_id = ? ORDER BY created_at ASC'
           ).bind(supplier.id).all();
           
-          return {
-            ...supplier,
-            products: products || [],
-            payments: payments || []
-          };
+          return { ...supplier, products: products || [], payments: payments || [] };
         })
       );
       
@@ -220,7 +215,6 @@ export const onRequest = async (context: any) => {
 
     if (path === '/api/suppliers' && method === 'POST') {
       const data = await context.request.json();
-      console.log('Creating supplier:', data);
       
       await context.env.DB.prepare(
         `INSERT INTO suppliers (id, name, phone_number, amount, paid_amount, due_date, product_type, notes, created_at)
@@ -246,16 +240,7 @@ export const onRequest = async (context: any) => {
       
       await context.env.DB.prepare(
         `UPDATE suppliers SET name = ?, phone_number = ?, amount = ?, paid_amount = ?, due_date = ?, product_type = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`
-      ).bind(
-        data.name, 
-        data.phoneNumber, 
-        data.amount, 
-        data.paidAmount || 0, 
-        data.dueDate, 
-        data.productType || '', 
-        data.notes || '', 
-        id
-      ).run();
+      ).bind(data.name, data.phoneNumber, data.amount, data.paidAmount || 0, data.dueDate, data.productType || '', data.notes || '', id).run();
       
       return new Response(JSON.stringify({ success: true }), { headers });
     }
@@ -286,7 +271,6 @@ export const onRequest = async (context: any) => {
         data.notes || ''
       ).run();
       
-      // Update supplier total amount
       await context.env.DB.prepare(
         'UPDATE suppliers SET amount = amount + ?, due_date = ?, updated_at = datetime("now") WHERE id = ?'
       ).bind(data.amount, data.dueDate, data.supplierId).run();
@@ -311,11 +295,79 @@ export const onRequest = async (context: any) => {
         data.notes || ''
       ).run();
       
-      // Update supplier paid amount
       await context.env.DB.prepare(
         'UPDATE suppliers SET paid_amount = MIN(amount, paid_amount + ?), updated_at = datetime("now") WHERE id = ?'
       ).bind(data.amount, data.supplierId).run();
       
+      return new Response(JSON.stringify({ success: true }), { headers });
+    }
+
+    // ============================================
+    // MEMORIES (NEW)
+    // ============================================
+    if (path === '/api/memories' && method === 'GET') {
+      const { results } = await context.env.DB.prepare(
+        'SELECT * FROM memories ORDER BY created_at DESC'
+      ).all();
+      
+      const memories = (results || []).map((m: any) => ({
+        ...m,
+        tags: JSON.parse(m.tags || '[]')
+      }));
+      
+      return new Response(JSON.stringify(memories), { headers });
+    }
+
+    if (path === '/api/memories' && method === 'POST') {
+      const data = await context.request.json();
+      
+      await context.env.DB.prepare(
+        `INSERT INTO memories (id, title, description, type, file_url, file_name, file_size, mime_type, tags, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+      ).bind(
+        data.id || `mem-${Date.now()}`,
+        data.title,
+        data.description || '',
+        data.type || 'other',
+        data.fileUrl,
+        data.fileName,
+        data.fileSize || 0,
+        data.mimeType || 'application/octet-stream',
+        JSON.stringify(data.tags || [])
+      ).run();
+      
+      return new Response(JSON.stringify({ success: true, id: data.id }), { headers });
+    }
+
+    const memoryMatch = path.match(/^\/api\/memories\/(.+)$/);
+    if (memoryMatch && method === 'PUT') {
+      const id = memoryMatch[1];
+      const data = await context.request.json();
+      
+      await context.env.DB.prepare(
+        `UPDATE memories SET 
+          title = ?, description = ?, type = ?, 
+          file_url = ?, file_name = ?, file_size = ?, mime_type = ?,
+          tags = ?, updated_at = datetime('now')
+        WHERE id = ?`
+      ).bind(
+        data.title,
+        data.description || '',
+        data.type || 'other',
+        data.fileUrl,
+        data.fileName,
+        data.fileSize || 0,
+        data.mimeType || 'application/octet-stream',
+        JSON.stringify(data.tags || []),
+        id
+      ).run();
+      
+      return new Response(JSON.stringify({ success: true }), { headers });
+    }
+
+    if (memoryMatch && method === 'DELETE') {
+      const id = memoryMatch[1];
+      await context.env.DB.prepare('DELETE FROM memories WHERE id = ?').bind(id).run();
       return new Response(JSON.stringify({ success: true }), { headers });
     }
 
@@ -330,10 +382,66 @@ export const onRequest = async (context: any) => {
     }
 
     // ============================================
+    // PARSE TEXT (Groq AI)
+    // ============================================
+    if (path === '/api/parse-text' && method === 'POST') {
+      try {
+        const { text } = await context.request.json();
+        const GROQ_API_KEY = context.env.GROQ_API_KEY;
+        
+        if (!GROQ_API_KEY) {
+          return new Response(JSON.stringify({
+            success: false, error: 'API key not configured',
+            data: { name: '', number: '', deni: 0, maelezo_ya_bidhaa: '', notes: '' }
+          }), { headers });
+        }
+
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${GROQ_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{
+              role: 'user',
+              content: `Extract: name, phone number, debt amount, product description, notes from this Swahili text. Return ONLY JSON: {"name":"","number":"","deni":0,"maelezo_ya_bidhaa":"","notes":""}\n\nText: ${text}`
+            }],
+            temperature: 0, max_tokens: 500
+          })
+        });
+
+        const result = await response.json();
+        const content = result.choices?.[0]?.message?.content || '';
+        
+        let data;
+        try { data = JSON.parse(content.replace(/```json|```/g, '').trim()); } 
+        catch { data = { name: '', number: '', deni: 0, maelezo_ya_bidhaa: '', notes: '' }; }
+
+        return new Response(JSON.stringify({
+          success: true,
+          data: {
+            name: String(data?.name || '').trim(),
+            number: String(data?.number || '').trim(),
+            deni: Number(data?.deni) || 0,
+            maelezo_ya_bidhaa: String(data?.maelezo_ya_bidhaa || '').trim(),
+            notes: String(data?.notes || '').trim()
+          }
+        }), { headers });
+      } catch (error: any) {
+        return new Response(JSON.stringify({
+          success: false, error: error.message,
+          data: { name: '', number: '', deni: 0, maelezo_ya_bidhaa: '', notes: '' }
+        }), { headers });
+      }
+    }
+
+    // ============================================
     // EXPORT
     // ============================================
     if (path === '/api/export' && method === 'GET') {
-      const tables = ['customers', 'debts', 'payments', 'suppliers', 'supplier_products', 'supplier_payments', 'transactions'];
+      const tables = ['customers', 'debts', 'payments', 'suppliers', 'supplier_products', 'supplier_payments', 'transactions', 'memories'];
       const exportData: any = {};
       
       for (const table of tables) {
