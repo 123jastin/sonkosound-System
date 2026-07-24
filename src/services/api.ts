@@ -148,6 +148,46 @@ export const api = {
   },
 
   // ============================================
+  // MEMORIES (NEW)
+  // ============================================
+  memories: {
+    list: (): Promise<any[]> => safeFetch(`${API_BASE}/memories`),
+    
+    create: (data: {
+      id?: string;
+      title: string;
+      description?: string;
+      type?: string;
+      fileUrl: string;
+      fileName: string;
+      fileSize?: number;
+      mimeType?: string;
+      tags?: string[];
+    }): Promise<any> => safeFetch(`${API_BASE}/memories`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+    
+    update: (id: string, data: {
+      title: string;
+      description?: string;
+      type?: string;
+      fileUrl: string;
+      fileName: string;
+      fileSize?: number;
+      mimeType?: string;
+      tags?: string[];
+    }): Promise<any> => safeFetch(`${API_BASE}/memories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    }),
+    
+    delete: (id: string): Promise<any> => safeFetch(`${API_BASE}/memories/${id}`, {
+      method: 'DELETE'
+    })
+  },
+
+  // ============================================
   // OCR
   // ============================================
   ocr: {
@@ -197,7 +237,7 @@ export const api = {
   // SMS REMINDERS (Beem Africa)
   // ============================================
   reminders: {
-    send: (data: { debts: any[]; customers: any[]; payments: any[] }) => 
+    send: (data: { debts: any[]; customers: any[]; payments: any[]; suppliers?: any[] }) => 
       safeFetch(`${API_BASE}/send-reminders`, {
         method: 'POST',
         body: JSON.stringify(data)
