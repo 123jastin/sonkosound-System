@@ -3,12 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
 import { 
   Upload, FileText, Image, File, Download, Trash2, Edit2, 
   Eye, Search, X, Plus, Loader2, AlertCircle, CheckCircle,
-  Camera, Calendar, Tag, FolderOpen, Filter
+  Calendar, Tag, FolderOpen
 } from 'lucide-react';
 
 interface MemoryItem {
@@ -19,15 +19,15 @@ interface MemoryItem {
   fileUrl: string;
   fileName: string;
   fileSize: number;
+  mimeType?: string;
   tags: string[];
   createdAt: string;
   updatedAt: string;
 }
 
 export default function MemoryPage() {
-  const [memories, setMemories] = useState<MemoryItem[]>(() => {
-    return JSON.parse(localStorage.getItem('ledger_memories') || '[]');
-  });
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
+  const [isLoadingMemories, setIsLoadingMemories] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
@@ -50,6 +50,38 @@ export default function MemoryPage() {
   const [editType, setEditType] = useState<MemoryItem['type']>('receipt');
   const [editTags, setEditTags] = useState('');
 
+  // Fetch memories from D1 on mount
+  useEffect(() => {
+    fetchMemories();
+  }, []);
+
+  const fetchMemories = useCallback(async () => {
+    setIsLoadingMemories(true);
+    try {
+      const data = await api.memories.list();
+      setMemories(data.map((m: any) => ({
+        id: m.id,
+        title: m.title,
+        description: m.description || '',
+        type: m.type || 'other',
+        fileUrl: m.file_url,
+        fileName: m.file_name,
+        fileSize: m.file_size || 0,
+        mimeType: m.mime_type || 'application/octet-stream',
+        tags: Array.isArray(m.tags) ? m.tags : JSON.parse(m.tags || '[]'),
+        createdAt: m.created_at,
+        updatedAt: m.updated_at
+      })));
+    } catch (err: any) {
+      console.error('Failed to fetch memories:', err);
+      // Fallback to localStorage
+      const cached = JSON.parse(localStorage.getItem('ledger_memories') || '[]');
+      setMemories(cached);
+    } finally {
+      setIsLoadingMemories(false);
+    }
+  }, []);
+
   const filteredMemories = useMemo(() => {
     return memories.filter(item => {
       const matchesSearch = 
@@ -60,6 +92,16 @@ export default function MemoryPage() {
       return matchesSearch && matchesType;
     });
   }, [memories, searchQuery, typeFilter]);
+
+  // Check if file is image
+  const isImageFile = (item: MemoryItem) => {
+    return item.mimeType?.startsWith('image/') || item.fileUrl.match(/\.(jpg|jpeg|png|gif|webp)/i);
+  };
+
+  // Check if file is PDF
+  const isPDF = (item: MemoryItem) => {
+    return item.mimeType === 'application/pdf' || item.fileName.endsWith('.pdf');
+  };
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -100,42 +142,109 @@ export default function MemoryPage() {
     if (!uploadFile || !uploadTitle) { setError('Weka faili na kichwa.'); return; }
     setIsUploading(true); setError(null);
     try {
+      // Upload to R2
       const result = await api.upload.image(uploadFile);
       if (result.success && result.url) {
-        const newMemory: MemoryItem = {
-          id: 'mem-' + Date.now(), title: uploadTitle, description: uploadDescription,
-          type: uploadType, fileUrl: result.url, fileName: uploadFile.name,
-          fileSize: uploadFile.size, tags: uploadTags.split(',').map(t => t.trim()).filter(Boolean),
-          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
-        };
-        const updated = [newMemory, ...memories];
-        localStorage.setItem('ledger_memories', JSON.stringify(updated));
-        setMemories(updated); resetUploadForm(); setShowUploadModal(false);
-        setSuccessMessage('✅ Imepakiwa!'); setTimeout(() => setSuccessMessage(null), 3000);
-      } else { setError('Imeshindwa kupakia.'); }
-    } catch (err: any) { setError(err.message); } finally { setIsUploading(false); }
+        // Save to D1
+        await api.memories.create({
+          title: uploadTitle,
+          description: uploadDescription,
+          type: uploadType,
+          fileUrl: result.url,
+          fileName: uploadFile.name,
+          fileSize: uploadFile.size,
+          mimeType: uploadFile.type,
+          tags: uploadTags.split(',').map(t => t.trim()).filter(Boolean)
+        });
+        await fetchMemories();
+        resetUploadForm();
+        setShowUploadModal(false);
+        setSuccessMessage('✅ Imepakiwa!');
+        setTimeout(() => setSuccessMessage(null), 3000);
+      } else {
+        setError('Imeshindwa kupakia.');
+      }
+    } catch (err: any) { 
+      setError(err.message); 
+      // Fallback to localStorage
+      const newMemory: MemoryItem = {
+        id: 'mem-' + Date.now(), title: uploadTitle, description: uploadDescription,
+        type: uploadType, fileUrl: '', fileName: uploadFile.name,
+        fileSize: uploadFile.size, mimeType: uploadFile.type,
+        tags: uploadTags.split(',').map(t => t.trim()).filter(Boolean),
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      };
+      const cached = JSON.parse(localStorage.getItem('ledger_memories') || '[]');
+      cached.unshift(newMemory);
+      localStorage.setItem('ledger_memories', JSON.stringify(cached));
+      setMemories(cached);
+      resetUploadForm();
+      setShowUploadModal(false);
+    } finally { setIsUploading(false); }
   };
 
   const resetUploadForm = () => { setUploadFile(null); setUploadTitle(''); setUploadDescription(''); setUploadType('receipt'); setUploadTags(''); setUploadPreview(null); };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Futa kumbukumbu hii?')) return;
-    const updated = memories.filter(m => m.id !== id);
-    localStorage.setItem('ledger_memories', JSON.stringify(updated));
-    setMemories(updated);
-    if (viewingItem?.id === id) setViewingItem(null);
-    if (editingItem?.id === id) setEditingItem(null);
+    try {
+      await api.memories.delete(id);
+      await fetchMemories();
+      if (viewingItem?.id === id) setViewingItem(null);
+      if (editingItem?.id === id) setEditingItem(null);
+    } catch (err: any) {
+      // Fallback to localStorage
+      const updated = memories.filter(m => m.id !== id);
+      localStorage.setItem('ledger_memories', JSON.stringify(updated));
+      setMemories(updated);
+    }
   };
 
-  const startEdit = (item: MemoryItem) => { setEditingItem(item); setEditTitle(item.title); setEditDescription(item.description); setEditType(item.type); setEditTags(item.tags.join(', ')); };
+  const startEdit = (item: MemoryItem) => { 
+    setEditingItem(item); 
+    setEditTitle(item.title); 
+    setEditDescription(item.description); 
+    setEditType(item.type); 
+    setEditTags(item.tags.join(', ')); 
+  };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editingItem) return;
-    const updated = memories.map(m => m.id === editingItem.id ? { ...m, title: editTitle, description: editDescription, type: editType, tags: editTags.split(',').map(t => t.trim()).filter(Boolean), updatedAt: new Date().toISOString() } : m);
-    localStorage.setItem('ledger_memories', JSON.stringify(updated));
-    setMemories(updated); setEditingItem(null);
-    setSuccessMessage('✅ Imesasishwa!'); setTimeout(() => setSuccessMessage(null), 3000);
+    try {
+      await api.memories.update(editingItem.id, {
+        title: editTitle,
+        description: editDescription,
+        type: editType,
+        fileUrl: editingItem.fileUrl,
+        fileName: editingItem.fileName,
+        fileSize: editingItem.fileSize,
+        mimeType: editingItem.mimeType || 'application/octet-stream',
+        tags: editTags.split(',').map(t => t.trim()).filter(Boolean)
+      });
+      await fetchMemories();
+      setEditingItem(null);
+      setSuccessMessage('✅ Imesasishwa!');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      // Fallback to localStorage
+      const updated = memories.map(m => m.id === editingItem.id ? { ...m, title: editTitle, description: editDescription, type: editType, tags: editTags.split(',').map(t => t.trim()).filter(Boolean), updatedAt: new Date().toISOString() } : m);
+      localStorage.setItem('ledger_memories', JSON.stringify(updated));
+      setMemories(updated); 
+      setEditingItem(null);
+    }
   };
+
+  // Show loading state
+  if (isLoadingMemories) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center space-y-3">
+          <Loader2 size={32} className="animate-spin text-accent mx-auto" />
+          <p className="text-sm text-slate-400">Inapakia kumbukumbu...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 text-xs">
@@ -155,7 +264,6 @@ export default function MemoryPage() {
 
       {/* Search + Filter + Upload */}
       <div className="flex flex-col gap-3">
-        {/* Search Bar */}
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
@@ -163,7 +271,6 @@ export default function MemoryPage() {
             className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:ring-1 focus:ring-accent focus:border-accent" />
         </div>
 
-        {/* Category Pills + Upload */}
         <div className="flex gap-2 overflow-x-auto pb-1 items-center">
           {['All', 'receipt', 'invoice', 'image', 'document', 'other'].map(type => (
             <button key={type} onClick={() => setTypeFilter(type)}
@@ -186,10 +293,8 @@ export default function MemoryPage() {
       <div className="grid grid-cols-2 gap-2 auto-rows-[120px]">
         {filteredMemories.length > 0 ? (
           filteredMemories.map((item, index) => {
-            // KiKUU alternating pattern: large at positions 0,5,6,11,12...
             const position = index % 6;
             const large = position === 0 || position === 5;
-            const isImage = item.fileUrl.match(/\.(jpg|jpeg|png|gif|webp)/i);
 
             return (
               <div key={item.id} 
@@ -198,21 +303,23 @@ export default function MemoryPage() {
                   large ? "row-span-2" : "row-span-1"
                 }`}>
                 
-                {/* Image Preview */}
                 <div className={`w-full ${large ? "h-44" : "h-20"} bg-slate-100 relative overflow-hidden`}>
-                  {isImage ? (
+                  {isImageFile(item) ? (
                     <img src={item.fileUrl} alt={item.title} className="w-full h-full object-cover" loading="lazy" />
+                  ) : isPDF(item) ? (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-red-50">
+                      <FileText size={24} className="text-red-500" />
+                      <span className="text-[8px] text-red-500 mt-1 font-bold">PDF</span>
+                    </div>
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
                       {getTypeIcon(item.type)}
                     </div>
                   )}
-                  {/* Type Badge */}
                   <span className={`absolute top-1.5 left-1.5 text-[8px] font-bold px-1.5 py-0.5 rounded-full ${getTypeColor(item.type)}`}>
                     {getTypeLabel(item.type)}
                   </span>
                   
-                  {/* Hover Actions */}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-2">
                     <button onClick={(e) => { e.stopPropagation(); setViewingItem(item); }}
                       className="p-1.5 bg-white rounded-full text-slate-700 hover:bg-accent hover:text-white transition" title="Tazama">
@@ -234,7 +341,6 @@ export default function MemoryPage() {
                   </div>
                 </div>
 
-                {/* Info */}
                 <div className="p-2.5">
                   <h3 className="font-semibold text-[12px] text-slate-800 truncate">{item.title}</h3>
                   <div className="flex items-center justify-between mt-1">
@@ -281,30 +387,16 @@ export default function MemoryPage() {
                 <div className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition ${uploadFile ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 hover:border-accent/50'}`}>
                   {uploadPreview ? <img src={uploadPreview} alt="Preview" className="max-h-32 mx-auto rounded-lg" /> :
                    uploadFile ? <div className="space-y-1"><CheckCircle size={28} className="mx-auto text-emerald-500" /><p className="font-bold text-emerald-700 text-[11px]">{uploadFile.name}</p><p className="text-[10px] text-slate-400">{formatSize(uploadFile.size)}</p></div> :
-                   <div className="space-y-1"><Upload size={28} className="mx-auto text-slate-300" /><p className="font-bold text-slate-500 text-[11px]">Bofya kuchagua faili</p><p className="text-[10px] text-slate-400">JPEG, PNG, PDF • Max 20MB</p></div>}
+                   <div className="space-y-1"><Upload size={28} className="mx-auto text-slate-300" /><p className="font-bold text-slate-500 text-[11px]">Bofya kuchagua faili</p><p className="text-[10px] text-slate-400">JPEG, PNG, PDF, DOC • Max 20MB</p></div>}
                   <input type="file" onChange={handleFileSelect} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" className="hidden" />
                 </div>
               </label>
-              <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1 text-[10px]">Kichwa *</label>
-                <input type="text" value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} placeholder="Mfano: Risiti ya Mchele" className="w-full p-2.5 border border-slate-200 rounded-lg text-xs" />
-              </div>
+              <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1 text-[10px]">Kichwa *</label><input type="text" value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} placeholder="Mfano: Risiti ya Mchele" className="w-full p-2.5 border border-slate-200 rounded-lg text-xs" /></div>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1 text-[10px]">Aina</label>
-                  <select value={uploadType} onChange={(e) => setUploadType(e.target.value as MemoryItem['type'])} className="w-full p-2.5 border border-slate-200 rounded-lg text-xs bg-white">
-                    <option value="receipt">Risiti</option><option value="invoice">Ankara</option><option value="document">Hati</option><option value="image">Picha</option><option value="other">Nyingine</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1 text-[10px]">Lebo</label>
-                  <input type="text" value={uploadTags} onChange={(e) => setUploadTags(e.target.value)} placeholder="mfano: mchele" className="w-full p-2.5 border border-slate-200 rounded-lg text-xs" />
-                </div>
+                <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1 text-[10px]">Aina</label><select value={uploadType} onChange={(e) => setUploadType(e.target.value as MemoryItem['type'])} className="w-full p-2.5 border border-slate-200 rounded-lg text-xs bg-white"><option value="receipt">Risiti</option><option value="invoice">Ankara</option><option value="document">Hati</option><option value="image">Picha</option><option value="other">Nyingine</option></select></div>
+                <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1 text-[10px]">Lebo</label><input type="text" value={uploadTags} onChange={(e) => setUploadTags(e.target.value)} placeholder="mfano: mchele" className="w-full p-2.5 border border-slate-200 rounded-lg text-xs" /></div>
               </div>
-              <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1 text-[10px]">Maelezo</label>
-                <textarea value={uploadDescription} onChange={(e) => setUploadDescription(e.target.value)} placeholder="Maelezo..." className="w-full p-2.5 border border-slate-200 rounded-lg text-xs h-16" />
-              </div>
+              <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1 text-[10px]">Maelezo</label><textarea value={uploadDescription} onChange={(e) => setUploadDescription(e.target.value)} placeholder="Maelezo..." className="w-full p-2.5 border border-slate-200 rounded-lg text-xs h-16" /></div>
               <div className="flex gap-2 pt-1">
                 <button onClick={() => { setShowUploadModal(false); resetUploadForm(); }} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-lg font-semibold text-xs">Ghairi</button>
                 <button onClick={handleUpload} disabled={isUploading || !uploadFile || !uploadTitle} className="flex-1 py-2.5 bg-accent hover:bg-accent/90 text-white rounded-lg font-semibold text-xs disabled:opacity-50 flex items-center justify-center gap-2">
@@ -330,8 +422,15 @@ export default function MemoryPage() {
               </div>
             </div>
             <div className="p-4">
-              {viewingItem.fileUrl.match(/\.(jpg|jpeg|png|gif|webp)/i) ? (
+              {isImageFile(viewingItem) ? (
                 <img src={viewingItem.fileUrl} alt={viewingItem.title} className="w-full rounded-xl" />
+              ) : isPDF(viewingItem) ? (
+                <div className="text-center py-12 bg-slate-50 rounded-xl">
+                  <FileText size={40} className="mx-auto text-red-500" />
+                  <p className="font-bold mt-2 text-sm">{viewingItem.fileName}</p>
+                  <p className="text-[10px] text-slate-400">{formatSize(viewingItem.fileSize)}</p>
+                  <a href={viewingItem.fileUrl} download={viewingItem.fileName} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 mt-3 px-4 py-2 bg-accent text-white rounded-lg text-xs font-bold"><Download size={13} /> Pakua Faili</a>
+                </div>
               ) : (
                 <div className="text-center py-12 bg-slate-50 rounded-xl">
                   {getTypeIcon(viewingItem.type)}
