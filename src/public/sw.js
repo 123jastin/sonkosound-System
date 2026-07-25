@@ -1,63 +1,70 @@
-// Service Worker for Sonko Sound PWA
-
+// Sonko Sound Service Worker
 const CACHE_NAME = 'sonko-sound-v2';
-const urlsToCache = [
+const STATIC_CACHE = 'sonko-static-v2';
+const DYNAMIC_CACHE = 'sonko-dynamic-v2';
+
+const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  'https://pics.sonkosound.store/file_0000000018a881f4bef28aaff0866bbd.png'
 ];
 
-// Install event
+// Install
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('Opened cache');
-        return cache.addAll(urlsToCache);
-      })
+    caches.open(STATIC_CACHE).then((cache) => {
+      return cache.addAll(STATIC_ASSETS);
+    })
   );
   self.skipWaiting();
 });
 
-// Activate event
+// Activate
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
+    caches.keys().then((keys) => {
       return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
+        keys.filter((key) => key !== STATIC_CACHE && key !== DYNAMIC_CACHE)
+          .map((key) => caches.delete(key))
       );
     })
   );
   self.clients.claim();
 });
 
-// Fetch event - Network first, fallback to cache
+// Fetch
 self.addEventListener('fetch', (event) => {
-  // Skip API calls
-  if (event.request.url.includes('/api/')) {
+  const { request } = event;
+  const url = new URL(request.url);
+
+  // Skip non-GET requests and API calls
+  if (request.method !== 'GET' || url.pathname.startsWith('/api/')) {
     return;
   }
 
+  // For images from R2 - cache first
+  if (url.hostname === 'pics.sonkosound.store') {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
+          const clone = response.clone();
+          caches.open(DYNAMIC_CACHE).then((cache) => cache.put(request, clone));
+          return response;
+        });
+      })
+    );
+    return;
+  }
+
+  // For app - network first
   event.respondWith(
-    fetch(event.request)
+    fetch(request)
       .then((response) => {
-        // Cache successful responses
-        if (response.status === 200) {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
-        }
+        const clone = response.clone();
+        caches.open(DYNAMIC_CACHE).then((cache) => cache.put(request, clone));
         return response;
       })
-      .catch(() => {
-        // Offline - return from cache
-        return caches.match(event.request);
-      })
+      .catch(() => caches.match(request))
   );
 });
