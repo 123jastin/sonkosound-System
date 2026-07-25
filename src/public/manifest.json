@@ -1,0 +1,27 @@
+{
+  "name": "Sonko Sound - Debt Management",
+  "short_name": "Sonko Sound",
+  "description": "Usimamizi Salama wa Madeni na Wateja",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://pics.sonkosound.store/file_0000000018a881f4bef28aaff0866bbd.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://pics.sonkosound.store/file_0000000018a881f4bef28aaff0866bbd.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "finance", "productivity"],
+  "lang": "sw",
+  "dir": "ltr"
+}
