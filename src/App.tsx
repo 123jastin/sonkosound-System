@@ -23,7 +23,7 @@ import {
   LayoutDashboard, Users, BookOpen, Truck, Calendar, 
   FileSpreadsheet, Settings, LogOut, Menu, X, Shield, 
   MapPin, Phone, Bell, Loader2, AlertTriangle, RefreshCw,
-  FolderOpen
+  FolderOpen, Download
 } from 'lucide-react';
 
 // Utility: Get days difference
@@ -310,6 +310,13 @@ export default function App() {
     setSuppliers([]); setNotifications([]); setSettings(null);
   };
 
+  // APK Download URL
+  const APK_DOWNLOAD_URL = 'https://drive.google.com/uc?export=download&id=1l1GZNupLt4UpPQRJVQoHPoD7b82X3o60';
+
+  const handleDownloadApp = () => {
+    window.open(APK_DOWNLOAD_URL, '_blank');
+  };
+
   const navigationItems = [
     { id: 'dashboard', label: 'Bao Kuu (Dashboard)', icon: LayoutDashboard },
     { id: 'customers', label: 'Wateja (Customers)', icon: Users },
@@ -397,7 +404,16 @@ export default function App() {
             })}
           </nav>
         </div>
-        <div className="border-t border-slate-800 pt-4 mt-6">
+        <div className="border-t border-slate-800 pt-4 mt-6 space-y-3">
+          {/* Download App Button */}
+          <button 
+            onClick={handleDownloadApp}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30"
+          >
+            <Download size={16} />
+            <span>Download App (APK)</span>
+          </button>
+          
           <div className="px-2 mb-3">
             <p className="text-[10px] text-slate-500 flex items-center gap-1"><MapPin size={10} /> {settings?.businessAddress || 'Haijawekwa'}</p>
             <p className="text-[10px] text-slate-500 flex items-center gap-1 mt-1"><Phone size={10} /> {settings?.businessPhone || 'Haijawekwa'}</p>
@@ -443,6 +459,15 @@ export default function App() {
                 </button>
               );
             })}
+            
+            {/* Download App Button for Mobile */}
+            <button 
+              onClick={() => { handleDownloadApp(); setIsMobileMenuOpen(false); }}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/20"
+            >
+              <Download size={18} />
+              <span>Download App (APK)</span>
+            </button>
           </nav>
           <button onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 transition-all">
             <LogOut size={16} /><span>Ondoka kwenye Mfumo (Logout)</span>
