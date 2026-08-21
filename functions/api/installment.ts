@@ -7,8 +7,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
 };
 
-// Main handler for installment API
-export default async function handler(req: Request, res: Response) {
+export default async function handler(req: Request) {
   // Handle OPTIONS for CORS
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -17,23 +16,24 @@ export default async function handler(req: Request, res: Response) {
   const url = new URL(req.url);
   const path = url.pathname.replace('/api/installment', '');
   const method = req.method;
+  
+  console.log('Installment API called:', method, path);
 
   try {
-    // Route based on path and method
-    if (path.startsWith('/customers')) {
+    // Route based on path
+    if (path === '' || path === '/') {
+      return handleGetAllData();
+    } else if (path === '/stats') {
+      return handleStats();
+    } else if (path.startsWith('/customers')) {
       return handleCustomers(req, method, path.replace('/customers', ''));
     } else if (path.startsWith('/products')) {
       return handleProducts(req, method, path.replace('/products', ''));
     } else if (path.startsWith('/payments')) {
       return handlePayments(req, method, path.replace('/payments', ''));
-    } else if (path === '/stats') {
-      return handleStats();
-    } else if (path === '' || path === '/') {
-      // Return all data
-      return handleGetAllData();
     }
 
-    return new Response(JSON.stringify({ error: 'Not found' }), {
+    return new Response(JSON.stringify({ error: 'Route not found', path }), {
       status: 404,
       headers: { 'Content-Type': 'application/json', ...corsHeaders }
     });
@@ -51,43 +51,25 @@ async function handleCustomers(req: Request, method: string, path: string) {
   const url = new URL(req.url);
   const customerId = url.searchParams.get('id') || path.replace('/', '');
 
+  console.log('Customer route:', method, customerId);
+
   switch (method) {
     case 'GET':
       if (customerId) {
-        // Get single customer with details
+        // Get single customer
         const customers = await query(
           'SELECT * FROM installment_customers WHERE id = ?',
           [customerId]
         );
         
-        if (customers.length === 0) {
+        if (!customers || customers.length === 0) {
           return new Response(JSON.stringify({ error: 'Customer not found' }), {
             status: 404,
             headers: { 'Content-Type': 'application/json', ...corsHeaders }
           });
         }
 
-        // Get customer's products
-        const products = await query(
-          'SELECT * FROM installment_products WHERE customer_id = ? ORDER BY created_at DESC',
-          [customerId]
-        );
-
-        // Get customer's payments
-        const payments = await query(
-          `SELECT ip.*, p.product_name 
-           FROM installment_payments ip
-           JOIN installment_products p ON ip.product_id = p.id
-           WHERE p.customer_id = ?
-           ORDER BY ip.payment_date DESC`,
-          [customerId]
-        );
-
-        return new Response(JSON.stringify({
-          ...customers[0],
-          products,
-          payments
-        }), {
+        return new Response(JSON.stringify(customers[0]), {
           status: 200,
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
@@ -97,22 +79,7 @@ async function handleCustomers(req: Request, method: string, path: string) {
           'SELECT * FROM installment_customers ORDER BY created_at DESC'
         );
         
-        // Get stats for each customer
-        const customersWithStats = await query(`
-          SELECT 
-            c.*,
-            COUNT(DISTINCT p.id) as total_products,
-            COALESCE(SUM(p.total_amount), 0) as total_value,
-            COALESCE(SUM(p.paid_amount), 0) as paid_value,
-            COALESCE(SUM(p.total_amount - p.paid_amount), 0) as remaining_value,
-            SUM(CASE WHEN p.paid_amount >= p.total_amount THEN 1 ELSE 0 END) as completed_products
-          FROM installment_customers c
-          LEFT JOIN installment_products p ON c.id = p.customer_id
-          GROUP BY c.id
-          ORDER BY c.created_at DESC
-        `);
-
-        return new Response(JSON.stringify(customersWithStats), {
+        return new Response(JSON.stringify(customers || []), {
           status: 200,
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
@@ -134,12 +101,6 @@ async function handleCustomers(req: Request, method: string, path: string) {
       await query(
         'INSERT INTO installment_customers (id, full_name, phone_number, address, notes) VALUES (?, ?, ?, ?, ?)',
         [newCustomerId, fullName, phoneNumber, address || '', notes || '']
-      );
-      
-      // Log transaction
-      await query(
-        'INSERT INTO installment_transactions (id, customer_id, transaction_type, description) VALUES (?, ?, ?, ?)',
-        ['itrans-' + Date.now(), newCustomerId, 'Customer Created', `New installment customer: ${fullName}`]
       );
 
       return new Response(JSON.stringify({
@@ -207,55 +168,28 @@ async function handleProducts(req: Request, method: string, path: string) {
   switch (method) {
     case 'GET':
       if (productId) {
-        // Get single product with payments
         const products = await query(
           'SELECT * FROM installment_products WHERE id = ?',
           [productId]
         );
-        
-        if (products.length === 0) {
-          return new Response(JSON.stringify({ error: 'Product not found' }), {
-            status: 404,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders }
-          });
-        }
-
-        const payments = await query(
-          'SELECT * FROM installment_payments WHERE product_id = ? ORDER BY payment_date DESC',
-          [productId]
-        );
-
-        return new Response(JSON.stringify({
-          ...products[0],
-          payments
-        }), {
+        return new Response(JSON.stringify(products[0] || null), {
           status: 200,
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       } else if (customerId) {
-        // List products for a customer
         const products = await query(
           'SELECT * FROM installment_products WHERE customer_id = ? ORDER BY created_at DESC',
           [customerId]
         );
-        
-        return new Response(JSON.stringify(products), {
+        return new Response(JSON.stringify(products || []), {
           status: 200,
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       } else {
-        // List all products with customer info
-        const products = await query(`
-          SELECT 
-            p.*,
-            c.full_name as customer_name,
-            c.phone_number as customer_phone
-          FROM installment_products p
-          JOIN installment_customers c ON p.customer_id = c.id
-          ORDER BY p.created_at DESC
-        `);
-        
-        return new Response(JSON.stringify(products), {
+        const products = await query(
+          'SELECT * FROM installment_products ORDER BY created_at DESC'
+        );
+        return new Response(JSON.stringify(products || []), {
           status: 200,
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
@@ -297,17 +231,6 @@ async function handleProducts(req: Request, method: string, path: string) {
         totalAmount, paidAmount || 0, start,
         expectedCompletionDate || '', status || 'Active', notes || ''
       ]);
-      
-      // Log transaction
-      await query(`
-        INSERT INTO installment_transactions (
-          id, customer_id, product_id, transaction_type, amount, description
-        )
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, [
-        'itrans-' + Date.now(), prodCustomerId, newProductId,
-        'Product Added', totalAmount, `New installment product: ${productName}`
-      ]);
 
       return new Response(JSON.stringify({
         id: newProductId,
@@ -323,57 +246,6 @@ async function handleProducts(req: Request, method: string, path: string) {
         created_at: new Date().toISOString()
       }), {
         status: 201,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
-
-    case 'PUT':
-      const updateData = await req.json();
-      const {
-        productName: updateProductName,
-        description: updateDescription,
-        totalAmount: updateTotalAmount,
-        expectedCompletionDate: updateCompletionDate,
-        notes: updateProductNotes
-      } = updateData;
-      
-      if (!productId) {
-        return new Response(JSON.stringify({ error: 'Product ID is required' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
-      }
-      
-      await query(`
-        UPDATE installment_products 
-        SET product_name = ?, 
-            description = ?, 
-            total_amount = ?,
-            expected_completion_date = ?,
-            notes = ?
-        WHERE id = ?
-      `, [
-        updateProductName, updateDescription || '', 
-        updateTotalAmount, updateCompletionDate || '', 
-        updateProductNotes || '', productId
-      ]);
-
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
-
-    case 'DELETE':
-      if (!productId) {
-        return new Response(JSON.stringify({ error: 'Product ID is required' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
-      }
-      
-      await query('DELETE FROM installment_products WHERE id = ?', [productId]);
-
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
 
@@ -394,63 +266,30 @@ async function handlePayments(req: Request, method: string, path: string) {
 
   switch (method) {
     case 'GET':
+      let sql = 'SELECT * FROM installment_payments';
+      const params = [];
+      
       if (paymentId) {
-        // Get single payment
-        const payments = await query(
-          'SELECT * FROM installment_payments WHERE id = ?',
-          [paymentId]
-        );
-        
-        return new Response(JSON.stringify(payments[0] || null), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
+        sql += ' WHERE id = ?';
+        params.push(paymentId);
       } else if (productId) {
-        // List payments for a product
-        const payments = await query(
-          'SELECT * FROM installment_payments WHERE product_id = ? ORDER BY payment_date DESC',
-          [productId]
-        );
-        
-        return new Response(JSON.stringify(payments), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
+        sql += ' WHERE product_id = ?';
+        params.push(productId);
       } else if (customerId) {
-        // List payments for a customer
-        const payments = await query(`
-          SELECT 
-            ip.*,
-            p.product_name
-          FROM installment_payments ip
-          JOIN installment_products p ON ip.product_id = p.id
-          WHERE p.customer_id = ?
-          ORDER BY ip.payment_date DESC
-        `, [customerId]);
-        
-        return new Response(JSON.stringify(payments), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
-      } else {
-        // List all payments with details
-        const payments = await query(`
-          SELECT 
-            ip.*,
-            p.product_name,
-            p.customer_id,
-            c.full_name as customer_name
-          FROM installment_payments ip
-          JOIN installment_products p ON ip.product_id = p.id
-          JOIN installment_customers c ON p.customer_id = c.id
-          ORDER BY ip.payment_date DESC
-        `);
-        
-        return new Response(JSON.stringify(payments), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
+        sql = `SELECT ip.* FROM installment_payments ip
+               JOIN installment_products p ON ip.product_id = p.id
+               WHERE p.customer_id = ?`;
+        params.push(customerId);
       }
+      
+      sql += ' ORDER BY payment_date DESC';
+      
+      const payments = await query(sql, params);
+      
+      return new Response(JSON.stringify(payments || []), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
 
     case 'POST':
       const data = await req.json();
@@ -473,7 +312,6 @@ async function handlePayments(req: Request, method: string, path: string) {
       const newPaymentId = 'ipay-' + Date.now();
       const payDate = paymentDate || new Date().toISOString().split('T')[0];
       
-      // Insert payment
       await query(`
         INSERT INTO installment_payments (
           id, product_id, amount, payment_date,
@@ -485,7 +323,7 @@ async function handlePayments(req: Request, method: string, path: string) {
         paymentMethod || 'Cash', notes || '', receiptNumber || ''
       ]);
       
-      // Update product paid amount and status
+      // Update product paid amount
       await query(`
         UPDATE installment_products 
         SET paid_amount = paid_amount + ?,
@@ -495,41 +333,6 @@ async function handlePayments(req: Request, method: string, path: string) {
             END
         WHERE id = ?
       `, [amount, amount, payProductId]);
-      
-      // Get updated product info
-      const products = await query(
-        'SELECT * FROM installment_products WHERE id = ?',
-        [payProductId]
-      );
-      
-      const product = products[0];
-      
-      // Log payment transaction
-      await query(`
-        INSERT INTO installment_transactions (
-          id, customer_id, product_id, transaction_type, amount, description
-        )
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, [
-        'itrans-' + Date.now(), product?.customer_id, payProductId,
-        'Payment Received', amount, `Payment of ${amount} for ${product?.product_name || 'product'}`
-      ]);
-      
-      // If completed, log completion
-      if (product?.paid_amount >= product?.total_amount) {
-        await query(`
-          INSERT INTO installment_transactions (
-            id, customer_id, product_id, transaction_type, description
-          )
-          VALUES (?, ?, ?, ?, ?)
-        `, [
-          'itrans-' + Date.now() + '-complete',
-          product.customer_id,
-          payProductId,
-          'Product Completed',
-          `Product completed: ${product.product_name}`
-        ]);
-      }
 
       return new Response(JSON.stringify({
         id: newPaymentId,
@@ -539,25 +342,9 @@ async function handlePayments(req: Request, method: string, path: string) {
         payment_method: paymentMethod || 'Cash',
         notes: notes || '',
         receipt_number: receiptNumber || '',
-        product_status: product?.status,
         created_at: new Date().toISOString()
       }), {
         status: 201,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
-
-    case 'DELETE':
-      if (!paymentId) {
-        return new Response(JSON.stringify({ error: 'Payment ID is required' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
-      }
-      
-      await query('DELETE FROM installment_payments WHERE id = ?', [paymentId]);
-
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
 
@@ -567,6 +354,22 @@ async function handlePayments(req: Request, method: string, path: string) {
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
   }
+}
+
+// Handle Get All Data
+async function handleGetAllData() {
+  const customers = await query('SELECT * FROM installment_customers ORDER BY created_at DESC');
+  const products = await query('SELECT * FROM installment_products ORDER BY created_at DESC');
+  const payments = await query('SELECT * FROM installment_payments ORDER BY payment_date DESC');
+
+  return new Response(JSON.stringify({
+    customers: customers || [],
+    products: products || [],
+    payments: payments || []
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders }
+  });
 }
 
 // Handle Stats
@@ -579,37 +382,10 @@ async function handleStats() {
       (SELECT COALESCE(SUM(paid_amount), 0) FROM installment_products) as total_collected,
       (SELECT COALESCE(SUM(total_amount - paid_amount), 0) 
        FROM installment_products 
-       WHERE paid_amount < total_amount) as total_remaining,
-      (SELECT COUNT(*) 
-       FROM installment_products 
-       WHERE status = 'Active' AND paid_amount < total_amount) as active_installments,
-      (SELECT COUNT(*) 
-       FROM installment_products 
-       WHERE status = 'Completed' OR paid_amount >= total_amount) as completed_installments,
-      (SELECT COALESCE(SUM(amount), 0) 
-       FROM installment_payments 
-       WHERE strftime('%Y-%m', payment_date) = strftime('%Y-%m', 'now')) as collected_this_month
+       WHERE paid_amount < total_amount) as total_remaining
   `);
 
   return new Response(JSON.stringify(stats[0] || {}), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders }
-  });
-}
-
-// Handle Get All Data
-async function handleGetAllData() {
-  const [customers, products, payments] = await Promise.all([
-    query('SELECT * FROM installment_customers ORDER BY created_at DESC'),
-    query('SELECT * FROM installment_products ORDER BY created_at DESC'),
-    query('SELECT * FROM installment_payments ORDER BY payment_date DESC')
-  ]);
-
-  return new Response(JSON.stringify({
-    customers,
-    products,
-    payments
-  }), {
     status: 200,
     headers: { 'Content-Type': 'application/json', ...corsHeaders }
   });
