@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import FormAIOCR from './FormAIOCR';
 import { 
   Users, Plus, Phone, Calendar, Package, 
   Trash2, CreditCard, ChevronRight, Check, X, AlertCircle, Edit2,
   ArrowLeft, History, Printer, MapPin, Loader2, Wallet,
-  TrendingUp, CheckCircle2, Clock, ShoppingBag
+  TrendingUp, CheckCircle2, Clock, ShoppingBag, Award, PartyPopper
 } from 'lucide-react';
 
 // Interfaces matching database schema (snake_case)
@@ -57,13 +57,92 @@ interface InstallmentPayment {
   customer_name?: string;
 }
 
+// Installment Notification type
+export interface InstallmentNotification {
+  id: string;
+  type: 'Installment Halfway' | 'Installment Completed';
+  message: string;
+  date: string;
+  customerId?: string;
+  productId?: string;
+  productName?: string;
+  customerName?: string;
+  phoneNumber?: string;
+  progressPercentage?: number;
+  startDate?: string;
+  totalAmount?: number;
+  paidAmount?: number;
+}
+
 interface InstallmentManagementProps {
   onUpdate: () => void;
+  onNotificationsGenerated?: (notifications: InstallmentNotification[]) => void;
 }
 
 const API_BASE_URL = '/api/installment';
 
-export default function InstallmentManagement({ onUpdate }: InstallmentManagementProps) {
+// Function to generate installment notifications
+export function generateInstallmentNotifications(
+  products: InstallmentProduct[],
+  customers: InstallmentCustomer[]
+): InstallmentNotification[] {
+  const notifications: InstallmentNotification[] = [];
+  const today = new Date().toISOString().split('T')[0];
+
+  products.forEach(product => {
+    const customer = customers.find(c => c.id === product.customer_id);
+    if (!customer) return;
+
+    const totalAmount = Number(product.total_amount);
+    const paidAmount = Number(product.paid_amount);
+    
+    if (totalAmount <= 0) return;
+
+    const progressPercentage = Math.round((paidAmount / totalAmount) * 100);
+    
+    // Check for 50% milestone (between 45% and 55%)
+    if (progressPercentage >= 45 && progressPercentage <= 55 && paidAmount < totalAmount) {
+      notifications.push({
+        id: `installment-half-${product.id}`,
+        type: 'Installment Halfway',
+        message: `${customer.full_name} amefika nusu ya malipo ya ${product.product_name} (${progressPercentage}%). Imebakia TSh ${(totalAmount - paidAmount).toLocaleString()}.`,
+        date: today,
+        customerId: customer.id,
+        productId: product.id,
+        productName: product.product_name,
+        customerName: customer.full_name,
+        phoneNumber: customer.phone_number,
+        progressPercentage,
+        startDate: product.start_date,
+        totalAmount,
+        paidAmount
+      });
+    }
+    
+    // Check for 100% completion
+    if (paidAmount >= totalAmount && product.status !== 'Completed') {
+      notifications.push({
+        id: `installment-complete-${product.id}`,
+        type: 'Installment Completed',
+        message: `${customer.full_name} amekamilisha malipo ya ${product.product_name} aliyo ibandika tangu tarehe ${product.start_date}. Hongera! 🎉`,
+        date: today,
+        customerId: customer.id,
+        productId: product.id,
+        productName: product.product_name,
+        customerName: customer.full_name,
+        phoneNumber: customer.phone_number,
+        progressPercentage: 100,
+        startDate: product.start_date,
+        totalAmount,
+        paidAmount
+      });
+    }
+  });
+
+  return notifications;
+}
+
+export default function InstallmentManagement({ onUpdate, onNotificationsGenerated }: InstallmentManagementProps) {
   // State
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,9 +175,19 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
   const [payNotes, setPayNotes] = useState('');
 
   // Load data on mount
-  React.useEffect(() => {
+  useEffect(() => {
     loadData();
   }, []);
+
+  // Generate notifications when products change
+  useEffect(() => {
+    if (products.length > 0 && customers.length > 0 && onNotificationsGenerated) {
+      const installmentNotifs = generateInstallmentNotifications(products, customers);
+      if (installmentNotifs.length > 0) {
+        onNotificationsGenerated(installmentNotifs);
+      }
+    }
+  }, [products, customers, onNotificationsGenerated]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -161,7 +250,6 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Failed');
-      // Optimistically update
       setCustomers(prev => [result.customer, ...prev]);
       setIsAddCustomerModalOpen(false);
       resetCustomerForm();
@@ -188,7 +276,6 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
         const result = await response.json();
         throw new Error(result.error || 'Failed');
       }
-      // Update locally
       setCustomers(prev => prev.map(c => c.id === selectedCustomerId ? { ...c, full_name: fullName, phone_number: phoneNumber, address, notes } : c));
       setIsEditCustomerModalOpen(false);
       onUpdate();
@@ -269,15 +356,31 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Failed');
-      // Update local states
+      
       setPayments(prev => [result.payment, ...prev]);
-      setProducts(prev => prev.map(p => {
+      
+      // Update product locally
+      const updatedProducts = products.map(p => {
         if (p.id === selectedProduct.id) {
           const newPaid = Number(p.paid_amount) + Number(payAmount);
-          return { ...p, paid_amount: newPaid, status: newPaid >= Number(p.total_amount) ? 'Completed' : 'Active' };
+          const newStatus = newPaid >= Number(p.total_amount) ? 'Completed' : 'Active';
+          return { ...p, paid_amount: newPaid, status: newStatus };
         }
         return p;
-      }));
+      });
+      setProducts(updatedProducts);
+      
+      // Generate notifications if milestone reached
+      if (onNotificationsGenerated) {
+        const updatedProduct = updatedProducts.find(p => p.id === selectedProduct.id);
+        if (updatedProduct) {
+          const notifs = generateInstallmentNotifications([updatedProduct], customers);
+          if (notifs.length > 0) {
+            onNotificationsGenerated(notifs);
+          }
+        }
+      }
+      
       setIsPayModalOpen(false);
       resetPaymentForm();
       onUpdate();
@@ -390,34 +493,47 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
             {activeCustomerProducts.map(product => {
               const remaining = Math.max(0, Number(product.total_amount) - Number(product.paid_amount));
               const progressPercentage = Number(product.total_amount) > 0 ? (Number(product.paid_amount) / Number(product.total_amount)) * 100 : 0;
+              const isCompleted = remaining <= 0;
+              const isHalfway = !isCompleted && progressPercentage >= 45 && progressPercentage <= 55;
+              
               return (
-                <div key={product.id} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition">
+                <div key={product.id} className={`bg-white rounded-3xl border p-6 shadow-sm hover:shadow-md transition ${isCompleted ? 'border-emerald-200' : isHalfway ? 'border-blue-200' : 'border-slate-100'}`}>
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-3">
-                        <div className="p-3 rounded-xl bg-indigo-50 text-indigo-600"><Package size={20} /></div>
+                        <div className={`p-3 rounded-xl ${isCompleted ? 'bg-emerald-50 text-emerald-600' : isHalfway ? 'bg-blue-50 text-blue-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                          {isCompleted ? <Award size={20} /> : <Package size={20} />}
+                        </div>
                         <div>
                           <h4 className="text-sm font-bold text-slate-800">{product.product_name}</h4>
                           <p className="text-xs text-slate-400 mt-0.5">{product.description || 'Hakuna maelezo'}</p>
+                          {isHalfway && (
+                            <span className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                              🎯 Nusu ya Malipo
+                            </span>
+                          )}
                         </div>
                       </div>
+                      
                       <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div><p className="text-[10px] text-slate-400 font-semibold uppercase">Bei Kamili</p><p className="text-sm font-bold text-slate-800 mt-1">TSh {Number(product.total_amount).toLocaleString()}</p></div>
                         <div><p className="text-[10px] text-slate-400 font-semibold uppercase">Imelipwa</p><p className="text-sm font-bold text-emerald-600 mt-1">TSh {Number(product.paid_amount).toLocaleString()}</p></div>
                         <div><p className="text-[10px] text-slate-400 font-semibold uppercase">Baki</p><p className="text-sm font-bold text-rose-600 mt-1">TSh {remaining.toLocaleString()}</p></div>
                         <div><p className="text-[10px] text-slate-400 font-semibold uppercase">Hali</p>
-                          <span className={`inline-block mt-1 px-2 py-1 rounded-full text-[10px] font-bold ${remaining <= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                            {remaining <= 0 ? '✓ Imekamilika' : 'Inaendelea'}
+                          <span className={`inline-block mt-1 px-2 py-1 rounded-full text-[10px] font-bold ${isCompleted ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {isCompleted ? '✓ Imekamilika' : 'Inaendelea'}
                           </span>
                         </div>
                       </div>
+                      
                       <div className="mt-4">
                         <div className="flex justify-between text-[10px] mb-1"><span className="text-slate-400">Maendeleo ya Malipo</span><span className="font-bold text-slate-700">{Math.round(progressPercentage)}%</span></div>
                         <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full transition-all ${remaining <= 0 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${progressPercentage}%` }}></div>
+                          <div className={`h-full rounded-full transition-all ${isCompleted ? 'bg-emerald-500' : isHalfway ? 'bg-blue-500' : 'bg-indigo-500'}`} style={{ width: `${progressPercentage}%` }}></div>
                         </div>
                       </div>
                     </div>
+                    
                     <div className="flex md:flex-col gap-2">
                       {remaining > 0 && (
                         <button onClick={() => openPayModal(product)} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-xl flex items-center gap-1.5 text-xs transition">
@@ -487,6 +603,8 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
               const paidValue = customerProducts.reduce((sum, p) => sum + Number(p.paid_amount), 0);
               const remainingValue = totalValue - paidValue;
               const hasProducts = customerProducts.length > 0;
+              const completedCount = customerProducts.filter(p => Number(p.paid_amount) >= Number(p.total_amount)).length;
+              
               return (
                 <div key={customer.id} onClick={() => setSelectedCustomerId(customer.id)} className="bg-white rounded-3xl border border-slate-100 p-5 shadow-sm hover:shadow-md hover:border-slate-300 cursor-pointer transition flex flex-col justify-between space-y-4">
                   <div className="flex items-start justify-between">
@@ -498,7 +616,9 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
                       </div>
                     </div>
                     {hasProducts ? (
-                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">{customerProducts.length} Bidhaa</span>
+                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                        {completedCount}/{customerProducts.length} Kamili
+                      </span>
                     ) : (
                       <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-500">Mpya</span>
                     )}
@@ -528,7 +648,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
         </>
       )}
 
-      {/* MODALS (same as before but with snake_case field names) */}
+      {/* MODALS */}
       {/* Add Customer Modal */}
       {isAddCustomerModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
@@ -684,7 +804,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
         </div>
       )}
 
-      {/* Statement Modal (simplified for brevity, can be expanded) */}
+      {/* Statement Modal */}
       {isStatementOpen && activeCustomer && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-3xl w-full p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
