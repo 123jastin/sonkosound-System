@@ -14,7 +14,7 @@ import Dashboard from './components/Dashboard';
 import CustomerManagement from './components/CustomerManagement';
 import DebtManagement from './components/DebtManagement';
 import SupplierManagement from './components/SupplierManagement';
-import InstallmentManagement from './components/InstallmentManagement';
+import InstallmentManagement, { InstallmentNotification } from './components/InstallmentManagement';
 import CalendarView from './components/CalendarView';
 import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
@@ -172,11 +172,16 @@ export default function App() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [installmentNotifications, setInstallmentNotifications] = useState<InstallmentNotification[]>([]);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Total notification count for badge
+  const totalAlertCount = notifications.filter(n => n.type === 'Overdue' || n.type === 'Due Today').length + 
+                          installmentNotifications.filter(n => n.type === 'Installment Halfway' || n.type === 'Installment Completed').length;
 
   const tryLoadFromLocalStorage = () => {
     try {
@@ -309,6 +314,17 @@ export default function App() {
     localStorage.removeItem('ledger_authenticated');
     setCustomers([]); setDebts([]); setPayments([]);
     setSuppliers([]); setNotifications([]); setSettings(null);
+    setInstallmentNotifications([]);
+  };
+
+  // Handle installment notifications
+  const handleInstallmentNotifications = (notifs: InstallmentNotification[]) => {
+    setInstallmentNotifications(prev => {
+      // Filter out duplicates
+      const existingIds = new Set(prev.map(n => n.id));
+      const newNotifs = notifs.filter(n => !existingIds.has(n.id));
+      return [...newNotifs, ...prev];
+    });
   };
 
   // APK Download URL
@@ -387,9 +403,9 @@ export default function App() {
             <button onClick={() => { setCurrentTab('notifications'); setSelectedCustomerId(null); }}
               className={`relative p-1.5 rounded-xl border transition-colors ${currentTab === 'notifications' ? 'bg-accent border-accent text-white' : 'border-transparent text-slate-400 hover:text-white hover:bg-slate-800'}`}>
               <Bell size={18} />
-              {notifications.filter(n => n.type === 'Overdue' || n.type === 'Due Today').length > 0 && (
+              {totalAlertCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-rose-600 text-white font-extrabold text-[8px] h-4 w-4 rounded-full flex items-center justify-center border-2 border-slate-900 animate-pulse">
-                  {notifications.filter(n => n.type === 'Overdue' || n.type === 'Due Today').length}
+                  {totalAlertCount}
                 </span>
               )}
             </button>
@@ -407,7 +423,6 @@ export default function App() {
           </nav>
         </div>
         <div className="border-t border-slate-800 pt-4 mt-6 space-y-3">
-          {/* Download App Button */}
           <button 
             onClick={handleDownloadApp}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30"
@@ -436,9 +451,9 @@ export default function App() {
           <button onClick={() => { setCurrentTab('notifications'); setSelectedCustomerId(null); setIsMobileMenuOpen(false); }}
             className={`relative p-1.5 rounded-lg transition-colors ${currentTab === 'notifications' ? 'bg-accent text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800'}`}>
             <Bell size={18} />
-            {notifications.filter(n => n.type === 'Overdue' || n.type === 'Due Today').length > 0 && (
+            {totalAlertCount > 0 && (
               <span className="absolute -top-1 -right-1 bg-rose-600 text-white font-extrabold text-[8px] h-4 w-4 rounded-full flex items-center justify-center border-2 border-slate-900 animate-pulse">
-                {notifications.filter(n => n.type === 'Overdue' || n.type === 'Due Today').length}
+                {totalAlertCount}
               </span>
             )}
           </button>
@@ -461,8 +476,6 @@ export default function App() {
                 </button>
               );
             })}
-            
-            {/* Download App Button for Mobile */}
             <button 
               onClick={() => { handleDownloadApp(); setIsMobileMenuOpen(false); }}
               className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/20"
@@ -492,7 +505,10 @@ export default function App() {
           <SupplierManagement suppliers={suppliers} onUpdate={() => syncDatabaseStates(false)} />
         )}
         {currentTab === 'installments' && (
-          <InstallmentManagement onUpdate={() => syncDatabaseStates(false)} />
+          <InstallmentManagement 
+            onUpdate={() => syncDatabaseStates(false)} 
+            onNotificationsGenerated={handleInstallmentNotifications}
+          />
         )}
         {currentTab === 'calendar' && (
           <CalendarView debts={debts} customers={customers} payments={payments} suppliers={suppliers} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />
@@ -513,9 +529,13 @@ export default function App() {
             suppliers={suppliers}
             debts={debts}
             payments={payments}
+            installmentNotifications={installmentNotifications}
             setCurrentTab={setCurrentTab} 
             setSelectedCustomerId={setSelectedCustomerId} 
-            onClearAll={() => setNotifications([])} 
+            onClearAll={() => {
+              setNotifications([]);
+              setInstallmentNotifications([]);
+            }} 
           />
         )}
       </main>
