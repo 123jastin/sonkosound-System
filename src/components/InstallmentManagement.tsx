@@ -69,6 +69,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [isStatementOpen, setIsStatementOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<InstallmentProduct | null>(null);
+  const [viewingHistoryProduct, setViewingHistoryProduct] = useState<InstallmentProduct | null>(null);
   
   // Form states - Customer
   const [fullName, setFullName] = useState('');
@@ -499,7 +500,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
             {activeCustomerProducts.map(product => {
               const productPayments = payments.filter(p => p.productId === product.id);
               const remaining = Math.max(0, product.totalAmount - product.paidAmount);
-              const progressPercentage = (product.paidAmount / product.totalAmount) * 100;
+              const progressPercentage = product.totalAmount > 0 ? (product.paidAmount / product.totalAmount) * 100 : 0;
               
               return (
                 <div key={product.id} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition">
@@ -563,7 +564,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
                         </button>
                       )}
                       <button 
-                        onClick={() => setSelectedProduct(product)}
+                        onClick={() => setViewingHistoryProduct(product)}
                         className="border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2 px-4 rounded-xl flex items-center gap-1.5 text-xs transition"
                       >
                         <History size={14} /> Historia
@@ -935,7 +936,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
                     >
                       TSh {amount >= 1000 ? `${(amount / 1000).toFixed(0)}k` : amount.toLocaleString()}
                     </button>
-                  );
+                  ));
                 })()}
               </div>
               
@@ -981,6 +982,42 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Payment History */}
+      {viewingHistoryProduct && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
+            <button onClick={() => setViewingHistoryProduct(null)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
+              <X size={18} />
+            </button>
+            
+            <h3 className="text-md font-bold text-slate-800">Historia ya Malipo</h3>
+            <p className="text-xs text-slate-400">{viewingHistoryProduct.productName}</p>
+            
+            <div className="space-y-3 max-h-80 overflow-y-auto">
+              {payments
+                .filter(p => p.productId === viewingHistoryProduct.id)
+                .map(payment => (
+                  <div key={payment.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div>
+                      <p className="text-xs font-bold text-slate-800">{payment.notes}</p>
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        {payment.date} • {payment.paymentMethod}
+                      </p>
+                    </div>
+                    <span className="text-sm font-extrabold text-emerald-600">
+                      TSh {payment.amount.toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              
+              {payments.filter(p => p.productId === viewingHistoryProduct.id).length === 0 && (
+                <p className="text-xs text-slate-400 text-center py-8">Hakuna malipo bado.</p>
+              )}
+            </div>
           </div>
         </div>
       )}
