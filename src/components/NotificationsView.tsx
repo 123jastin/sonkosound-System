@@ -4,22 +4,9 @@ import { api } from '../services/api';
 import { 
   Bell, ArrowLeft, Trash2, Calendar, Phone, CheckCircle2, 
   AlertTriangle, AlertCircle, Sparkles, MessageCircle, 
-  Send, Loader2, Check, Truck, Package, Award, PartyPopper
+  Send, Loader2, Check, Truck, Package, Award
 } from 'lucide-react';
 
-interface NotificationsViewProps {
-  notifications: NotificationItem[];
-  customers: Customer[];
-  suppliers?: any[];
-  setCurrentTab: (tab: string) => void;
-  setSelectedCustomerId: (id: string | null) => void;
-  onClearAll?: () => void;
-  debts?: any[];
-  payments?: any[];
-  installmentNotifications?: InstallmentNotification[];
-}
-
-// Installment notification type
 interface InstallmentNotification {
   id: string;
   type: 'Installment Halfway' | 'Installment Completed';
@@ -34,6 +21,18 @@ interface InstallmentNotification {
   startDate?: string;
   totalAmount?: number;
   paidAmount?: number;
+}
+
+interface NotificationsViewProps {
+  notifications: NotificationItem[];
+  customers: Customer[];
+  suppliers?: any[];
+  setCurrentTab: (tab: string) => void;
+  setSelectedCustomerId: (id: string | null) => void;
+  onClearAll?: () => void;
+  debts?: any[];
+  payments?: any[];
+  installmentNotifications?: InstallmentNotification[];
 }
 
 export default function NotificationsView({
@@ -56,11 +55,9 @@ export default function NotificationsView({
   const initializedRef = useRef(false);
 
   // Combine all notifications
-  const allNotifications = useMemo(() => {
-    return [...notifications, ...installmentNotifications];
-  }, [notifications, installmentNotifications]);
+  const allNotifications = [...notifications, ...installmentNotifications];
 
-  // Auto-send ONCE per day - only runs on first load
+  // Auto-send ONCE per day
   useEffect(() => {
     if (initializedRef.current) return;
     initializedRef.current = true;
@@ -114,6 +111,7 @@ export default function NotificationsView({
   });
 
   const todayDueCount = allNotifications.filter(n => n.type === 'Due Today').length;
+  const installmentCount = allNotifications.filter(n => n.type === 'Installment Halfway' || n.type === 'Installment Completed').length;
 
   const handleSendAllReminders = async () => {
     if (todayDueCount === 0) {
@@ -154,14 +152,14 @@ export default function NotificationsView({
     }
   };
 
-  const handleSendSingleReminder = async (item: NotificationItem | InstallmentNotification) => {
+  const handleSendSingleReminder = async (item: any) => {
     if (sendingIds.has(item.id) || sentIds.has(item.id)) return;
 
     setSendingIds(prev => new Set(prev).add(item.id));
 
     try {
-      const relevantDebts = (item as any).debtId 
-        ? debts.filter((d: any) => d.id === (item as any).debtId)
+      const relevantDebts = item.debtId 
+        ? debts.filter((d: any) => d.id === item.debtId)
         : [];
       
       const isSupplierNotification = item.id.startsWith('supplier-');
@@ -187,9 +185,8 @@ export default function NotificationsView({
     }
   };
 
-  // Get style for notification type
-  const getNotificationStyle = (item: NotificationItem | InstallmentNotification) => {
-    const isSupplier = item.id.startsWith('supplier-');
+  const getNotificationStyle = (item: any) => {
+    const isSupplier = item.id?.startsWith('supplier-');
     
     if (item.type === 'Overdue') {
       return {
@@ -261,7 +258,6 @@ export default function NotificationsView({
     };
   };
 
-  // Format WhatsApp number
   const formatWhatsAppNumber = (phone: string): string => {
     let cleaned = phone.trim().replace(/\s+/g, '');
     if (cleaned.startsWith('0')) return '+255' + cleaned.slice(1);
@@ -270,15 +266,12 @@ export default function NotificationsView({
     return cleaned;
   };
 
-  // Get WhatsApp message based on notification type
-  const getWhatsAppMessage = (item: NotificationItem | InstallmentNotification): string => {
+  const getWhatsAppMessage = (item: any): string => {
     if (item.type === 'Installment Completed') {
-      const instItem = item as InstallmentNotification;
-      return `Habari ${instItem.customerName}, Tungependa kukupongeza kwa kumaliza kiwango chote cha ${instItem.productName} Bidhaa uliyoibandika tangu tarehe ${instItem.startDate}. Asante kwa kuaminiana nasi!`;
+      return `Habari ${item.customerName}, Tungependa kukupongeza kwa kumaliza kiwango chote cha ${item.productName} Bidhaa uliyoibandika tangu tarehe ${item.startDate}. Asante kwa kuaminiana nasi!`;
     }
     if (item.type === 'Installment Halfway') {
-      const instItem = item as InstallmentNotification;
-      return `Habari ${instItem.customerName}, Umefika nusu ya malipo ya ${instItem.productName} (${instItem.progressPercentage}%). Endelea hivyo hivyo!`;
+      return `Habari ${item.customerName}, Umefika nusu ya malipo ya ${item.productName} (${item.progressPercentage}%). Endelea hivyo hivyo!`;
     }
     return "Habari, ningependa kukukumbusha kuhusu deni lako.";
   };
@@ -334,7 +327,7 @@ export default function NotificationsView({
           { id: 'Overdue', label: `Zilizopitisha (${allNotifications.filter(n => n.type === 'Overdue').length})` },
           { id: 'Due Today', label: `Leo & Kesho (${allNotifications.filter(n => n.type === 'Due Today' || n.type === 'Due Tomorrow').length})` },
           { id: 'Paid', label: `Malipo (${allNotifications.filter(n => n.type === 'Fully Paid' || n.type === 'Payment Received').length})` },
-          { id: 'Installments', label: `Mafungu (${allNotifications.filter(n => n.type === 'Installment Halfway' || n.type === 'Installment Completed').length})` }
+          { id: 'Installments', label: `Mafungu (${installmentCount})` }
         ].map(tab => (
           <button key={tab.id} onClick={() => setFilterType(tab.id)}
             className={`py-1.5 px-3 rounded-lg border text-[11px] font-bold whitespace-nowrap transition-colors ${filterType === tab.id ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
@@ -347,7 +340,7 @@ export default function NotificationsView({
       <div className="space-y-3">
         {filteredNotifications.length > 0 ? (
           filteredNotifications.map(item => {
-            const isSupplier = item.id.startsWith('supplier-');
+            const isSupplier = item.id?.startsWith('supplier-') || false;
             const isInstallment = item.type === 'Installment Halfway' || item.type === 'Installment Completed';
             const { bgClass, iconColor, badgeText, badgeClass, IconComponent, label } = getNotificationStyle(item);
             const isSending = sendingIds.has(item.id);
@@ -382,41 +375,42 @@ export default function NotificationsView({
                   <p className="text-xs font-semibold leading-relaxed text-slate-800">{item.message}</p>
 
                   {/* Action buttons for INSTALLMENT notifications */}
-                  {isInstallment && (() => {
-                    const instItem = item as InstallmentNotification;
-                    const phone = instItem.phoneNumber || '';
-                    const phoneFormattedForWa = formatWhatsAppNumber(phone).replace('+', '');
-                    const waMessage = getWhatsAppMessage(item);
-                    const waUrl = `https://wa.me/${phoneFormattedForWa}?text=${encodeURIComponent(waMessage)}`;
-
-                    return (
-                      <div className="pt-2.5 flex items-center justify-between flex-wrap gap-2 border-t border-slate-100/50 mt-2">
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          📱 {phone} • Bidhaa: {instItem.productName}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <a href={`tel:${phone}`} className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition border border-slate-200" title="Piga">
-                            <Phone size={13} />
-                          </a>
-                          <a href={waUrl} target="_blank" rel="noopener noreferrer" 
-                            className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl transition border border-emerald-100 text-[10px] font-extrabold" 
-                            title="WhatsApp">
-                            <MessageCircle size={13} /><span>WhatsApp</span>
-                          </a>
-                          {instItem.customerId && (
-                            <button 
-                              onClick={() => { 
-                                setSelectedCustomerId(instItem.customerId!); 
-                                setCurrentTab('installments'); 
-                              }}
-                              className="text-[10px] font-extrabold text-slate-900 hover:text-accent bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl transition shadow-sm">
-                              Wasifu →
-                            </button>
-                          )}
-                        </div>
+                  {isInstallment && (
+                    <div className="pt-2.5 flex items-center justify-between flex-wrap gap-2 border-t border-slate-100/50 mt-2">
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        📱 {item.phoneNumber || 'N/A'} • Bidhaa: {item.productName}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {item.phoneNumber && (
+                          <>
+                            <a href={`tel:${item.phoneNumber}`} className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition border border-slate-200" title="Piga">
+                              <Phone size={13} />
+                            </a>
+                            <a 
+                              href={`https://wa.me/${formatWhatsAppNumber(item.phoneNumber).replace('+', '')}?text=${encodeURIComponent(getWhatsAppMessage(item))}`} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl transition border border-emerald-100 text-[10px] font-extrabold" 
+                              title="WhatsApp"
+                            >
+                              <MessageCircle size={13} /><span>WhatsApp</span>
+                            </a>
+                          </>
+                        )}
+                        {item.customerId && (
+                          <button 
+                            onClick={() => { 
+                              setSelectedCustomerId(item.customerId!); 
+                              setCurrentTab('installments'); 
+                            }}
+                            className="text-[10px] font-extrabold text-slate-900 hover:text-accent bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl transition shadow-sm"
+                          >
+                            Wasifu →
+                          </button>
+                        )}
                       </div>
-                    );
-                  })()}
+                    </div>
+                  )}
 
                   {/* Action buttons for CUSTOMER notifications */}
                   {item.customerId && !isSupplier && !isInstallment && (() => {
