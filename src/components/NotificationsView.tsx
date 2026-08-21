@@ -4,7 +4,7 @@ import { api } from '../services/api';
 import { 
   Bell, ArrowLeft, Trash2, Calendar, Phone, CheckCircle2, 
   AlertTriangle, AlertCircle, Sparkles, MessageCircle, 
-  Send, Loader2, Check, Truck
+  Send, Loader2, Check, Truck, Package, Award, PartyPopper
 } from 'lucide-react';
 
 interface NotificationsViewProps {
@@ -16,6 +16,24 @@ interface NotificationsViewProps {
   onClearAll?: () => void;
   debts?: any[];
   payments?: any[];
+  installmentNotifications?: InstallmentNotification[];
+}
+
+// Installment notification type
+interface InstallmentNotification {
+  id: string;
+  type: 'Installment Halfway' | 'Installment Completed';
+  message: string;
+  date: string;
+  customerId?: string;
+  productId?: string;
+  productName?: string;
+  customerName?: string;
+  phoneNumber?: string;
+  progressPercentage?: number;
+  startDate?: string;
+  totalAmount?: number;
+  paidAmount?: number;
 }
 
 export default function NotificationsView({
@@ -26,7 +44,8 @@ export default function NotificationsView({
   setSelectedCustomerId,
   onClearAll,
   debts = [],
-  payments = []
+  payments = [],
+  installmentNotifications = []
 }: NotificationsViewProps) {
   const [filterType, setFilterType] = useState<string>('All');
   const [isSendingAll, setIsSendingAll] = useState(false);
@@ -36,6 +55,11 @@ export default function NotificationsView({
   const autoSentRef = useRef(false);
   const initializedRef = useRef(false);
 
+  // Combine all notifications
+  const allNotifications = useMemo(() => {
+    return [...notifications, ...installmentNotifications];
+  }, [notifications, installmentNotifications]);
+
   // Auto-send ONCE per day - only runs on first load
   useEffect(() => {
     if (initializedRef.current) return;
@@ -44,21 +68,18 @@ export default function NotificationsView({
     const lastSentDate = localStorage.getItem('ledger_last_auto_send_date');
     const today = new Date().toISOString().split('T')[0];
     
-    const todayNotifications = notifications.filter(n => n.type === 'Due Today');
+    const todayNotifications = allNotifications.filter(n => n.type === 'Due Today');
     
-    // Only auto-send if not already sent today AND there are due items
     if (lastSentDate !== today && todayNotifications.length > 0 && !autoSentRef.current) {
       autoSentRef.current = true;
       handleAutoSend(today);
     } else if (lastSentDate === today && todayNotifications.length > 0) {
-      // Already sent today - just mark as sent
       setSentIds(new Set(todayNotifications.map(n => n.id)));
     }
-  }, []); // Empty dependency - runs only once on mount
+  }, []);
 
   const handleAutoSend = async (today: string) => {
     setIsSendingAll(true);
-
     try {
       const result = await api.reminders.send({
         debts,
@@ -69,13 +90,11 @@ export default function NotificationsView({
 
       if (result.success) {
         localStorage.setItem('ledger_last_auto_send_date', today);
-        
         setReminderResult({
           success: true,
           message: `✅ Vikumbusho vya leo vimetumwa kiotomatiki (Wateja: ${result.data.customerSent}, Wauzaji: ${result.data.supplierSent || 0}).`,
         });
-        
-        const todayIds = notifications.filter(n => n.type === 'Due Today').map(n => n.id);
+        const todayIds = allNotifications.filter(n => n.type === 'Due Today').map(n => n.id);
         setSentIds(new Set(todayIds));
       }
     } catch (err: any) {
@@ -85,17 +104,17 @@ export default function NotificationsView({
     }
   };
 
-  const filteredNotifications = notifications.filter(item => {
+  const filteredNotifications = allNotifications.filter(item => {
     if (filterType === 'All') return true;
     if (filterType === 'Overdue') return item.type === 'Overdue';
     if (filterType === 'Due Today') return item.type === 'Due Today' || item.type === 'Due Tomorrow';
     if (filterType === 'Paid') return item.type === 'Fully Paid' || item.type === 'Payment Received';
+    if (filterType === 'Installments') return item.type === 'Installment Halfway' || item.type === 'Installment Completed';
     return true;
   });
 
-  const todayDueCount = notifications.filter(n => n.type === 'Due Today').length;
+  const todayDueCount = allNotifications.filter(n => n.type === 'Due Today').length;
 
-  // Manual send all
   const handleSendAllReminders = async () => {
     if (todayDueCount === 0) {
       setReminderResult({ success: false, message: 'Hakuna vikumbusho vya leo.' });
@@ -123,7 +142,7 @@ export default function NotificationsView({
           success: true,
           message: `✅ Wateja: ${result.data.customerSent} | Wauzaji: ${result.data.supplierSent || 0}`,
         });
-        const todayIds = notifications.filter(n => n.type === 'Due Today').map(n => n.id);
+        const todayIds = allNotifications.filter(n => n.type === 'Due Today').map(n => n.id);
         setSentIds(new Set(todayIds));
       } else {
         setReminderResult({ success: false, message: `❌ ${result.error || 'Imeshindwa kutuma.'}` });
@@ -135,19 +154,16 @@ export default function NotificationsView({
     }
   };
 
-  // Send individual SMS
-  const handleSendSingleReminder = async (item: NotificationItem) => {
+  const handleSendSingleReminder = async (item: NotificationItem | InstallmentNotification) => {
     if (sendingIds.has(item.id) || sentIds.has(item.id)) return;
 
     setSendingIds(prev => new Set(prev).add(item.id));
 
     try {
-      // For customer debt
-      const relevantDebts = item.debtId 
-        ? debts.filter((d: any) => d.id === item.debtId)
+      const relevantDebts = (item as any).debtId 
+        ? debts.filter((d: any) => d.id === (item as any).debtId)
         : [];
       
-      // For supplier (only sends to admin, not supplier)
       const isSupplierNotification = item.id.startsWith('supplier-');
       
       const result = await api.reminders.send({
@@ -171,8 +187,8 @@ export default function NotificationsView({
     }
   };
 
-  // Get icon for notification type
-  const getNotificationStyle = (item: NotificationItem) => {
+  // Get style for notification type
+  const getNotificationStyle = (item: NotificationItem | InstallmentNotification) => {
     const isSupplier = item.id.startsWith('supplier-');
     
     if (item.type === 'Overdue') {
@@ -215,6 +231,26 @@ export default function NotificationsView({
         label: '👤 Mteja'
       };
     }
+    if (item.type === 'Installment Halfway') {
+      return {
+        bgClass: 'bg-blue-50/70 border-blue-100 text-blue-950',
+        iconColor: 'text-blue-600',
+        badgeText: 'NUSU YA MALIPO',
+        badgeClass: 'bg-blue-100 text-blue-800',
+        IconComponent: Package,
+        label: '🎯 Mteja wa Mkopo'
+      };
+    }
+    if (item.type === 'Installment Completed') {
+      return {
+        bgClass: 'bg-purple-50/70 border-purple-100 text-purple-950',
+        iconColor: 'text-purple-600',
+        badgeText: 'KAMILIFU',
+        badgeClass: 'bg-purple-100 text-purple-800',
+        IconComponent: Award,
+        label: '🎉 Hongera'
+      };
+    }
     return {
       bgClass: 'bg-slate-50 border-slate-100 text-slate-700',
       iconColor: 'text-slate-500',
@@ -223,6 +259,28 @@ export default function NotificationsView({
       IconComponent: Bell,
       label: ''
     };
+  };
+
+  // Format WhatsApp number
+  const formatWhatsAppNumber = (phone: string): string => {
+    let cleaned = phone.trim().replace(/\s+/g, '');
+    if (cleaned.startsWith('0')) return '+255' + cleaned.slice(1);
+    if (!cleaned.startsWith('+') && !cleaned.startsWith('255')) return '+255' + cleaned;
+    if (cleaned.startsWith('255')) return '+' + cleaned;
+    return cleaned;
+  };
+
+  // Get WhatsApp message based on notification type
+  const getWhatsAppMessage = (item: NotificationItem | InstallmentNotification): string => {
+    if (item.type === 'Installment Completed') {
+      const instItem = item as InstallmentNotification;
+      return `Habari ${instItem.customerName}, Tungependa kukupongeza kwa kumaliza kiwango chote cha ${instItem.productName} Bidhaa uliyoibandika tangu tarehe ${instItem.startDate}. Asante kwa kuaminiana nasi!`;
+    }
+    if (item.type === 'Installment Halfway') {
+      const instItem = item as InstallmentNotification;
+      return `Habari ${instItem.customerName}, Umefika nusu ya malipo ya ${instItem.productName} (${instItem.progressPercentage}%). Endelea hivyo hivyo!`;
+    }
+    return "Habari, ningependa kukukumbusha kuhusu deni lako.";
   };
 
   return (
@@ -239,7 +297,7 @@ export default function NotificationsView({
               <Bell size={18} className="text-rose-500" />
               Arifu na Vikumbusho
             </h2>
-            <p className="text-xs text-slate-400 mt-1">Wateja wanaodaiwa na wauzaji wanaotakiwa kulipwa.</p>
+            <p className="text-xs text-slate-400 mt-1">Wateja wanaodaiwa, wauzaji na wateja wa mafungu.</p>
           </div>
         </div>
 
@@ -250,7 +308,7 @@ export default function NotificationsView({
               {isSendingAll ? <><Loader2 size={13} className="animate-spin" /> Inatuma...</> : <><Send size={13} /> Tuma Zote ({todayDueCount})</>}
             </button>
           )}
-          {onClearAll && notifications.length > 0 && (
+          {onClearAll && allNotifications.length > 0 && (
             <button onClick={onClearAll} className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-[11px] py-2 px-3 rounded-xl flex items-center gap-1.5 transition-colors">
               <Trash2 size={13} /> Futa
             </button>
@@ -272,10 +330,11 @@ export default function NotificationsView({
       {/* Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-1 select-none">
         {[
-          { id: 'All', label: `Zote (${notifications.length})` },
-          { id: 'Overdue', label: `Zilizopitisha (${notifications.filter(n => n.type === 'Overdue').length})` },
-          { id: 'Due Today', label: `Leo & Kesho (${notifications.filter(n => n.type === 'Due Today' || n.type === 'Due Tomorrow').length})` },
-          { id: 'Paid', label: `Malipo (${notifications.filter(n => n.type === 'Fully Paid' || n.type === 'Payment Received').length})` }
+          { id: 'All', label: `Zote (${allNotifications.length})` },
+          { id: 'Overdue', label: `Zilizopitisha (${allNotifications.filter(n => n.type === 'Overdue').length})` },
+          { id: 'Due Today', label: `Leo & Kesho (${allNotifications.filter(n => n.type === 'Due Today' || n.type === 'Due Tomorrow').length})` },
+          { id: 'Paid', label: `Malipo (${allNotifications.filter(n => n.type === 'Fully Paid' || n.type === 'Payment Received').length})` },
+          { id: 'Installments', label: `Mafungu (${allNotifications.filter(n => n.type === 'Installment Halfway' || n.type === 'Installment Completed').length})` }
         ].map(tab => (
           <button key={tab.id} onClick={() => setFilterType(tab.id)}
             className={`py-1.5 px-3 rounded-lg border text-[11px] font-bold whitespace-nowrap transition-colors ${filterType === tab.id ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
@@ -289,10 +348,10 @@ export default function NotificationsView({
         {filteredNotifications.length > 0 ? (
           filteredNotifications.map(item => {
             const isSupplier = item.id.startsWith('supplier-');
+            const isInstallment = item.type === 'Installment Halfway' || item.type === 'Installment Completed';
             const { bgClass, iconColor, badgeText, badgeClass, IconComponent, label } = getNotificationStyle(item);
             const isSending = sendingIds.has(item.id);
             const isSent = sentIds.has(item.id);
-            // Show send button for Due Today & Overdue (both customer and supplier)
             const canSend = (item.type === 'Due Today' || item.type === 'Overdue') && !isSent;
 
             return (
@@ -322,21 +381,50 @@ export default function NotificationsView({
                   
                   <p className="text-xs font-semibold leading-relaxed text-slate-800">{item.message}</p>
 
+                  {/* Action buttons for INSTALLMENT notifications */}
+                  {isInstallment && (() => {
+                    const instItem = item as InstallmentNotification;
+                    const phone = instItem.phoneNumber || '';
+                    const phoneFormattedForWa = formatWhatsAppNumber(phone).replace('+', '');
+                    const waMessage = getWhatsAppMessage(item);
+                    const waUrl = `https://wa.me/${phoneFormattedForWa}?text=${encodeURIComponent(waMessage)}`;
+
+                    return (
+                      <div className="pt-2.5 flex items-center justify-between flex-wrap gap-2 border-t border-slate-100/50 mt-2">
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          📱 {phone} • Bidhaa: {instItem.productName}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <a href={`tel:${phone}`} className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition border border-slate-200" title="Piga">
+                            <Phone size={13} />
+                          </a>
+                          <a href={waUrl} target="_blank" rel="noopener noreferrer" 
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl transition border border-emerald-100 text-[10px] font-extrabold" 
+                            title="WhatsApp">
+                            <MessageCircle size={13} /><span>WhatsApp</span>
+                          </a>
+                          {instItem.customerId && (
+                            <button 
+                              onClick={() => { 
+                                setSelectedCustomerId(instItem.customerId!); 
+                                setCurrentTab('installments'); 
+                              }}
+                              className="text-[10px] font-extrabold text-slate-900 hover:text-accent bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl transition shadow-sm">
+                              Wasifu →
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Action buttons for CUSTOMER notifications */}
-                  {item.customerId && !isSupplier && (() => {
+                  {item.customerId && !isSupplier && !isInstallment && (() => {
                     const customer = customers.find(c => c.id === item.customerId);
                     if (!customer) return null;
 
-                    const formatWhatsAppNumber = (phone: string): string => {
-                      let cleaned = phone.trim().replace(/\s+/g, '');
-                      if (cleaned.startsWith('0')) return '+255' + cleaned.slice(1);
-                      if (!cleaned.startsWith('+') && !cleaned.startsWith('255')) return '+255' + cleaned;
-                      if (cleaned.startsWith('255')) return '+' + cleaned;
-                      return cleaned;
-                    };
-
                     const phoneFormattedForWa = formatWhatsAppNumber(customer.phoneNumber).replace('+', '');
-                    const waMessage = "Habari, ningependa kukukumbusha kuhusu deni lako.";
+                    const waMessage = getWhatsAppMessage(item);
                     const waUrl = `https://wa.me/${phoneFormattedForWa}?text=${encodeURIComponent(waMessage)}`;
 
                     return (
