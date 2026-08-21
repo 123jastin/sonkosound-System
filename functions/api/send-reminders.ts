@@ -82,7 +82,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const debts = Array.isArray(body?.debts) ? body.debts : [];
     const customers = Array.isArray(body?.customers) ? body.customers : [];
     const payments = Array.isArray(body?.payments) ? body.payments : [];
-    const suppliers = Array.isArray(body?.suppliers) ? body.suppliers : []; // NEW
+    const suppliers = Array.isArray(body?.suppliers) ? body.suppliers : [];
+    const installmentProducts = Array.isArray(body?.installmentProducts) ? body.installmentProducts : [];
+    const installmentCustomers = Array.isArray(body?.installmentCustomers) ? body.installmentCustomers : [];
 
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
@@ -92,7 +94,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     console.log('========================================');
     console.log('📨 SEND REMINDERS -', today);
-    console.log('👥 Customers:', customers.length, '| 🚚 Suppliers:', suppliers.length);
+    console.log('👥 Customers:', customers.length, '| 🚚 Suppliers:', suppliers.length, '| 📦 Installments:', installmentProducts.length);
     console.log('========================================');
 
     const results: any[] = [];
@@ -100,6 +102,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     let customerFailed = 0;
     let supplierSent = 0;
     let supplierFailed = 0;
+    let installmentSent = 0;
+    let installmentFailed = 0;
     let ownerSent = 0;
 
     // ============================================
@@ -156,7 +160,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     // ============================================
-    // 2. SUPPLIER PAYMENTS (NEW)
+    // 2. SUPPLIER PAYMENTS
     // ============================================
     for (const supplier of suppliers) {
       const remaining = (supplier.amount || 0) - (supplier.paidAmount || 0);
@@ -191,9 +195,82 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
+    // ============================================
+    // 3. INSTALLMENT PAYMENT NOTIFICATIONS
+    // ============================================
+    for (const product of installmentProducts) {
+      const customer = installmentCustomers.find((c: any) => c.id === product.customer_id);
+      if (!customer || !customer.phone_number) continue;
+
+      const totalAmount = Number(product.total_amount) || 0;
+      const paidAmount = Number(product.paid_amount) || 0;
+      const remaining = totalAmount - paidAmount;
+
+      if (totalAmount <= 0) continue;
+
+      // Check if this is a payment notification or completion
+      const isCompleted = paidAmount >= totalAmount;
+      const progressPercentage = Math.round((paidAmount / totalAmount) * 100);
+
+      const customerPhone = normalizePhone(customer.phone_number);
+      const ownerPhone = normalizePhone(MY_PHONE);
+
+      let customerMessage = '';
+      let ownerMessage = '';
+
+      if (isCompleted) {
+        // Completion messages
+        customerMessage = `Hongera ${customer.full_name}! Umemaliza malipo ya ${product.product_name} ya TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!`;
+        ownerMessage = `🎉 ${customer.full_name} amekamilisha malipo ya ${product.product_name} TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa.`;
+      } else if (progressPercentage >= 45 && progressPercentage <= 55) {
+        // Halfway milestone
+        customerMessage = `Habari ${customer.full_name}, umefika nusu ya malipo ya ${product.product_name} (${progressPercentage}%). Umelipa TSh ${paidAmount.toLocaleString()}, baki TSh ${remaining.toLocaleString()}. Endelea hivyo hivyo!`;
+        ownerMessage = `📊 ${customer.full_name} amefika ${progressPercentage}% ya malipo ya ${product.product_name}. Amelipa TSh ${paidAmount.toLocaleString()}, baki TSh ${remaining.toLocaleString()}.`;
+      } else {
+        // Regular payment notification
+        customerMessage = `Habari ${customer.full_name}, malipo ya TSh ${paidAmount.toLocaleString()} ya ${product.product_name} yamepokelewa. Kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
+        ownerMessage = `💰 ${customer.full_name} amelipa TSh ${paidAmount.toLocaleString()} ya ${product.product_name}. Kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
+      }
+
+      // Send to Customer
+      const custResult = await sendSingleSMS({
+        apiKey: BEEM_API_KEY,
+        secretKey: BEEM_SECRET_KEY,
+        message: customerMessage,
+        phone: customerPhone,
+        source_addr: 'Sonko Sound',
+      });
+
+      results.push({
+        type: 'installment',
+        name: customer.full_name,
+        product: product.product_name,
+        phone: customerPhone,
+        message: customerMessage,
+        success: custResult.success,
+        isCompleted,
+      });
+
+      if (custResult.success) installmentSent++;
+      else installmentFailed++;
+
+      // Send to Owner
+      const ownerResult = await sendSingleSMS({
+        apiKey: BEEM_API_KEY,
+        secretKey: BEEM_SECRET_KEY,
+        message: ownerMessage,
+        phone: ownerPhone,
+        source_addr: 'Sonko Sound',
+      });
+      if (ownerResult.success) ownerSent++;
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
     console.log('========================================');
     console.log(`✅ Customers: ${customerSent} | ❌ Failed: ${customerFailed}`);
     console.log(`✅ Suppliers: ${supplierSent} | ❌ Failed: ${supplierFailed}`);
+    console.log(`✅ Installments: ${installmentSent} | ❌ Failed: ${installmentFailed}`);
     console.log(`📋 Owner copies: ${ownerSent}`);
     console.log('========================================');
 
@@ -205,10 +282,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         customerFailed,
         supplierSent,
         supplierFailed,
+        installmentSent,
+        installmentFailed,
         ownerSent,
         results,
       },
-      message: `✅ Wateja: ${customerSent} | 🚚 Wauzaji: ${supplierSent} | 📋 Nakala: ${ownerSent}`,
+      message: `✅ Wateja: ${customerSent} | 🚚 Wauzaji: ${supplierSent} | 📦 Mafungu: ${installmentSent} | 📋 Nakala: ${ownerSent}`,
     });
   } catch (error: any) {
     console.error('❌ Error:', error);
