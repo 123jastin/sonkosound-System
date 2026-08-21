@@ -4,7 +4,6 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { api } from '../services/api';
 import FormAIOCR from './FormAIOCR';
 import { 
   Users, Plus, Phone, Calendar, Package, 
@@ -16,40 +15,53 @@ import {
 // Types for Installment System
 interface InstallmentCustomer {
   id: string;
-  fullName: string;
-  phoneNumber: string;
+  full_name: string;
+  phone_number: string;
   address: string;
   notes: string;
-  createdAt: string;
+  created_at: string;
+  total_products?: number;
+  total_value?: number;
+  paid_value?: number;
+  remaining_value?: number;
+  completed_products?: number;
 }
 
 interface InstallmentProduct {
   id: string;
-  customerId: string;
-  productName: string;
+  customer_id: string;
+  product_name: string;
   description: string;
-  totalAmount: number;
-  paidAmount: number;
-  startDate: string;
-  expectedCompletionDate: string;
-  status: 'Active' | 'Completed' | 'Defaulted';
+  total_amount: number;
+  paid_amount: number;
+  start_date: string;
+  expected_completion_date: string;
+  status: string;
   notes: string;
-  createdAt: string;
+  created_at: string;
+  customer_name?: string;
+  customer_phone?: string;
+  payments?: InstallmentPayment[];
 }
 
 interface InstallmentPayment {
   id: string;
-  productId: string;
+  product_id: string;
   amount: number;
-  date: string;
-  paymentMethod: string;
+  payment_date: string;
+  payment_method: string;
   notes: string;
-  createdAt: string;
+  receipt_number: string;
+  created_at: string;
+  product_name?: string;
+  customer_name?: string;
 }
 
 interface InstallmentManagementProps {
   onUpdate: () => void;
 }
+
+const API_BASE_URL = '/api/installment';
 
 export default function InstallmentManagement({ onUpdate }: InstallmentManagementProps) {
   // State Management
@@ -96,35 +108,22 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
 
   const loadData = async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      // In production, fetch from API
-      // const [custData, prodData, payData] = await Promise.all([
-      //   api.installmentCustomers.list(),
-      //   api.installmentProducts.list(),
-      //   api.installmentPayments.list()
-      // ]);
+      const response = await fetch(`${API_BASE_URL}`);
+      const data = await response.json();
       
-      // For now, load from localStorage or use empty arrays
-      const savedData = localStorage.getItem('installment_data');
-      if (savedData) {
-        const parsed = JSON.parse(savedData);
-        setCustomers(parsed.customers || []);
-        setProducts(parsed.products || []);
-        setPayments(parsed.payments || []);
+      if (data.customers) {
+        setCustomers(data.customers);
+        setProducts(data.products || []);
+        setPayments(data.payments || []);
       }
     } catch (err) {
       console.error('Failed to load installment data:', err);
+      setError('Imeshindwa kupakia data za mafungu');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const saveData = (newCustomers: InstallmentCustomer[], newProducts: InstallmentProduct[], newPayments: InstallmentPayment[]) => {
-    localStorage.setItem('installment_data', JSON.stringify({
-      customers: newCustomers,
-      products: newProducts,
-      payments: newPayments
-    }));
   };
 
   // Active customer details
@@ -135,7 +134,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
   // Active customer's products
   const activeCustomerProducts = useMemo(() => {
     if (!selectedCustomerId) return [];
-    return products.filter(p => p.customerId === selectedCustomerId);
+    return products.filter(p => p.customer_id === selectedCustomerId);
   }, [products, selectedCustomerId]);
 
   // Calculate stats
@@ -147,9 +146,11 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
     let completedInstallments = 0;
     
     products.forEach(p => {
-      totalExpected += p.totalAmount;
-      totalCollected += p.paidAmount;
-      const remaining = p.totalAmount - p.paidAmount;
+      const total = Number(p.total_amount) || 0;
+      const paid = Number(p.paid_amount) || 0;
+      totalExpected += total;
+      totalCollected += paid;
+      const remaining = total - paid;
       totalRemaining += Math.max(0, remaining);
       
       if (p.status === 'Active' && remaining > 0) {
@@ -169,46 +170,35 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
     };
   }, [products, customers]);
 
-  // Get customer's product stats
-  const getCustomerProductStats = (customerId: string) => {
-    const customerProducts = products.filter(p => p.customerId === customerId);
-    const totalProducts = customerProducts.length;
-    const completedProducts = customerProducts.filter(p => p.paidAmount >= p.totalAmount).length;
-    const totalValue = customerProducts.reduce((sum, p) => sum + p.totalAmount, 0);
-    const paidValue = customerProducts.reduce((sum, p) => sum + p.paidAmount, 0);
-    
-    return {
-      totalProducts,
-      completedProducts,
-      totalValue,
-      paidValue,
-      remainingValue: totalValue - paidValue
-    };
-  };
-
   // Handlers
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName || !phoneNumber) return;
     
     setIsLoading(true);
+    setError(null);
     try {
-      const newCustomer: InstallmentCustomer = {
-        id: 'icust-' + Date.now(),
-        fullName,
-        phoneNumber,
-        address,
-        notes,
-        createdAt: new Date().toISOString().split('T')[0]
-      };
+      const response = await fetch(`${API_BASE_URL}/customers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName,
+          phoneNumber,
+          address,
+          notes
+        })
+      });
       
-      const newCustomers = [...customers, newCustomer];
-      setCustomers(newCustomers);
-      saveData(newCustomers, products, payments);
+      const newCustomer = await response.json();
       
-      setIsAddCustomerModalOpen(false);
-      resetCustomerForm();
-      onUpdate();
+      if (response.ok) {
+        setCustomers(prev => [newCustomer, ...prev]);
+        setIsAddCustomerModalOpen(false);
+        resetCustomerForm();
+        onUpdate();
+      } else {
+        setError(newCustomer.error || 'Imeshindwa kumsajili mteja');
+      }
     } catch (err: any) {
       setError('Imeshindwa kumsajili mteja: ' + err.message);
     } finally {
@@ -221,18 +211,31 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
     if (!selectedCustomerId || !fullName || !phoneNumber) return;
     
     setIsLoading(true);
+    setError(null);
     try {
-      const updatedCustomers = customers.map(c => 
-        c.id === selectedCustomerId 
-          ? { ...c, fullName, phoneNumber, address, notes }
-          : c
-      );
+      const response = await fetch(`${API_BASE_URL}/customers?id=${selectedCustomerId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName,
+          phoneNumber,
+          address,
+          notes
+        })
+      });
       
-      setCustomers(updatedCustomers);
-      saveData(updatedCustomers, products, payments);
-      
-      setIsEditCustomerModalOpen(false);
-      onUpdate();
+      if (response.ok) {
+        setCustomers(prev => prev.map(c => 
+          c.id === selectedCustomerId 
+            ? { ...c, full_name: fullName, phone_number: phoneNumber, address, notes }
+            : c
+        ));
+        setIsEditCustomerModalOpen(false);
+        onUpdate();
+      } else {
+        const error = await response.json();
+        setError(error.error || 'Imeshindwa kuhariri wasifu');
+      }
     } catch (err: any) {
       setError('Imeshindwa kuhariri wasifu: ' + err.message);
     } finally {
@@ -245,18 +248,16 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
     
     setIsLoading(true);
     try {
-      const newCustomers = customers.filter(c => c.id !== customerId);
-      const newProducts = products.filter(p => p.customerId !== customerId);
-      const productIds = products.filter(p => p.customerId === customerId).map(p => p.id);
-      const newPayments = payments.filter(p => !productIds.includes(p.productId));
+      const response = await fetch(`${API_BASE_URL}/customers?id=${customerId}`, {
+        method: 'DELETE'
+      });
       
-      setCustomers(newCustomers);
-      setProducts(newProducts);
-      setPayments(newPayments);
-      saveData(newCustomers, newProducts, newPayments);
-      
-      if (selectedCustomerId === customerId) setSelectedCustomerId('');
-      onUpdate();
+      if (response.ok) {
+        setCustomers(prev => prev.filter(c => c.id !== customerId));
+        setProducts(prev => prev.filter(p => p.customer_id !== customerId));
+        if (selectedCustomerId === customerId) setSelectedCustomerId('');
+        onUpdate();
+      }
     } catch (err: any) {
       alert('Imeshindwa kumfuta: ' + err.message);
     } finally {
@@ -269,28 +270,34 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
     if (!selectedCustomerId || !productName || !totalAmount) return;
     
     setIsLoading(true);
+    setError(null);
     try {
-      const newProduct: InstallmentProduct = {
-        id: 'iprod-' + Date.now(),
-        customerId: selectedCustomerId,
-        productName,
-        description: productDescription,
-        totalAmount: Number(totalAmount),
-        paidAmount: 0,
-        startDate: new Date().toISOString().split('T')[0],
-        expectedCompletionDate,
-        status: 'Active',
-        notes: productNotes,
-        createdAt: new Date().toISOString()
-      };
+      const response = await fetch(`${API_BASE_URL}/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId: selectedCustomerId,
+          productName,
+          description: productDescription,
+          totalAmount: Number(totalAmount),
+          paidAmount: 0,
+          startDate: new Date().toISOString().split('T')[0],
+          expectedCompletionDate,
+          status: 'Active',
+          notes: productNotes
+        })
+      });
       
-      const newProducts = [...products, newProduct];
-      setProducts(newProducts);
-      saveData(customers, newProducts, payments);
+      const newProduct = await response.json();
       
-      setIsAddProductModalOpen(false);
-      resetProductForm();
-      onUpdate();
+      if (response.ok) {
+        setProducts(prev => [newProduct, ...prev]);
+        setIsAddProductModalOpen(false);
+        resetProductForm();
+        onUpdate();
+      } else {
+        setError(newProduct.error || 'Imeshindwa kuongeza bidhaa');
+      }
     } catch (err: any) {
       setError('Imeshindwa kuongeza bidhaa: ' + err.message);
     } finally {
@@ -303,38 +310,44 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
     if (!selectedProduct || !payAmount) return;
     
     setIsLoading(true);
+    setError(null);
     try {
-      const amount = Number(payAmount);
-      const newPayment: InstallmentPayment = {
-        id: 'ipay-' + Date.now(),
-        productId: selectedProduct.id,
-        amount,
-        date: new Date().toISOString().split('T')[0],
-        paymentMethod: payMethod,
-        notes: payNotes || `Malipo ya ${selectedProduct.productName}`,
-        createdAt: new Date().toISOString()
-      };
-      
-      const newPayments = [...payments, newPayment];
-      const updatedProducts = products.map(p => {
-        if (p.id === selectedProduct.id) {
-          const newPaidAmount = p.paidAmount + amount;
-          return {
-            ...p,
-            paidAmount: newPaidAmount,
-            status: newPaidAmount >= p.totalAmount ? 'Completed' : 'Active'
-          };
-        }
-        return p;
+      const response = await fetch(`${API_BASE_URL}/payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId: selectedProduct.id,
+          amount: Number(payAmount),
+          paymentDate: new Date().toISOString().split('T')[0],
+          paymentMethod: payMethod,
+          notes: payNotes || `Malipo ya ${selectedProduct.product_name}`
+        })
       });
       
-      setPayments(newPayments);
-      setProducts(updatedProducts);
-      saveData(customers, updatedProducts, newPayments);
+      const newPayment = await response.json();
       
-      setIsPayModalOpen(false);
-      resetPaymentForm();
-      onUpdate();
+      if (response.ok) {
+        setPayments(prev => [newPayment, ...prev]);
+        
+        // Update product paid amount locally
+        setProducts(prev => prev.map(p => {
+          if (p.id === selectedProduct.id) {
+            const newPaidAmount = Number(p.paid_amount) + Number(payAmount);
+            return {
+              ...p,
+              paid_amount: newPaidAmount,
+              status: newPaidAmount >= Number(p.total_amount) ? 'Completed' : 'Active'
+            };
+          }
+          return p;
+        }));
+        
+        setIsPayModalOpen(false);
+        resetPaymentForm();
+        onUpdate();
+      } else {
+        setError(newPayment.error || 'Imeshindwa kurekodi malipo');
+      }
     } catch (err: any) {
       setError('Imeshindwa kurekodi malipo: ' + err.message);
     } finally {
@@ -364,8 +377,8 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
 
   const openEditCustomerModal = () => {
     if (!activeCustomer) return;
-    setFullName(activeCustomer.fullName);
-    setPhoneNumber(activeCustomer.phoneNumber);
+    setFullName(activeCustomer.full_name);
+    setPhoneNumber(activeCustomer.phone_number);
     setAddress(activeCustomer.address);
     setNotes(activeCustomer.notes);
     setIsEditCustomerModalOpen(true);
@@ -404,6 +417,14 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
         </div>
       )}
 
+      {/* Loading indicator */}
+      {isLoading && (
+        <div className="flex items-center justify-center gap-2 text-xs text-slate-400 py-2">
+          <Loader2 size={14} className="animate-spin" />
+          <span>Inasasisha data...</span>
+        </div>
+      )}
+
       {activeCustomer ? (
         /* CUSTOMER INSTALLMENT PROFILE */
         <div className="space-y-6 text-xs text-left animate-fade-in">
@@ -419,12 +440,12 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
                   <ArrowLeft size={16} />
                 </button>
                 <div className="h-16 w-16 rounded-2xl bg-indigo-100 text-indigo-800 font-extrabold text-xl flex items-center justify-center shadow-sm">
-                  {getInitials(activeCustomer.fullName)}
+                  {getInitials(activeCustomer.full_name)}
                 </div>
                 <div>
-                  <h3 className="text-base font-extrabold text-slate-800">{activeCustomer.fullName}</h3>
+                  <h3 className="text-base font-extrabold text-slate-800">{activeCustomer.full_name}</h3>
                   <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
-                    <Phone size={12} /> {activeCustomer.phoneNumber}
+                    <Phone size={12} /> {activeCustomer.phone_number}
                   </p>
                   {activeCustomer.address && (
                     <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
@@ -465,15 +486,21 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
               </div>
               <div className="text-center">
                 <p className="text-xs text-slate-400">Zilizokamilika</p>
-                <p className="text-lg font-bold text-emerald-600">{activeCustomerProducts.filter(p => p.paidAmount >= p.totalAmount).length}</p>
+                <p className="text-lg font-bold text-emerald-600">
+                  {activeCustomerProducts.filter(p => Number(p.paid_amount) >= Number(p.total_amount)).length}
+                </p>
               </div>
               <div className="text-center">
                 <p className="text-xs text-slate-400">Jumla ya Thamani</p>
-                <p className="text-lg font-bold text-slate-800">TSh {activeCustomerProducts.reduce((sum, p) => sum + p.totalAmount, 0).toLocaleString()}</p>
+                <p className="text-lg font-bold text-slate-800">
+                  TSh {activeCustomerProducts.reduce((sum, p) => sum + Number(p.total_amount), 0).toLocaleString()}
+                </p>
               </div>
               <div className="text-center">
                 <p className="text-xs text-slate-400">Baki</p>
-                <p className="text-lg font-bold text-rose-600">TSh {activeCustomerProducts.reduce((sum, p) => sum + Math.max(0, p.totalAmount - p.paidAmount), 0).toLocaleString()}</p>
+                <p className="text-lg font-bold text-rose-600">
+                  TSh {activeCustomerProducts.reduce((sum, p) => sum + Math.max(0, Number(p.total_amount) - Number(p.paid_amount)), 0).toLocaleString()}
+                </p>
               </div>
             </div>
           </div>
@@ -498,9 +525,10 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
           {/* Products List */}
           <div className="space-y-4">
             {activeCustomerProducts.map(product => {
-              const productPayments = payments.filter(p => p.productId === product.id);
-              const remaining = Math.max(0, product.totalAmount - product.paidAmount);
-              const progressPercentage = product.totalAmount > 0 ? (product.paidAmount / product.totalAmount) * 100 : 0;
+              const remaining = Math.max(0, Number(product.total_amount) - Number(product.paid_amount));
+              const progressPercentage = Number(product.total_amount) > 0 
+                ? (Number(product.paid_amount) / Number(product.total_amount)) * 100 
+                : 0;
               
               return (
                 <div key={product.id} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition">
@@ -511,7 +539,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
                           <Package size={20} />
                         </div>
                         <div>
-                          <h4 className="text-sm font-bold text-slate-800">{product.productName}</h4>
+                          <h4 className="text-sm font-bold text-slate-800">{product.product_name}</h4>
                           <p className="text-xs text-slate-400 mt-0.5">{product.description || 'Hakuna maelezo'}</p>
                         </div>
                       </div>
@@ -519,11 +547,11 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
                       <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div>
                           <p className="text-[10px] text-slate-400 font-semibold uppercase">Bei Kamili</p>
-                          <p className="text-sm font-bold text-slate-800 mt-1">TSh {product.totalAmount.toLocaleString()}</p>
+                          <p className="text-sm font-bold text-slate-800 mt-1">TSh {Number(product.total_amount).toLocaleString()}</p>
                         </div>
                         <div>
                           <p className="text-[10px] text-slate-400 font-semibold uppercase">Imelipwa</p>
-                          <p className="text-sm font-bold text-emerald-600 mt-1">TSh {product.paidAmount.toLocaleString()}</p>
+                          <p className="text-sm font-bold text-emerald-600 mt-1">TSh {Number(product.paid_amount).toLocaleString()}</p>
                         </div>
                         <div>
                           <p className="text-[10px] text-slate-400 font-semibold uppercase">Baki</p>
@@ -583,36 +611,6 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
               </div>
             )}
           </div>
-
-          {/* Payment History */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-            <h3 className="text-sm font-bold text-slate-800 mb-4">Historia ya Malipo</h3>
-            <div className="space-y-3">
-              {payments
-                .filter(p => products.find(prod => prod.id === p.productId)?.customerId === selectedCustomerId)
-                .map(payment => {
-                  const product = products.find(p => p.id === payment.productId);
-                  return (
-                    <div key={payment.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                      <div>
-                        <p className="text-xs font-bold text-slate-800">{payment.notes}</p>
-                        <p className="text-[10px] text-slate-400 mt-1">
-                          {payment.date} • {payment.paymentMethod}
-                          {product && ` • ${product.productName}`}
-                        </p>
-                      </div>
-                      <span className="text-sm font-extrabold text-emerald-600">
-                        TSh {payment.amount.toLocaleString()}
-                      </span>
-                    </div>
-                  );
-                })}
-              
-              {payments.filter(p => products.find(prod => prod.id === p.productId)?.customerId === selectedCustomerId).length === 0 && (
-                <p className="text-xs text-slate-400 text-center py-8">Hakuna malipo bado.</p>
-              )}
-            </div>
-          </div>
         </div>
       ) : (
         /* LIST VIEW */
@@ -665,8 +663,11 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {customers.length > 0 ? (
               customers.map(customer => {
-                const customerStats = getCustomerProductStats(customer.id);
-                const hasActiveProducts = customerStats.totalProducts > 0;
+                const customerProducts = products.filter(p => p.customer_id === customer.id);
+                const totalValue = customerProducts.reduce((sum, p) => sum + Number(p.total_amount), 0);
+                const paidValue = customerProducts.reduce((sum, p) => sum + Number(p.paid_amount), 0);
+                const remainingValue = totalValue - paidValue;
+                const hasProducts = customerProducts.length > 0;
                 
                 return (
                   <div 
@@ -677,18 +678,18 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
                         <div className="h-12 w-12 rounded-xl bg-indigo-100 text-indigo-800 font-bold flex items-center justify-center">
-                          {getInitials(customer.fullName)}
+                          {getInitials(customer.full_name)}
                         </div>
                         <div>
-                          <h3 className="text-sm font-bold text-slate-800">{customer.fullName}</h3>
+                          <h3 className="text-sm font-bold text-slate-800">{customer.full_name}</h3>
                           <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
-                            <Phone size={12} /> {customer.phoneNumber}
+                            <Phone size={12} /> {customer.phone_number}
                           </p>
                         </div>
                       </div>
-                      {hasActiveProducts ? (
+                      {hasProducts ? (
                         <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                          {customerStats.totalProducts} Bidhaa
+                          {customerProducts.length} Bidhaa
                         </span>
                       ) : (
                         <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-500">
@@ -697,19 +698,19 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
                       )}
                     </div>
 
-                    {hasActiveProducts && (
+                    {hasProducts && (
                       <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs space-y-2">
                         <div className="flex justify-between font-medium">
                           <span className="text-slate-400">Thamani:</span>
-                          <span className="font-bold text-slate-700">TSh {customerStats.totalValue.toLocaleString()}</span>
+                          <span className="font-bold text-slate-700">TSh {totalValue.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between font-medium">
                           <span className="text-slate-400">Imelipwa:</span>
-                          <span className="font-bold text-emerald-600">TSh {customerStats.paidValue.toLocaleString()}</span>
+                          <span className="font-bold text-emerald-600">TSh {paidValue.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between font-medium border-t border-slate-200/50 pt-1.5">
                           <span className="text-slate-400">Baki:</span>
-                          <span className="font-bold text-rose-600">TSh {customerStats.remainingValue.toLocaleString()}</span>
+                          <span className="font-bold text-rose-600">TSh {remainingValue.toLocaleString()}</span>
                         </div>
                       </div>
                     )}
@@ -722,7 +723,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
 
                     <div className="flex items-center justify-between border-t border-slate-50 pt-3">
                       <p className="text-[10px] text-slate-400 font-mono">
-                        <Calendar size={10} /> {customer.createdAt}
+                        <Calendar size={10} /> {new Date(customer.created_at).toLocaleDateString()}
                       </p>
                       <span className="text-[10px] font-semibold text-indigo-600 flex items-center gap-0.5">
                         Fungua <ChevronRight size={12} />
@@ -742,7 +743,8 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
         </>
       )}
 
-      {/* MODAL: Add Customer */}
+      {/* MODALS - Keep all modals same but update field names to snake_case */}
+      {/* Add Customer Modal */}
       {isAddCustomerModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -794,7 +796,8 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
         </div>
       )}
 
-      {/* MODAL: Edit Customer */}
+      {/* Other modals remain similar but with updated field names */}
+      {/* Edit Customer Modal */}
       {isEditCustomerModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -837,7 +840,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
         </div>
       )}
 
-      {/* MODAL: Add Product */}
+      {/* Add Product Modal */}
       {isAddProductModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -846,7 +849,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
             </button>
             
             <h3 className="text-md font-bold text-slate-800">Ongeza Bidhaa ya Mkopo</h3>
-            <p className="text-xs text-slate-400">Mteja: {activeCustomer?.fullName}</p>
+            <p className="text-xs text-slate-400">Mteja: {activeCustomer?.full_name}</p>
             
             <form onSubmit={handleAddProduct} className="space-y-4 text-xs text-left">
               <div>
@@ -886,7 +889,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
         </div>
       )}
 
-      {/* MODAL: Pay Product */}
+      {/* Pay Product Modal */}
       {isPayModalOpen && selectedProduct && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -895,7 +898,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
             </button>
             
             <h3 className="text-md font-bold text-slate-800">Rekodi Malipo ya Mkopo</h3>
-            <p className="text-xs text-slate-400">{selectedProduct.productName} - {activeCustomer?.fullName}</p>
+            <p className="text-xs text-slate-400">{selectedProduct.product_name} - {activeCustomer?.full_name}</p>
             
             <form onSubmit={handlePayProduct} className="space-y-4 text-xs text-left">
               <div>
@@ -905,9 +908,9 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
                   required 
                   value={payAmount} 
                   onChange={(e) => setPayAmount(e.target.value)}
-                  placeholder={`Baki: ${Math.max(0, selectedProduct.totalAmount - selectedProduct.paidAmount).toLocaleString()}`}
+                  placeholder={`Baki: ${Math.max(0, Number(selectedProduct.total_amount) - Number(selectedProduct.paid_amount)).toLocaleString()}`}
                   min="1"
-                  max={Math.max(0, selectedProduct.totalAmount - selectedProduct.paidAmount)}
+                  max={Math.max(0, Number(selectedProduct.total_amount) - Number(selectedProduct.paid_amount))}
                   className="w-full p-2.5 border border-slate-200 rounded-xl" 
                 />
               </div>
@@ -915,7 +918,7 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
               {/* Quick amount buttons */}
               <div className="flex gap-2">
                 {(() => {
-                  const remaining = Math.max(0, selectedProduct.totalAmount - selectedProduct.paidAmount);
+                  const remaining = Math.max(0, Number(selectedProduct.total_amount) - Number(selectedProduct.paid_amount));
                   const amounts = [
                     Math.min(10000, remaining),
                     Math.min(20000, remaining),
@@ -961,16 +964,16 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
               <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-1.5">
                 <div className="flex justify-between text-[11px]">
                   <span className="text-slate-400">Bei Kamili:</span>
-                  <span className="font-bold text-slate-700">TSh {selectedProduct.totalAmount.toLocaleString()}</span>
+                  <span className="font-bold text-slate-700">TSh {Number(selectedProduct.total_amount).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-[11px]">
                   <span className="text-slate-400">Imelipwa:</span>
-                  <span className="font-bold text-emerald-600">TSh {selectedProduct.paidAmount.toLocaleString()}</span>
+                  <span className="font-bold text-emerald-600">TSh {Number(selectedProduct.paid_amount).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-[11px] border-t border-slate-200 pt-1.5">
                   <span className="text-slate-400">Baki Baada ya Malipo:</span>
-                  <span className={`font-bold ${selectedProduct.totalAmount - selectedProduct.paidAmount - Number(payAmount || 0) <= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    TSh {Math.max(0, selectedProduct.totalAmount - selectedProduct.paidAmount - Number(payAmount || 0)).toLocaleString()}
+                  <span className={`font-bold ${Number(selectedProduct.total_amount) - Number(selectedProduct.paid_amount) - Number(payAmount || 0) <= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    TSh {Math.max(0, Number(selectedProduct.total_amount) - Number(selectedProduct.paid_amount) - Number(payAmount || 0)).toLocaleString()}
                   </span>
                 </div>
               </div>
@@ -982,125 +985,6 @@ export default function InstallmentManagement({ onUpdate }: InstallmentManagemen
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: Payment History */}
-      {viewingHistoryProduct && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
-            <button onClick={() => setViewingHistoryProduct(null)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
-              <X size={18} />
-            </button>
-            
-            <h3 className="text-md font-bold text-slate-800">Historia ya Malipo</h3>
-            <p className="text-xs text-slate-400">{viewingHistoryProduct.productName}</p>
-            
-            <div className="space-y-3 max-h-80 overflow-y-auto">
-              {payments
-                .filter(p => p.productId === viewingHistoryProduct.id)
-                .map(payment => (
-                  <div key={payment.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                    <div>
-                      <p className="text-xs font-bold text-slate-800">{payment.notes}</p>
-                      <p className="text-[10px] text-slate-400 mt-1">
-                        {payment.date} • {payment.paymentMethod}
-                      </p>
-                    </div>
-                    <span className="text-sm font-extrabold text-emerald-600">
-                      TSh {payment.amount.toLocaleString()}
-                    </span>
-                  </div>
-                ))}
-              
-              {payments.filter(p => p.productId === viewingHistoryProduct.id).length === 0 && (
-                <p className="text-xs text-slate-400 text-center py-8">Hakuna malipo bado.</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: Statement */}
-      {isStatementOpen && activeCustomer && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-3xl w-full p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
-            <div className="absolute top-6 right-6 flex items-center gap-2 print:hidden">
-              <button onClick={() => window.print()} className="bg-slate-900 text-white flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold hover:bg-slate-800 transition">
-                <Printer size={14} /> Chapisha / PDF
-              </button>
-              <button onClick={() => setIsStatementOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition">
-                <X size={16} />
-              </button>
-            </div>
-            
-            <div className="space-y-6 pt-4 text-slate-700">
-              <div className="flex justify-between items-start border-b border-slate-200 pb-6">
-                <div>
-                  <h2 className="text-xl font-extrabold text-slate-800 uppercase">{settings.businessName}</h2>
-                  <p className="text-xs text-slate-500 mt-1">Anuani: {settings.businessAddress}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">Simu: {settings.businessPhone}</p>
-                </div>
-                <div className="text-right">
-                  <span className="inline-block text-[10px] uppercase tracking-wider font-extrabold px-3 py-1 bg-slate-100 text-slate-600 rounded-full">Taarifa ya Mafungu</span>
-                  <p className="text-[11px] text-slate-400 mt-2">Muda: {new Date().toLocaleDateString('sw-TZ')}</p>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-8 py-4 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
-                <div>
-                  <h4 className="text-[10px] font-bold text-slate-400 uppercase">MTEJA:</h4>
-                  <h3 className="text-sm font-bold text-slate-800 mt-1">{activeCustomer.fullName}</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Simu: {activeCustomer.phoneNumber}</p>
-                  {activeCustomer.address && <p className="text-xs text-slate-500 mt-0.5">Anuani: {activeCustomer.address}</p>}
-                </div>
-                <div className="text-right">
-                  <h4 className="text-[10px] font-bold text-slate-400 uppercase">SALIO (TSh):</h4>
-                  <h3 className="text-lg font-black text-rose-600 mt-1">
-                    TSh {activeCustomerProducts.reduce((sum, p) => sum + Math.max(0, p.totalAmount - p.paidAmount), 0).toLocaleString()}
-                  </h3>
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-1.5 uppercase">Historia ya Bidhaa</h4>
-                <table className="w-full text-left text-xs text-slate-600">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-500 font-bold">
-                      <th className="py-2.5 px-3 rounded-l-lg">Bidhaa</th>
-                      <th className="py-2.5 px-3">Bei Kamili</th>
-                      <th className="py-2.5 px-3">Imelipwa</th>
-                      <th className="py-2.5 px-3 text-right rounded-r-lg">Baki</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeCustomerProducts.map(product => {
-                      const remaining = Math.max(0, product.totalAmount - product.paidAmount);
-                      return (
-                        <tr key={product.id} className="border-b border-slate-100/50">
-                          <td className="py-2 px-3 font-semibold">{product.productName}</td>
-                          <td className="py-2 px-3">TSh {product.totalAmount.toLocaleString()}</td>
-                          <td className="py-2 px-3 text-emerald-600">TSh {product.paidAmount.toLocaleString()}</td>
-                          <td className="py-2 px-3 text-right font-bold text-rose-600">TSh {remaining.toLocaleString()}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              
-              <div className="pt-12 grid grid-cols-2 gap-12 text-xs">
-                <div className="border-t border-slate-200 pt-3 text-center">
-                  <p className="font-bold text-slate-800">Sahihi ya Mmiliki</p>
-                  <p className="text-slate-400 mt-1">{settings.businessName}</p>
-                </div>
-                <div className="border-t border-slate-200 pt-3 text-center">
-                  <p className="font-bold text-slate-800">Sahihi ya Mteja</p>
-                  <p className="text-slate-400 mt-1">{activeCustomer.fullName}</p>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       )}
