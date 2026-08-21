@@ -14,6 +14,7 @@ import Dashboard from './components/Dashboard';
 import CustomerManagement from './components/CustomerManagement';
 import DebtManagement from './components/DebtManagement';
 import SupplierManagement from './components/SupplierManagement';
+import InstallmentManagement from './components/InstallmentManagement';
 import CalendarView from './components/CalendarView';
 import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
@@ -23,7 +24,7 @@ import {
   LayoutDashboard, Users, BookOpen, Truck, Calendar, 
   FileSpreadsheet, Settings, LogOut, Menu, X, Shield, 
   MapPin, Phone, Bell, Loader2, AlertTriangle, RefreshCw,
-  FolderOpen, Download
+  FolderOpen, Download, Wallet
 } from 'lucide-react';
 
 // Utility: Get days difference
@@ -322,6 +323,7 @@ export default function App() {
     { id: 'customers', label: 'Wateja (Customers)', icon: Users },
     { id: 'debts', label: 'Madeni ya Wateja (Debt Book)', icon: BookOpen },
     { id: 'suppliers', label: 'Wauzaji (Suppliers)', icon: Truck },
+    { id: 'installments', label: 'Mafungu (Installments)', icon: Wallet },
     { id: 'calendar', label: 'Kalenda (Calendar)', icon: Calendar },
     { id: 'reports', label: 'Ripoti (Reports)', icon: FileSpreadsheet },
     { id: 'memory', label: 'Kumbukumbu (Memory)', icon: FolderOpen },
@@ -488,6 +490,9 @@ export default function App() {
         )}
         {currentTab === 'suppliers' && (
           <SupplierManagement suppliers={suppliers} onUpdate={() => syncDatabaseStates(false)} />
+        )}
+        {currentTab === 'installments' && (
+          <InstallmentManagement onUpdate={() => syncDatabaseStates(false)} />
         )}
         {currentTab === 'calendar' && (
           <CalendarView debts={debts} customers={customers} payments={payments} suppliers={suppliers} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />
