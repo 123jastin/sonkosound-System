@@ -188,19 +188,10 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     paymentAmount: number,
     isCompleted: boolean,
     progressPercentage: number,
-    paymentMethod: string,
-    productId: string,
-    notificationType: 'payment' | 'halfway' | 'completed'
+    paymentMethod: string
   ) => {
-    const smsKey = `${productId}-${notificationType}`;
-    
-    if (sentSMSRef.current.has(smsKey)) {
-      console.log(`📱 SMS already sent for: ${smsKey}`);
-      return { success: true, alreadySent: true };
-    }
-
     try {
-      const response = await fetch('/api/installment/send-payment-notification', {
+      const response = await fetch('/api/installment/send-sms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -217,11 +208,14 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
       });
       
       const result = await response.json();
+      console.log('📱 SMS Result:', result);
       
       if (result.success) {
-        sentSMSRef.current.add(smsKey);
-        saveSentSMS();
-        console.log(`✅ SMS sent for: ${smsKey}`);
+        console.log('✅ SMS sent successfully');
+        console.log('  Customer message:', result.data?.customerMessage);
+        console.log('  Owner message:', result.data?.ownerMessage);
+      } else {
+        console.error('❌ SMS failed:', result.error || 'Unknown error');
       }
       
       return result;
@@ -422,9 +416,12 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
   const handlePayProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProduct || !payAmount) return;
+    
     setIsLoading(true);
     setError(null);
+    
     try {
+      // Save payment to API
       const response = await fetch(`${API_BASE_URL}/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -436,66 +433,13 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
           notes: payNotes || `Malipo ya ${selectedProduct.product_name}`
         })
       });
+      
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Failed');
+      console.log('💾 Payment saved:', result);
       
-      setPayments(prev => [result.payment, ...prev]);
-      
-      const updatedProducts = products.map(p => {
-        if (p.id === selectedProduct.id) {
-          const newPaid = Number(p.paid_amount) + Number(payAmount);
-          const newStatus = newPaid >= Number(p.total_amount) ? 'Completed' : 'Active';
-          return { ...p, paid_amount: newPaid, status: newStatus };
-        }
-        return p;
-      });
-      setProducts(updatedProducts);
-      
-      const updatedProduct = updatedProducts.find(p => p.id === selectedProduct.id);
-      const customer = customers.find(c => c.id === selectedProduct.customer_id);
-      
-      if (updatedProduct && customer) {
-        const newPaidAmount = Number(updatedProduct.paid_amount);
-        const totalAmount = Number(updatedProduct.total_amount);
-        const isCompleted = newPaidAmount >= totalAmount;
-        const progressPercentage = totalAmount > 0 ? Math.round((newPaidAmount / totalAmount) * 100) : 0;
-        
-        let notificationType: 'payment' | 'halfway' | 'completed' = 'payment';
-        if (isCompleted) {
-          notificationType = 'completed';
-        } else if (progressPercentage >= 45 && progressPercentage <= 55) {
-          notificationType = 'halfway';
-        }
-        
-        await sendPaymentNotification(
-          customer.full_name,
-          customer.phone_number,
-          updatedProduct.product_name,
-          totalAmount,
-          newPaidAmount,
-          Number(payAmount),
-          isCompleted,
-          progressPercentage,
-          payMethod,
-          updatedProduct.id,
-          notificationType
-        );
-      }
-      
-      if (onNotificationsGenerated && updatedProduct) {
-        const notifs = generateInstallmentNotifications([updatedProduct], customers);
-        if (notifs.length > 0) {
-          onNotificationsGenerated(notifs);
-        }
-      }
-      
-      setIsPayModalOpen(false);
-      resetPaymentForm();
-      onUpdate();
-    } catch (err: any) {
-      // Fallback to localStorage
+      // Update payments state
       const newPayment: InstallmentPayment = {
-        id: 'ipay-' + Date.now(),
+        id: result.payment?.id || 'ipay-' + Date.now(),
         product_id: selectedProduct.id,
         amount: Number(payAmount),
         payment_date: new Date().toISOString().split('T')[0],
@@ -506,6 +450,7 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
       };
       setPayments(prev => [newPayment, ...prev]);
       
+      // Update product locally
       const updatedProducts = products.map(p => {
         if (p.id === selectedProduct.id) {
           const newPaid = Number(p.paid_amount) + Number(payAmount);
@@ -516,9 +461,55 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
       });
       setProducts(updatedProducts);
       
+      // Get updated product and customer for SMS
+      const updatedProduct = updatedProducts.find(p => p.id === selectedProduct.id);
+      const customer = customers.find(c => c.id === selectedProduct.customer_id);
+      
+      if (updatedProduct && customer && customer.phone_number) {
+        const newPaidAmount = Number(updatedProduct.paid_amount);
+        const totalProductAmount = Number(updatedProduct.total_amount);
+        const isCompleted = newPaidAmount >= totalProductAmount;
+        const progressPercentage = totalProductAmount > 0 ? Math.round((newPaidAmount / totalProductAmount) * 100) : 0;
+        
+        console.log('📱 Sending SMS notification...');
+        console.log('  Customer:', customer.full_name, customer.phone_number);
+        console.log('  Product:', updatedProduct.product_name);
+        console.log('  Payment:', Number(payAmount));
+        console.log('  Total Paid:', newPaidAmount);
+        console.log('  Total Amount:', totalProductAmount);
+        console.log('  Remaining:', totalProductAmount - newPaidAmount);
+        console.log('  Progress:', progressPercentage + '%');
+        console.log('  Is Completed:', isCompleted);
+        
+        // Send SMS for EVERY payment
+        await sendPaymentNotification(
+          customer.full_name,
+          customer.phone_number,
+          updatedProduct.product_name,
+          totalProductAmount,
+          newPaidAmount,
+          Number(payAmount),
+          isCompleted,
+          progressPercentage,
+          payMethod
+        );
+      }
+      
+      // Generate in-app notifications for milestones
+      if (onNotificationsGenerated && updatedProduct) {
+        const notifs = generateInstallmentNotifications([updatedProduct], customers);
+        if (notifs.length > 0) {
+          onNotificationsGenerated(notifs);
+        }
+      }
+      
       setIsPayModalOpen(false);
       resetPaymentForm();
       onUpdate();
+      
+    } catch (err: any) {
+      console.error('Payment error:', err);
+      setError('Imeshindwa kurekodi malipo: ' + err.message);
     } finally {
       setIsLoading(false);
     }
