@@ -160,24 +160,9 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
   const [payMethod, setPayMethod] = useState('Cash');
   const [payNotes, setPayNotes] = useState('');
 
-  const sentSMSRef = useRef<Set<string>>(new Set());
-
   useEffect(() => {
     loadData();
-    const savedSMS = localStorage.getItem('installment_sent_sms');
-    if (savedSMS) {
-      try {
-        const parsed = JSON.parse(savedSMS);
-        sentSMSRef.current = new Set(parsed);
-      } catch (e) {
-        console.error('Failed to parse sent SMS:', e);
-      }
-    }
   }, []);
-
-  const saveSentSMS = () => {
-    localStorage.setItem('installment_sent_sms', JSON.stringify(Array.from(sentSMSRef.current)));
-  };
 
   const sendPaymentNotification = async (
     customerName: string,
@@ -191,7 +176,20 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     paymentMethod: string
   ) => {
     try {
-      const response = await fetch('/api/installment/send-sms', {
+      console.log('📱 Sending SMS via /api/installment-send-sms');
+      console.log('📱 Data:', { 
+        customerName, 
+        customerPhone, 
+        productName, 
+        totalAmount, 
+        paidAmount, 
+        paymentAmount, 
+        isCompleted, 
+        progressPercentage, 
+        paymentMethod 
+      });
+      
+      const response = await fetch('/api/installment-send-sms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -208,19 +206,21 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
       });
       
       const result = await response.json();
-      console.log('📱 SMS Result:', result);
+      console.log('📱 SMS API Response:', result);
       
       if (result.success) {
         console.log('✅ SMS sent successfully');
         console.log('  Customer message:', result.data?.customerMessage);
         console.log('  Owner message:', result.data?.ownerMessage);
+        console.log('  Customer sent:', result.data?.customerSent ? '✅' : '❌');
+        console.log('  Owner sent:', result.data?.ownerSent ? '✅' : '❌');
       } else {
         console.error('❌ SMS failed:', result.error || 'Unknown error');
       }
       
       return result;
     } catch (error) {
-      console.error('Failed to send payment SMS:', error);
+      console.error('📱 Failed to send SMS:', error);
       return { success: false, error };
     }
   };
