@@ -339,7 +339,7 @@ export default function App() {
     { id: 'customers', label: 'Wateja (Customers)', icon: Users },
     { id: 'debts', label: 'Madeni ya Wateja (Debt Book)', icon: BookOpen },
     { id: 'suppliers', label: 'Wauzaji (Suppliers)', icon: Truck },
-    { id: 'installments', label: 'Mafungu (Installments)', icon: Wallet },
+    { id: 'installments', label: 'Kubandika (Installments)', icon: Wallet },
     { id: 'calendar', label: 'Kalenda (Calendar)', icon: Calendar },
     { id: 'reports', label: 'Ripoti (Reports)', icon: FileSpreadsheet },
     { id: 'memory', label: 'Kumbukumbu (Memory)', icon: FolderOpen },
