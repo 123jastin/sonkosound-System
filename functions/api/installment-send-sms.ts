@@ -116,7 +116,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     // Get credentials from environment variables
     const BEEM_API_KEY = env.BEEM_API_KEY;
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY;
-    const MY_PHONE = env.MY_PHONE_NUMBER || '255656738253';
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
 
     // Validate credentials
     if (!BEEM_API_KEY || !BEEM_SECRET_KEY) {
