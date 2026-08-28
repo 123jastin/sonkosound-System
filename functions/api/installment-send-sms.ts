@@ -1,3 +1,5 @@
+
+
 // functions/api/installment-send-sms.ts
 import type { PagesFunction } from '@cloudflare/workers-types';
 
@@ -108,7 +110,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255656738253';
 
     const remaining = Math.max(0, totalAmount - paidAmount);
     const customerPhoneNormalized = normalizePhone(customerPhone);
@@ -118,7 +120,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     let ownerMessage = '';
 
     if (isCompleted) {
-      customerMessage = `Hongera ${customerName}! Umemaliza malipo ya ${productName} ya TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!\n\nUnaweza kutazama bidhaa nyingine kupitia App yetu\nBofya Hapa 👉 https://tinyurl.com/398d47wa`;
+      customerMessage = `Hongera ${customerName}! Umemaliza malipo ya ${productName} ya TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!\n\nUnaweza kutazama bidhaa nyingine kupitia App yetu\nhttps://tinyurl.com/398d47wa`;
       ownerMessage = `🎉 HONGERA! ${customerName} amekamilisha malipo ya ${productName} TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Simu: ${customerPhone}.`;
     } else {
       customerMessage = `Habari ${customerName}, malipo ya TSh ${paymentAmount.toLocaleString()} ya ${productName} yamepokelewa. Umelipa jumla TSh ${paidAmount.toLocaleString()}, kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
@@ -130,25 +132,29 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     console.log('📱 Sending to owner:', ownerPhoneNormalized);
     console.log('📱 Owner message:', ownerMessage);
 
-    // Send BOTH messages simultaneously using Promise.all
-    const [custResult, ownerResult] = await Promise.all([
-      sendSingleSMS({
-        apiKey: BEEM_API_KEY,
-        secretKey: BEEM_SECRET_KEY,
-        message: customerMessage,
-        phone: customerPhoneNormalized,
-        source_addr: 'Sonko Sound',
-      }),
-      sendSingleSMS({
-        apiKey: BEEM_API_KEY,
-        secretKey: BEEM_SECRET_KEY,
-        message: ownerMessage,
-        phone: ownerPhoneNormalized,
-        source_addr: 'Sonko Sound',
-      })
-    ]);
+    // Send to Customer
+    const custResult = await sendSingleSMS({
+      apiKey: BEEM_API_KEY,
+      secretKey: BEEM_SECRET_KEY,
+      message: customerMessage,
+      phone: customerPhoneNormalized,
+      source_addr: 'Sonko Sound',
+    });
 
     console.log('📱 Customer SMS Result:', JSON.stringify(custResult));
+
+    // Small delay
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Send to Owner
+    const ownerResult = await sendSingleSMS({
+      apiKey: BEEM_API_KEY,
+      secretKey: BEEM_SECRET_KEY,
+      message: ownerMessage,
+      phone: ownerPhoneNormalized,
+      source_addr: 'Sonko Sound',
+    });
+
     console.log('📱 Owner SMS Result:', JSON.stringify(ownerResult));
 
     return json({
