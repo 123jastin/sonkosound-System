@@ -214,6 +214,8 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
         console.log('  Owner message:', result.data?.ownerMessage);
         console.log('  Customer sent:', result.data?.customerSent ? '✅' : '❌');
         console.log('  Owner sent:', result.data?.ownerSent ? '✅' : '❌');
+        console.log('  Is Payment Complete:', result.data?.isPaymentComplete);
+        console.log('  Remaining:', result.data?.remaining);
       } else {
         console.error('❌ SMS failed:', result.error || 'Unknown error');
       }
@@ -468,7 +470,10 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
       if (updatedProduct && customer && customer.phone_number) {
         const newPaidAmount = Number(updatedProduct.paid_amount);
         const totalProductAmount = Number(updatedProduct.total_amount);
-        const isCompleted = newPaidAmount >= totalProductAmount;
+        const remainingAmount = Math.max(0, totalProductAmount - newPaidAmount);
+        
+        // IMPORTANT: Check if this payment completes the installment
+        const isCompleted = remainingAmount <= 0 || newPaidAmount >= totalProductAmount;
         const progressPercentage = totalProductAmount > 0 ? Math.round((newPaidAmount / totalProductAmount) * 100) : 0;
         
         console.log('📱 Sending SMS notification...');
@@ -477,11 +482,13 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
         console.log('  Payment:', Number(payAmount));
         console.log('  Total Paid:', newPaidAmount);
         console.log('  Total Amount:', totalProductAmount);
-        console.log('  Remaining:', totalProductAmount - newPaidAmount);
+        console.log('  Remaining:', remainingAmount);
         console.log('  Progress:', progressPercentage + '%');
         console.log('  Is Completed:', isCompleted);
+        console.log('  Remaining <= 0:', remainingAmount <= 0);
+        console.log('  Paid >= Total:', newPaidAmount >= totalProductAmount);
         
-        // Send SMS for EVERY payment
+        // Send SMS with the correct isCompleted flag
         await sendPaymentNotification(
           customer.full_name,
           customer.phone_number,
@@ -489,7 +496,7 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
           totalProductAmount,
           newPaidAmount,
           Number(payAmount),
-          isCompleted,
+          isCompleted,  // This will be true when payment is complete
           progressPercentage,
           payMethod
         );
