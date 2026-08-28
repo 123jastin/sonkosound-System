@@ -35,9 +35,11 @@ const normalizePhone = (value: any) => {
 };
 
 const toBase64 = (value: string) => {
+  // Use Buffer for Node.js environment (Cloudflare Workers)
   if (typeof Buffer !== 'undefined') {
     return Buffer.from(value).toString('base64');
   }
+  // Fallback to btoa for browser environment
   return btoa(value);
 };
 
@@ -115,7 +117,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
     const MY_PHONE = env.MY_PHONE_NUMBER || '255656738253';
 
-    // Convert to numbers
+    // Convert to numbers to ensure proper comparison
     const numTotalAmount = Number(totalAmount);
     const numPaidAmount = Number(paidAmount);
     const numPaymentAmount = Number(paymentAmount);
@@ -124,22 +126,26 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
 
-    // Force check if payment is complete
-    const paymentCompletes = isCompleted === true || 
-                            remaining <= 0 || 
-                            (numTotalAmount > 0 && numPaidAmount >= numTotalAmount);
+    // IMPORTANT: Check if payment completes the installment
+    // Use multiple conditions to ensure we catch the completion
+    const isPaymentComplete = isCompleted === true || 
+                             remaining <= 0 || 
+                             (numTotalAmount > 0 && numPaidAmount >= numTotalAmount) ||
+                             progressPercentage >= 100;
     
     console.log('📱 Payment Details:');
+    console.log('  Total Amount:', numTotalAmount);
+    console.log('  Paid Amount:', numPaidAmount);
+    console.log('  Payment Amount:', numPaymentAmount);
+    console.log('  Remaining:', remaining);
     console.log('  isCompleted flag:', isCompleted);
-    console.log('  remaining:', remaining);
-    console.log('  paymentCompletes:', paymentCompletes);
-    console.log('  totalAmount:', numTotalAmount);
-    console.log('  paidAmount:', numPaidAmount);
+    console.log('  progressPercentage:', progressPercentage);
+    console.log('  isPaymentComplete:', isPaymentComplete);
 
     let customerMessage = '';
     let ownerMessage = '';
 
-    if (paymentCompletes) {
+    if (isPaymentComplete) {
       console.log('🎉 Sending COMPLETION messages');
       customerMessage = `Hongera ${customerName}! Umemaliza malipo ya ${productName} ya TSh ${numTotalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!\n\nUnaweza kutazama bidhaa nyingine kupitia App yetu\nBofya Hapa 👉 https://tinyurl.com/398d47wa`;
       ownerMessage = `🎉 HONGERA! ${customerName} amekamilisha malipo ya ${productName} TSh ${numTotalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Simu: ${customerPhone}.`;
@@ -149,7 +155,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       ownerMessage = `💰 ${customerName} amelipa TSh ${numPaymentAmount.toLocaleString()} ya ${productName} kupitia ${paymentMethod || 'Cash'}. Jumla: TSh ${numPaidAmount.toLocaleString()}, Baki: TSh ${remaining.toLocaleString()}.`;
     }
 
+    console.log('📱 Sending to customer:', customerPhoneNormalized);
     console.log('📱 Customer message:', customerMessage);
+    console.log('📱 Sending to owner:', ownerPhoneNormalized);
     console.log('📱 Owner message:', ownerMessage);
 
     // Send to Customer
@@ -184,7 +192,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         ownerSent: ownerResult.success,
         customerMessage,
         ownerMessage,
-        paymentCompletes,
+        isPaymentComplete,
         remaining,
       },
       message: `Customer SMS: ${custResult.success ? '✅' : '❌'} | Owner SMS: ${ownerResult.success ? '✅' : '❌'}`,
