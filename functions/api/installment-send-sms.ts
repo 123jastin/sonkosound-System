@@ -3,9 +3,6 @@ import type { PagesFunction } from '@cloudflare/workers-types';
 
 type Env = {
   DB: D1Database;
-  BEEM_API_KEY: string;
-  BEEM_SECRET_KEY: string;
-  MY_PHONE_NUMBER: string;
 };
 
 const cors = {
@@ -108,29 +105,35 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255656738253';
 
     const remaining = Math.max(0, totalAmount - paidAmount);
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
 
+    console.log('📱 Customer phone:', customerPhoneNormalized);
+    console.log('📱 Owner phone:', ownerPhoneNormalized);
+    console.log('📱 isCompleted:', isCompleted);
+    console.log('📱 remaining:', remaining);
+
     let customerMessage = '';
     let ownerMessage = '';
 
     if (isCompleted) {
-      customerMessage = `Hongera ${customerName}! Umemaliza malipo ya ${productName} ya TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!\n\nUnaweza kutazama bidhaa nyingine kupitia App yetu\nhttps://tinyurl.com/398d47wa`;
+      console.log('🎉 SENDING COMPLETION MESSAGES');
+      customerMessage = `Hongera ${customerName}! Umemaliza malipo ya ${productName} ya TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!\n\nUnaweza kutazama bidhaa nyingine kupitia App yetu\nBofya Hapa 👉 https://tinyurl.com/398d47wa`;
       ownerMessage = `🎉 HONGERA! ${customerName} amekamilisha malipo ya ${productName} TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Simu: ${customerPhone}.`;
     } else {
+      console.log('💰 SENDING PARTIAL PAYMENT MESSAGES');
       customerMessage = `Habari ${customerName}, malipo ya TSh ${paymentAmount.toLocaleString()} ya ${productName} yamepokelewa. Umelipa jumla TSh ${paidAmount.toLocaleString()}, kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
       ownerMessage = `💰 ${customerName} amelipa TSh ${paymentAmount.toLocaleString()} ya ${productName} kupitia ${paymentMethod || 'Cash'}. Jumla: TSh ${paidAmount.toLocaleString()}, Baki: TSh ${remaining.toLocaleString()}.`;
     }
 
-    console.log('📱 Sending to customer:', customerPhoneNormalized);
     console.log('📱 Customer message:', customerMessage);
-    console.log('📱 Sending to owner:', ownerPhoneNormalized);
     console.log('📱 Owner message:', ownerMessage);
 
     // Send to Customer
+    console.log('📱 Sending to CUSTOMER...');
     const custResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
@@ -142,9 +145,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     console.log('📱 Customer SMS Result:', JSON.stringify(custResult));
 
     // Small delay
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Send to Owner
+    console.log('📱 Sending to OWNER...');
     const ownerResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
@@ -162,6 +166,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         ownerSent: ownerResult.success,
         customerMessage,
         ownerMessage,
+        isCompleted,
+        remaining,
       },
       message: `Customer SMS: ${custResult.success ? '✅' : '❌'} | Owner SMS: ${ownerResult.success ? '✅' : '❌'}`,
     });
