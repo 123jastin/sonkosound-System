@@ -3,6 +3,9 @@ import type { PagesFunction } from '@cloudflare/workers-types';
 
 type Env = {
   DB: D1Database;
+  BEEM_API_KEY: string;
+  BEEM_SECRET_KEY: string;
+  MY_PHONE_NUMBER: string;
 };
 
 const cors = {
@@ -113,20 +116,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     console.log('📱 Customer phone:', customerPhoneNormalized);
     console.log('📱 Owner phone:', ownerPhoneNormalized);
-    console.log('📱 isCompleted:', isCompleted);
-    console.log('📱 Total:', totalAmount);
-    console.log('📱 Paid:', paidAmount);
-    console.log('📱 Remaining:', remaining);
 
     let customerMessage = '';
     let ownerMessage = '';
 
     if (isCompleted) {
-      console.log('🎉 COMPLETION MESSAGE');
       customerMessage = `Hongera ${customerName}! Umemaliza malipo ya ${productName} ya TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!\n\nUnaweza kutazama bidhaa nyingine kupitia App yetu\nBofya Hapa 👉 https://tinyurl.com/398d47wa`;
       ownerMessage = `🎉 HONGERA! ${customerName} amekamilisha malipo ya ${productName} TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Simu: ${customerPhone}.`;
     } else {
-      console.log('💰 PARTIAL PAYMENT MESSAGE');
       customerMessage = `Habari ${customerName}, malipo ya TSh ${paymentAmount.toLocaleString()} ya ${productName} yamepokelewa. Umelipa jumla TSh ${paidAmount.toLocaleString()}, kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
       ownerMessage = `💰 ${customerName} amelipa TSh ${paymentAmount.toLocaleString()} ya ${productName} kupitia ${paymentMethod || 'Cash'}. Jumla: TSh ${paidAmount.toLocaleString()}, Baki: TSh ${remaining.toLocaleString()}.`;
     }
@@ -134,7 +131,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     console.log('📱 Customer message:', customerMessage);
     console.log('📱 Owner message:', ownerMessage);
 
-    // IMPORTANT: Send to Customer FIRST
+    // Send to Customer FIRST
     console.log('📱 SENDING TO CUSTOMER...');
     const custResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
@@ -146,10 +143,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     console.log('📱 Customer SMS Result:', JSON.stringify(custResult));
 
-    // Wait 1 second
+    // Wait 1 second (matching send-reminders.ts pattern)
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // IMPORTANT: Send to Owner SECOND - same pattern as send-reminders.ts
+    // Send to Owner SECOND - CRITICAL: This must always execute
     console.log('📱 SENDING TO OWNER...');
     const ownerResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
