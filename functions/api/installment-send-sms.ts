@@ -34,7 +34,14 @@ const normalizePhone = (value: any) => {
   return v;
 };
 
-const toBase64 = (value: string) => btoa(value);
+const toBase64 = (value: string) => {
+  // Use Buffer for Node.js environment (Cloudflare Workers)
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(value).toString('base64');
+  }
+  // Fallback to btoa for browser environment
+  return btoa(value);
+};
 
 async function sendSingleSMS(params: {
   apiKey: string;
@@ -106,16 +113,29 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'Missing required fields' }, 400);
     }
 
-    const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
-    const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
+    // Get credentials from environment variables
+    const BEEM_API_KEY = env.BEEM_API_KEY;
+    const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY;
     const MY_PHONE = env.MY_PHONE_NUMBER || '255656738253';
+
+    // Validate credentials
+    if (!BEEM_API_KEY || !BEEM_SECRET_KEY) {
+      console.error('❌ Missing BEEM credentials in environment variables');
+      return json({ 
+        success: false, 
+        error: 'SMS service not configured. Please set BEEM_API_KEY and BEEM_SECRET_KEY.' 
+      }, 500);
+    }
+
+    console.log('📱 Using BEEM API Key:', BEEM_API_KEY.substring(0, 8) + '...');
+    console.log('📱 Owner phone:', MY_PHONE);
 
     const remaining = Math.max(0, totalAmount - paidAmount);
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
 
-    console.log('📱 Customer phone:', customerPhoneNormalized);
-    console.log('📱 Owner phone:', ownerPhoneNormalized);
+    console.log('📱 Customer phone normalized:', customerPhoneNormalized);
+    console.log('📱 Owner phone normalized:', ownerPhoneNormalized);
 
     let customerMessage = '';
     let ownerMessage = '';
@@ -128,11 +148,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       ownerMessage = `💰 ${customerName} amelipa TSh ${paymentAmount.toLocaleString()} ya ${productName} kupitia ${paymentMethod || 'Cash'}. Jumla: TSh ${paidAmount.toLocaleString()}, Baki: TSh ${remaining.toLocaleString()}.`;
     }
 
+    console.log('📱 Sending to customer:', customerPhoneNormalized);
     console.log('📱 Customer message:', customerMessage);
+    console.log('📱 Sending to owner:', ownerPhoneNormalized);
     console.log('📱 Owner message:', ownerMessage);
 
-    // Send to Customer FIRST
-    console.log('📱 SENDING TO CUSTOMER...');
+    // Send to Customer
     const custResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
@@ -143,11 +164,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     console.log('📱 Customer SMS Result:', JSON.stringify(custResult));
 
-    // Wait 1 second (matching send-reminders.ts pattern)
+    // Small delay between SMS
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Send to Owner SECOND - CRITICAL: This must always execute
-    console.log('📱 SENDING TO OWNER...');
+    // Send to Owner (Admin)
     const ownerResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
@@ -165,8 +185,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         ownerSent: ownerResult.success,
         customerMessage,
         ownerMessage,
-        isCompleted,
-        remaining,
+        customerPhone: customerPhoneNormalized,
+        ownerPhone: ownerPhoneNormalized,
       },
       message: `Customer SMS: ${custResult.success ? '✅' : '❌'} | Owner SMS: ${ownerResult.success ? '✅' : '❌'}`,
     });
