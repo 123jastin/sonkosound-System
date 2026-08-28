@@ -230,7 +230,7 @@ export default function Dashboard({
         {/* Total Money I Owe Others */}
         <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition flex flex-col justify-between" id="card-i-owe-others">
           <div className="flex justify-between items-start">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Ninazodaiwa (Wauzaji)</span>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Ninazodaiwa Na Wauzaji</span>
             <span className="p-2 rounded-xl bg-rose-50 text-rose-600">
               <TrendingDown size={20} />
             </span>
