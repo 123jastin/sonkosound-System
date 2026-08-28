@@ -114,17 +114,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     console.log('📱 Customer phone:', customerPhoneNormalized);
     console.log('📱 Owner phone:', ownerPhoneNormalized);
     console.log('📱 isCompleted:', isCompleted);
-    console.log('📱 remaining:', remaining);
+    console.log('📱 Total:', totalAmount);
+    console.log('📱 Paid:', paidAmount);
+    console.log('📱 Remaining:', remaining);
 
     let customerMessage = '';
     let ownerMessage = '';
 
     if (isCompleted) {
-      console.log('🎉 SENDING COMPLETION MESSAGES');
+      console.log('🎉 COMPLETION MESSAGE');
       customerMessage = `Hongera ${customerName}! Umemaliza malipo ya ${productName} ya TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!\n\nUnaweza kutazama bidhaa nyingine kupitia App yetu\nBofya Hapa 👉 https://tinyurl.com/398d47wa`;
       ownerMessage = `🎉 HONGERA! ${customerName} amekamilisha malipo ya ${productName} TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Simu: ${customerPhone}.`;
     } else {
-      console.log('💰 SENDING PARTIAL PAYMENT MESSAGES');
+      console.log('💰 PARTIAL PAYMENT MESSAGE');
       customerMessage = `Habari ${customerName}, malipo ya TSh ${paymentAmount.toLocaleString()} ya ${productName} yamepokelewa. Umelipa jumla TSh ${paidAmount.toLocaleString()}, kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
       ownerMessage = `💰 ${customerName} amelipa TSh ${paymentAmount.toLocaleString()} ya ${productName} kupitia ${paymentMethod || 'Cash'}. Jumla: TSh ${paidAmount.toLocaleString()}, Baki: TSh ${remaining.toLocaleString()}.`;
     }
@@ -132,8 +134,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     console.log('📱 Customer message:', customerMessage);
     console.log('📱 Owner message:', ownerMessage);
 
-    // Send to Customer
-    console.log('📱 Sending to CUSTOMER...');
+    // IMPORTANT: Send to Customer FIRST
+    console.log('📱 SENDING TO CUSTOMER...');
     const custResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
@@ -144,11 +146,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     console.log('📱 Customer SMS Result:', JSON.stringify(custResult));
 
-    // Small delay
+    // Wait 1 second
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Send to Owner
-    console.log('📱 Sending to OWNER...');
+    // IMPORTANT: Send to Owner SECOND - same pattern as send-reminders.ts
+    console.log('📱 SENDING TO OWNER...');
     const ownerResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
