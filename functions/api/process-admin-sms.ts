@@ -28,13 +28,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
     console.log(`📬 Found ${pending?.length || 0} pending`);
 
     if (!pending || pending.length === 0) {
-      return json({ success: true, processed: 0 });
+      return json({ success: true, processed: 0, message: 'No pending messages' });
     }
 
     let sent = 0;
     const auth = toBase64(`${BEEM_API_KEY}:${BEEM_SECRET_KEY}`);
 
     for (const msg of pending as any[]) {
+      console.log(`📤 Sending to: ${msg.recipient_phone}`);
+
       const payload = {
         source_addr: 'Sonko Sound',
         schedule_time: '',
@@ -50,12 +52,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
       });
 
       const text = await response.text();
+      console.log('📱 Response:', text);
+      
       let result: any = {};
       try { result = JSON.parse(text); } catch { result = { raw: text }; }
 
       if (response.ok && result.successful) {
         await env.DB.prepare(`UPDATE sms_queue SET status = 'sent' WHERE id = ?`).bind(msg.id).run();
         sent++;
+        console.log(`✅ Sent: ${msg.id}`);
       }
 
       await new Promise(r => setTimeout(r, 2000));
