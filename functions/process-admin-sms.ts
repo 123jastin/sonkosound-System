@@ -19,27 +19,22 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
 
-    // Get pending messages - check both 'pending' and 'Pending'
     const { results: pending } = await env.DB.prepare(`
       SELECT * FROM sms_queue 
       WHERE LOWER(status) = 'pending' 
-      AND attempts < max_attempts 
-      ORDER BY created_at ASC 
       LIMIT 5
     `).all();
 
-    console.log(`📬 Found ${pending?.length || 0} pending messages`);
+    console.log(`📬 Found ${pending?.length || 0} pending`);
 
     if (!pending || pending.length === 0) {
-      return json({ success: true, processed: 0, message: 'No pending messages' });
+      return json({ success: true, processed: 0 });
     }
 
     let sent = 0;
     const auth = toBase64(`${BEEM_API_KEY}:${BEEM_SECRET_KEY}`);
 
     for (const msg of pending as any[]) {
-      console.log(`📤 Sending to: ${msg.recipient_phone}`);
-
       const payload = {
         source_addr: 'Sonko Sound',
         schedule_time: '',
@@ -55,22 +50,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
       });
 
       const text = await response.text();
-      console.log('📱 Response:', text);
-      
       let result: any = {};
       try { result = JSON.parse(text); } catch { result = { raw: text }; }
 
       if (response.ok && result.successful) {
-        await env.DB.prepare(`
-          UPDATE sms_queue SET status = 'sent', sent_at = datetime('now') WHERE id = ?
-        `).bind(msg.id).run();
+        await env.DB.prepare(`UPDATE sms_queue SET status = 'sent' WHERE id = ?`).bind(msg.id).run();
         sent++;
-        console.log(`✅ Sent: ${msg.id}`);
-      } else {
-        await env.DB.prepare(`
-          UPDATE sms_queue SET status = 'failed', error_message = ? WHERE id = ?
-        `).bind(result.message || text, msg.id).run();
-        console.log(`❌ Failed: ${msg.id}`);
       }
 
       await new Promise(r => setTimeout(r, 2000));
@@ -78,7 +63,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
 
     return json({ success: true, processed: pending.length, sent });
   } catch (error: any) {
-    console.error('❌ Error:', error);
     return json({ success: false, error: error?.message }, 500);
   }
 };
