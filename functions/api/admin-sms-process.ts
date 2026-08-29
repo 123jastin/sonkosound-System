@@ -5,6 +5,7 @@ type Env = {
   DB: D1Database;
   BEEM_API_KEY: string;
   BEEM_SECRET_KEY: string;
+  MY_PHONE_NUMBER: string;
 };
 
 const json = (data: any, status = 200) =>
@@ -19,16 +20,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
   try {
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
 
     console.log('🔍 Checking admin SMS queue...');
+    console.log('📱 Admin phone:', MY_PHONE);
 
-    // Get pending admin messages
+    // Get ALL pending messages (not just admin type)
     const { results: pendingMessages } = await env.DB.prepare(`
       SELECT * FROM sms_queue 
-      WHERE recipient_type = 'admin' 
-      AND status = 'pending' 
+      WHERE status = 'pending' 
+      AND attempts < max_attempts 
       ORDER BY created_at ASC 
-      LIMIT 5
+      LIMIT 10
     `).all();
 
     console.log(`📬 Found ${pendingMessages?.length || 0} pending messages`);
@@ -37,8 +40,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
       return json({ 
         success: true, 
         processed: 0, 
-        message: 'No pending admin messages',
-        queueCount: 0
+        message: 'No pending messages',
+        pendingCount: 0
       });
     }
 
@@ -47,9 +50,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
     const details = [];
 
     for (const msg of pendingMessages as any[]) {
-      console.log(`\n📤 Processing message: ${msg.id}`);
+      console.log(`\n📤 Processing: ${msg.id}`);
       console.log(`📱 To: ${msg.recipient_phone}`);
-      console.log(`📝 Message: ${msg.message.substring(0, 50)}...`);
+      console.log(`📝 Message: ${msg.message.substring(0, 80)}...`);
 
       // Update attempts
       await env.DB.prepare(`
@@ -67,9 +70,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
       const auth = toBase64(`${BEEM_API_KEY}:${BEEM_SECRET_KEY}`);
 
       try {
-        console.log('📤 Sending via Beem API...');
-        console.log('📦 Payload:', JSON.stringify(payload));
-
         const response = await fetch('https://apisms.beem.africa/v1/send', {
           method: 'POST',
           headers: {
@@ -85,21 +85,30 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
         let parsed: any = null;
         try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
 
-        if (response.ok && !parsed?.error) {
+        if (response.ok && parsed?.successful) {
           await env.DB.prepare(`
             UPDATE sms_queue SET status = 'sent', sent_at = datetime('now') WHERE id = ?
           `).bind(msg.id).run();
           
           sentCount++;
-          details.push({ id: msg.id, phone: msg.recipient_phone, success: true });
-          console.log(`✅ Sent: ${msg.id}`);
+          details.push({ 
+            id: msg.id, 
+            phone: msg.recipient_phone, 
+            success: true,
+            requestId: parsed.request_id
+          });
+          console.log(`✅ Sent: ${msg.id} (Request ID: ${parsed.request_id})`);
         } else {
           await env.DB.prepare(`
             UPDATE sms_queue SET status = 'failed', error_message = ? WHERE id = ?
           `).bind(parsed?.message || rawText, msg.id).run();
           
           failedCount++;
-          details.push({ id: msg.id, phone: msg.recipient_phone, success: false, error: parsed?.message || rawText });
+          details.push({ 
+            id: msg.id, 
+            success: false, 
+            error: parsed?.message || rawText 
+          });
           console.log(`❌ Failed: ${msg.id} - ${parsed?.message || rawText}`);
         }
       } catch (err: any) {
@@ -108,10 +117,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
         `).bind(err.message, msg.id).run();
         
         failedCount++;
-        details.push({ id: msg.id, phone: msg.recipient_phone, success: false, error: err.message });
-        console.log(`❌ Error: ${msg.id} - ${err.message}`);
+        details.push({ id: msg.id, success: false, error: err.message });
       }
 
+      // Wait 2 seconds
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
