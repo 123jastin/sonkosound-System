@@ -1,5 +1,3 @@
-
-
 // functions/api/installment-send-sms.ts
 import type { PagesFunction } from '@cloudflare/workers-types';
 
@@ -66,7 +64,7 @@ async function sendSingleSMS(params: {
     });
 
     const rawText = await response.text();
-    console.log('📱 BEEM Response:', rawText);
+    console.log('SMS BEEM Response:', rawText);
     
     let parsed: any = null;
     try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
@@ -78,7 +76,7 @@ async function sendSingleSMS(params: {
       error: !response.ok ? (parsed?.message || parsed?.error_description || rawText) : null,
     };
   } catch (err: any) {
-    console.error('📱 SMS Error:', err);
+    console.error('SMS Error:', err);
     return { success: false, status: 0, data: null, error: err.message };
   }
 }
@@ -86,7 +84,7 @@ async function sendSingleSMS(params: {
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => null);
-    console.log('📱 Installment SMS Request:', JSON.stringify(body));
+    console.log('SMS Installment Request:', JSON.stringify(body));
 
     if (!body) {
       return json({ success: false, error: 'No data provided' }, 400);
@@ -121,16 +119,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     if (isCompleted) {
       customerMessage = `Hongera ${customerName}! Umemaliza malipo ya ${productName} ya TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!\n\nUnaweza kutazama bidhaa nyingine kupitia App yetu\nhttps://tinyurl.com/398d47wa`;
-      ownerMessage = `🎉 HONGERA! ${customerName} amekamilisha malipo ya ${productName} TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Simu: ${customerPhone}.`;
+      ownerMessage = `HONGERA! ${customerName} amekamilisha malipo ya ${productName} TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Simu: ${customerPhone}.`;
     } else {
       customerMessage = `Habari ${customerName}, malipo ya TSh ${paymentAmount.toLocaleString()} ya ${productName} yamepokelewa. Umelipa jumla TSh ${paidAmount.toLocaleString()}, kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
-      ownerMessage = `💰 ${customerName} amelipa TSh ${paymentAmount.toLocaleString()} ya ${productName} kupitia ${paymentMethod || 'Cash'}. Jumla: TSh ${paidAmount.toLocaleString()}, Baki: TSh ${remaining.toLocaleString()}.`;
+      ownerMessage = `${customerName} amelipa TSh ${paymentAmount.toLocaleString()} ya ${productName} kupitia ${paymentMethod || 'Cash'}. Jumla: TSh ${paidAmount.toLocaleString()}, Baki: TSh ${remaining.toLocaleString()}.`;
     }
 
-    console.log('📱 Sending to customer:', customerPhoneNormalized);
-    console.log('📱 Customer message:', customerMessage);
-    console.log('📱 Sending to owner:', ownerPhoneNormalized);
-    console.log('📱 Owner message:', ownerMessage);
+    console.log('SMS Sending to customer:', customerPhoneNormalized);
+    console.log('SMS Customer message:', customerMessage);
+    console.log('SMS Sending to owner:', ownerPhoneNormalized);
+    console.log('SMS Owner message:', ownerMessage);
 
     // Send to Customer
     const custResult = await sendSingleSMS({
@@ -141,7 +139,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       source_addr: 'Sonko Sound',
     });
 
-    console.log('📱 Customer SMS Result:', JSON.stringify(custResult));
+    console.log('SMS Customer Result:', JSON.stringify(custResult));
 
     // Small delay
     await new Promise(resolve => setTimeout(resolve, 500));
@@ -155,7 +153,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       source_addr: 'Sonko Sound',
     });
 
-    console.log('📱 Owner SMS Result:', JSON.stringify(ownerResult));
+    console.log('SMS Owner Result:', JSON.stringify(ownerResult));
 
     return json({
       success: custResult.success || ownerResult.success,
@@ -165,10 +163,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         customerMessage,
         ownerMessage,
       },
-      message: `Customer SMS: ${custResult.success ? '✅' : '❌'} | Owner SMS: ${ownerResult.success ? '✅' : '❌'}`,
+      message: `Customer SMS: ${custResult.success ? 'OK' : 'FAIL'} | Owner SMS: ${ownerResult.success ? 'OK' : 'FAIL'}`,
     });
   } catch (error: any) {
-    console.error('📱 Installment SMS Error:', error);
+    console.error('SMS Installment Error:', error);
     return json({ success: false, error: error?.message }, 500);
   }
 };
