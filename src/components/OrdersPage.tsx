@@ -8,7 +8,7 @@ import {
   Plus, Trash2, Printer, Phone, ShoppingCart, 
   Package, X, Loader2, AlertCircle, FileText, 
   Search, User, MapPin, Users, CheckCircle,
-  Bike, Bus, Edit2
+  Bike, Bus, Edit2, MessageSquare
 } from 'lucide-react';
 
 // Interfaces
@@ -35,6 +35,7 @@ interface ShippingInfo {
   bodaPlateNumber?: string;
   busName?: string;
   busNumber?: string;
+  cargoNumber?: string; // Namba ya Mzigo
   driverName?: string;
   driverPhone?: string;
 }
@@ -63,6 +64,7 @@ const API_BASE_URL = '/api/orders';
 export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
   const [customers, setCustomers] = useState<OrderCustomer[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -89,7 +91,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   // Order form states
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [orderItems, setOrderItems] = useState<OrderItem[]>([
-    { id: 'item-' + Date.now(), product_name: '', quantity: 1, unit_price: 0, total_price: 0 }
+    { id: 'item-' + Date.now(), product_name: '', quantity: 1, unit_price: '', total_price: 0 }
   ]);
   const [orderNotes, setOrderNotes] = useState('');
   
@@ -101,12 +103,49 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   const [busType, setBusType] = useState<'company' | 'driver'>('company');
   const [busName, setBusName] = useState('');
   const [busNumber, setBusNumber] = useState('');
+  const [cargoNumber, setCargoNumber] = useState(''); // Namba ya Mzigo
   const [driverName, setDriverName] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
   
   // Search states
   const [searchTerm, setSearchTerm] = useState('');
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+
+  // SMS Notification function
+  const sendOrderSMS = async (order: Order, customerPhone: string) => {
+    try {
+      const itemsList = order.items.map((item, index) => 
+        `${index + 1}. ${item.product_name} ~ TSh ${Number(item.total_price).toLocaleString()}`
+      ).join('\n');
+      
+      const message = `Habari ${order.customer_name}, tumepokea oda yako ya:\n${itemsList}\n\nJumla Kuu = TSh ${Number(order.total_amount).toLocaleString()}`;
+      
+      console.log('📱 Sending order SMS:', message);
+      
+      const response = await fetch('/api/orders-send-sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerName: order.customer_name,
+          customerPhone: customerPhone,
+          orderId: order.id,
+          items: order.items,
+          totalAmount: order.total_amount,
+          message: message
+        })
+      });
+      
+      const result = await response.json();
+      console.log('📱 SMS Result:', result);
+      
+      if (result.success) {
+        setSuccessMessage('SMS imetumwa kwa mteja');
+        setTimeout(() => setSuccessMessage(null), 3000);
+      }
+    } catch (err) {
+      console.error('Failed to send SMS:', err);
+    }
+  };
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -169,8 +208,9 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     };
     
     if (field === 'quantity' || field === 'unit_price') {
-      updatedItems[index].total_price = 
-        updatedItems[index].quantity * updatedItems[index].unit_price;
+      const qty = Number(updatedItems[index].quantity) || 0;
+      const price = Number(updatedItems[index].unit_price) || 0;
+      updatedItems[index].total_price = qty * price;
     }
     
     setOrderItems(updatedItems);
@@ -183,7 +223,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         id: 'item-' + Date.now() + '-' + Math.random(), 
         product_name: '', 
         quantity: 1, 
-        unit_price: 0, 
+        unit_price: '', // Empty string instead of 0
         total_price: 0 
       }
     ]);
@@ -195,7 +235,11 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   };
 
   const orderTotal = useMemo(() => {
-    return orderItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
+    return orderItems.reduce((sum, item) => {
+      const qty = Number(item.quantity) || 0;
+      const price = Number(item.unit_price) || 0;
+      return sum + (qty * price);
+    }, 0);
   }, [orderItems]);
 
   const handleAddCustomer = async (e: React.FormEvent) => {
@@ -306,7 +350,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     e.preventDefault();
     if (!selectedCustomerId || orderItems.length === 0) return;
     
-    const validItems = orderItems.filter(item => item.product_name && item.unit_price > 0);
+    const validItems = orderItems.filter(item => item.product_name && Number(item.unit_price) > 0);
     if (validItems.length === 0) {
       setError('Ongeza bidhaa angalau moja na bei');
       return;
@@ -329,12 +373,19 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       const result = await response.json();
       
       if (result.success) {
-        setOrders(prev => [result.order, ...prev]);
+        const newOrder = result.order;
+        setOrders(prev => [newOrder, ...prev]);
         setIsAddOrderModalOpen(false);
         resetOrderForm();
         onUpdate();
         await loadData();
         setActiveTab('orders');
+        
+        // Send SMS notification
+        const customer = customers.find(c => c.id === selectedCustomerId);
+        if (customer) {
+          await sendOrderSMS(newOrder, customer.phone_number);
+        }
       } else {
         setError(result.error || 'Imeshindwa kuhifadhi oda');
       }
@@ -350,7 +401,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     e.preventDefault();
     if (!editingOrder || !selectedCustomerId || orderItems.length === 0) return;
     
-    const validItems = orderItems.filter(item => item.product_name && item.unit_price > 0);
+    const validItems = orderItems.filter(item => item.product_name && Number(item.unit_price) > 0);
     if (validItems.length === 0) {
       setError('Ongeza bidhaa angalau moja na bei');
       return;
@@ -397,7 +448,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setSelectedCustomerId(order.customer_id);
     setOrderItems(order.items.map(item => ({
       ...item,
-      id: item.id || 'item-' + Date.now()
+      id: item.id || 'item-' + Date.now(),
+      unit_price: item.unit_price || ''
     })));
     setOrderNotes(order.notes || '');
     setIsEditOrderModalOpen(true);
@@ -427,6 +479,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         }
         shippingInfo.busName = busName;
         shippingInfo.busNumber = busNumber;
+        shippingInfo.cargoNumber = cargoNumber;
       } else {
         if (!driverName || !driverPhone) {
           setError('Jina na namba ya Dreva vinahitajika');
@@ -434,6 +487,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         }
         shippingInfo.driverName = driverName;
         shippingInfo.driverPhone = driverPhone;
+        shippingInfo.cargoNumber = cargoNumber;
       }
     }
     
@@ -492,6 +546,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setBusType('company');
     setBusName('');
     setBusNumber('');
+    setCargoNumber('');
     setDriverName('');
     setDriverPhone('');
   };
@@ -515,7 +570,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   const resetOrderForm = () => {
     setSelectedCustomerId('');
     setOrderItems([
-      { id: 'item-' + Date.now(), product_name: '', quantity: 1, unit_price: 0, total_price: 0 }
+      { id: 'item-' + Date.now(), product_name: '', quantity: 1, unit_price: '', total_price: 0 }
     ]);
     setOrderNotes('');
   };
@@ -616,7 +671,10 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                     <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Bus</span>
                     <span style="font-weight: bold; color: #334155;">${order.shipping_info.busNumber || '-'}</span>
                   </div>
-                  <div></div>
+                  <div>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Mzigo</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.cargoNumber || '-'}</span>
+                  </div>
                 `
                 : `
                   <div>
@@ -627,7 +685,10 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                     <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Simu ya Dreva</span>
                     <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverPhone}</span>
                   </div>
-                  <div></div>
+                  <div>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Mzigo</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.cargoNumber || '-'}</span>
+                  </div>
                 `
           }
         </div>
@@ -957,6 +1018,13 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
           <button onClick={() => setError(null)} className="text-rose-500 hover:text-rose-700">
             <X size={16} />
           </button>
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-2 text-emerald-700 text-xs">
+          <MessageSquare size={16} />
+          <span>{successMessage}</span>
         </div>
       )}
 
@@ -1367,9 +1435,10 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                         <label className="block text-[10px] font-semibold text-slate-400 mb-1">Bei ya Kimoja (TSh)</label>
                         <input 
                           type="number" 
-                          min="0" 
-                          value={item.unit_price}
-                          onChange={(e) => updateOrderItem(index, 'unit_price', Number(e.target.value))}
+                          min="0"
+                          placeholder="0"
+                          value={item.unit_price === '' ? '' : item.unit_price}
+                          onChange={(e) => updateOrderItem(index, 'unit_price', e.target.value)}
                           className="w-full p-2 border border-slate-200 rounded-lg bg-white"
                           required
                         />
@@ -1377,7 +1446,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                     </div>
                     <div className="text-right">
                       <span className="text-xs font-bold text-slate-700">
-                        Jumla: TSh {(item.quantity * item.unit_price).toLocaleString()}
+                        Jumla: TSh {((Number(item.quantity) || 0) * (Number(item.unit_price) || 0)).toLocaleString()}
                       </span>
                     </div>
                   </div>
@@ -1531,6 +1600,11 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                         <input type="text" value={busNumber} onChange={(e) => setBusNumber(e.target.value)} 
                           placeholder="T123 ABC" className="w-full p-2.5 border border-slate-200 rounded-xl" />
                       </div>
+                      <div>
+                        <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Mzigo (Optional)</label>
+                        <input type="text" value={cargoNumber} onChange={(e) => setCargoNumber(e.target.value)} 
+                          placeholder="MZ123456" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                      </div>
                     </>
                   ) : (
                     <>
@@ -1543,6 +1617,11 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                         <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Simu *</label>
                         <input type="tel" required value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} 
                           placeholder="0712345678" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Mzigo (Optional)</label>
+                        <input type="text" value={cargoNumber} onChange={(e) => setCargoNumber(e.target.value)} 
+                          placeholder="MZ123456" className="w-full p-2.5 border border-slate-200 rounded-xl" />
                       </div>
                     </>
                   )}
@@ -1615,11 +1694,17 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                       <>
                         <p><strong>Bus/Kampuni:</strong> {selectedOrder.shipping_info.busName}</p>
                         <p><strong>Namba ya Bus:</strong> {selectedOrder.shipping_info.busNumber || '-'}</p>
+                        {selectedOrder.shipping_info.cargoNumber && (
+                          <p><strong>Namba ya Mzigo:</strong> {selectedOrder.shipping_info.cargoNumber}</p>
+                        )}
                       </>
                     ) : (
                       <>
                         <p><strong>Dreva:</strong> {selectedOrder.shipping_info.driverName}</p>
                         <p><strong>Simu:</strong> {selectedOrder.shipping_info.driverPhone}</p>
+                        {selectedOrder.shipping_info.cargoNumber && (
+                          <p><strong>Namba ya Mzigo:</strong> {selectedOrder.shipping_info.cargoNumber}</p>
+                        )}
                       </>
                     )}
                   </div>
