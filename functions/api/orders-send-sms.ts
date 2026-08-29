@@ -36,51 +36,6 @@ const normalizePhone = (value: any) => {
 
 const toBase64 = (value: string) => btoa(value);
 
-async function sendSingleSMS(params: {
-  apiKey: string;
-  secretKey: string;
-  message: string;
-  phone: string;
-  source_addr?: string;
-}) {
-  const payload: any = {
-    source_addr: params.source_addr || 'Sonko Sound',
-    schedule_time: '',
-    encoding: 0,
-    message: params.message,
-    recipients: [{ recipient_id: 1, dest_addr: params.phone }],
-  };
-
-  const auth = toBase64(`${params.apiKey}:${params.secretKey}`);
-
-  try {
-    const response = await fetch('https://apisms.beem.africa/v1/send', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Basic ${auth}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const rawText = await response.text();
-    console.log('📱 BEEM Response:', rawText);
-    
-    let parsed: any = null;
-    try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
-
-    return {
-      success: response.ok && !parsed?.error,
-      status: response.status,
-      data: parsed,
-      error: !response.ok ? (parsed?.message || parsed?.error_description || rawText) : null,
-    };
-  } catch (err: any) {
-    console.error('📱 SMS Error:', err);
-    return { success: false, status: 0, data: null, error: err.message };
-  }
-}
-
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => null);
@@ -98,7 +53,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    const MY_PHONE = env.MY_PHONE_NUMBER || '255724557446';
+    
+    // Admin phone
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
 
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
@@ -111,48 +68,52 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       `${index + 1}. ${item.product_name} ~ TSh ${Number(item.total_price || item.unit_price * item.quantity).toLocaleString()}`
     ).join('\n');
 
-    // SAME message for both customer and admin
+    // SAME message for both
     const message = `Habari ${customerName}, tumepokea oda yako, tumeanza kuifanyia kazi\n\nOda:\n${itemsList}\n\nJumla Kuu = TSh ${Number(totalAmount).toLocaleString()}`;
 
-    console.log('📱 Message (same for both):', message);
-
-    // Send to Customer
-    console.log('📱 Sending to customer:', customerPhoneNormalized);
-    const custResult = await sendSingleSMS({
-      apiKey: BEEM_API_KEY,
-      secretKey: BEEM_SECRET_KEY,
+    // Send ONE request with BOTH recipients
+    const payload = {
+      source_addr: 'Sonko Sound',
+      schedule_time: '',
+      encoding: 0,
       message: message,
-      phone: customerPhoneNormalized,
-      source_addr: 'Sonko Sound',
+      recipients: [
+        { recipient_id: 1, dest_addr: customerPhoneNormalized },
+        { recipient_id: 2, dest_addr: ownerPhoneNormalized }
+      ],
+    };
+
+    const auth = toBase64(`${BEEM_API_KEY}:${BEEM_SECRET_KEY}`);
+
+    console.log('📱 Sending bulk SMS to BOTH numbers...');
+    console.log('📱 Payload:', JSON.stringify(payload));
+
+    const response = await fetch('https://apisms.beem.africa/v1/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${auth}`,
+      },
+      body: JSON.stringify(payload),
     });
 
-    console.log('📱 Customer SMS Result:', JSON.stringify(custResult));
+    const rawText = await response.text();
+    console.log('📱 BEEM Response:', rawText);
 
-    // Wait 1 second
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    let parsed: any = null;
+    try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
 
-    // Send SAME message to Admin
-    console.log('📱 Sending SAME message to admin:', ownerPhoneNormalized);
-    const adminResult = await sendSingleSMS({
-      apiKey: BEEM_API_KEY,
-      secretKey: BEEM_SECRET_KEY,
-      message: message, // SAME message
-      phone: ownerPhoneNormalized,
-      source_addr: 'Sonko Sound',
-    });
-
-    console.log('📱 Admin SMS Result:', JSON.stringify(adminResult));
+    const success = response.ok && !parsed?.error;
 
     return json({
-      success: custResult.success || adminResult.success,
+      success: success,
       data: {
-        customerSent: custResult.success,
-        adminSent: adminResult.success,
+        sent: success,
         message: message,
-        customerPhone: customerPhoneNormalized,
-        adminPhone: ownerPhoneNormalized,
+        recipients: [customerPhoneNormalized, ownerPhoneNormalized],
+        response: parsed,
       },
-      message: `Customer: ${custResult.success ? '✅' : '❌'} | Admin: ${adminResult.success ? '✅' : '❌'}`,
+      message: success ? '✅ SMS sent to both numbers' : '❌ Failed: ' + (parsed?.message || rawText),
     });
   } catch (error: any) {
     console.error('📱 Order SMS Error:', error);
