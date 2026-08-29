@@ -565,9 +565,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     const formatDate = (dateStr: string) => {
       const date = new Date(dateStr);
       return date.toLocaleDateString('sw-TZ', { 
-        weekday: 'long', 
         year: 'numeric', 
-        month: 'long', 
+        month: 'short', 
         day: 'numeric' 
       });
     };
@@ -581,56 +580,54 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     };
 
     const shippingHTML = order.shipping_info ? `
-      <div style="background: #f0fdf4; border: 2px solid #22c55e; border-radius: 12px; padding: 20px; margin-top: 20px;">
-        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-          <div style="background: #22c55e; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
-            <span style="font-size: 20px;">🚚</span>
-          </div>
-          <h3 style="margin: 0; color: #16a34a; font-size: 18px; font-weight: bold;">TAARIFA ZA USAFIRISHAJI</h3>
+      <div style="background: #f0fdf4; border: 1.5px solid #22c55e; border-radius: 8px; padding: 10px 15px; margin-top: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+          <span style="font-size: 16px;">🚚</span>
+          <span style="color: #16a34a; font-size: 13px; font-weight: bold;">TAARIFA ZA USAFIRISHAJI</span>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-          <div style="background: white; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0;">
-            <span style="color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase;">Njia ya Usafirishaji</span>
-            <p style="margin: 5px 0 0; font-size: 16px; font-weight: bold; color: #16a34a;">
-              ${order.shipping_info.method === 'BodaBoda' ? '🏍️ BodaBoda' : '🚌 Bus'}
-            </p>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 11px;">
+          <div>
+            <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Njia</span>
+            <span style="font-weight: bold; color: #16a34a;">${order.shipping_info.method === 'BodaBoda' ? '🏍️ BodaBoda' : '🚌 Bus'}</span>
           </div>
           ${
             order.shipping_info.method === 'BodaBoda'
               ? `
-                <div style="background: white; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0;">
-                  <span style="color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase;">Jina la BodaBoda</span>
-                  <p style="margin: 5px 0 0; font-size: 14px; font-weight: bold; color: #334155;">${order.shipping_info.bodaName || 'Haijatolewa'}</p>
+                <div>
+                  <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Jina</span>
+                  <span style="font-weight: bold; color: #334155;">${order.shipping_info.bodaName || '-'}</span>
                 </div>
-                <div style="background: white; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0;">
-                  <span style="color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase;">Namba ya Simu</span>
-                  <p style="margin: 5px 0 0; font-size: 14px; font-weight: bold; color: #334155;">${order.shipping_info.bodaPhone}</p>
+                <div>
+                  <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Simu</span>
+                  <span style="font-weight: bold; color: #334155;">${order.shipping_info.bodaPhone}</span>
                 </div>
-                <div style="background: white; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0;">
-                  <span style="color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase;">Namba ya Pikipiki</span>
-                  <p style="margin: 5px 0 0; font-size: 14px; font-weight: bold; color: #334155;">${order.shipping_info.bodaPlateNumber || 'Haijatolewa'}</p>
+                <div>
+                  <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Pikipiki</span>
+                  <span style="font-weight: bold; color: #334155;">${order.shipping_info.bodaPlateNumber || '-'}</span>
                 </div>
               `
               : order.shipping_info.busName
                 ? `
-                  <div style="background: white; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0;">
-                    <span style="color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase;">Jina la Bus/Kampuni</span>
-                    <p style="margin: 5px 0 0; font-size: 14px; font-weight: bold; color: #334155;">${order.shipping_info.busName}</p>
+                  <div>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Bus/Kampuni</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.busName}</span>
                   </div>
-                  <div style="background: white; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0;">
-                    <span style="color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase;">Namba ya Bus</span>
-                    <p style="margin: 5px 0 0; font-size: 14px; font-weight: bold; color: #334155;">${order.shipping_info.busNumber || 'Haijatolewa'}</p>
+                  <div>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Bus</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.busNumber || '-'}</span>
                   </div>
+                  <div></div>
                 `
                 : `
-                  <div style="background: white; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0;">
-                    <span style="color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase;">Jina la Dreva</span>
-                    <p style="margin: 5px 0 0; font-size: 14px; font-weight: bold; color: #334155;">${order.shipping_info.driverName}</p>
+                  <div>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Dreva</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverName}</span>
                   </div>
-                  <div style="background: white; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0;">
-                    <span style="color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase;">Namba ya Simu ya Dreva</span>
-                    <p style="margin: 5px 0 0; font-size: 14px; font-weight: bold; color: #334155;">${order.shipping_info.driverPhone}</p>
+                  <div>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Simu ya Dreva</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverPhone}</span>
                   </div>
+                  <div></div>
                 `
           }
         </div>
@@ -645,165 +642,174 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
           <meta charset="UTF-8">
           <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
+            @page {
+              size: A4;
+              margin: 10mm;
+            }
             body { 
               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-              padding: 40px; 
               background: #f8fafc;
               color: #1e293b;
+              padding: 10px;
             }
             .container {
-              max-width: 800px;
+              max-width: 190mm;
               margin: 0 auto;
               background: white;
-              border-radius: 20px;
-              box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+              border-radius: 12px;
+              box-shadow: 0 4px 20px rgba(0,0,0,0.08);
               overflow: hidden;
+              min-height: 260mm;
+              display: flex;
+              flex-direction: column;
             }
             .header {
               background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 50%, #22c55e 100%);
               color: white;
-              padding: 30px;
+              padding: 15px 25px;
               text-align: center;
             }
             .business-name {
-              font-size: 28px;
+              font-size: 22px;
               font-weight: 900;
-              margin-bottom: 5px;
               letter-spacing: 1px;
             }
             .business-slogan {
-              font-size: 13px;
+              font-size: 10px;
               opacity: 0.9;
-              margin-bottom: 15px;
+              margin: 2px 0 8px;
             }
             .order-badge {
               display: inline-block;
               background: rgba(255,255,255,0.2);
-              padding: 8px 20px;
-              border-radius: 25px;
-              font-size: 14px;
+              padding: 4px 15px;
+              border-radius: 20px;
+              font-size: 11px;
               font-weight: bold;
               letter-spacing: 1px;
             }
             .content {
-              padding: 30px;
+              padding: 15px 25px;
+              flex: 1;
             }
             .info-grid {
               display: grid;
               grid-template-columns: 1fr 1fr;
-              gap: 15px;
-              margin-bottom: 25px;
+              gap: 8px;
+              margin-bottom: 10px;
             }
             .info-card {
               background: #f0f9ff;
               border: 1px solid #bae6fd;
-              border-radius: 12px;
-              padding: 15px;
+              border-radius: 6px;
+              padding: 8px 12px;
             }
             .info-label {
               color: #0284c7;
-              font-size: 10px;
+              font-size: 7px;
               font-weight: 800;
               text-transform: uppercase;
-              letter-spacing: 1px;
-              margin-bottom: 5px;
+              letter-spacing: 0.5px;
+              margin-bottom: 2px;
             }
             .info-value {
-              font-size: 16px;
+              font-size: 12px;
               font-weight: bold;
               color: #1e293b;
             }
             .divider {
               border: none;
-              border-top: 2px dashed #e2e8f0;
-              margin: 20px 0;
-            }
-            .items-section {
-              margin: 20px 0;
+              border-top: 1.5px dashed #e2e8f0;
+              margin: 10px 0;
             }
             .section-title {
-              font-size: 16px;
+              font-size: 12px;
               font-weight: 800;
               color: #1e3a5f;
-              margin-bottom: 15px;
-              display: flex;
-              align-items: center;
-              gap: 8px;
+              margin-bottom: 8px;
             }
             table {
               width: 100%;
               border-collapse: collapse;
-              margin: 15px 0;
+              margin: 8px 0;
             }
             thead th {
               background: #1e3a5f;
               color: white;
-              padding: 12px;
+              padding: 8px 10px;
               text-align: left;
-              font-size: 11px;
+              font-size: 9px;
               text-transform: uppercase;
-              letter-spacing: 0.5px;
+              letter-spacing: 0.3px;
             }
-            thead th:first-child { border-radius: 8px 0 0 0; }
-            thead th:last-child { border-radius: 0 8px 0 0; }
+            thead th:first-child { border-radius: 6px 0 0 0; }
+            thead th:last-child { border-radius: 0 6px 0 0; }
             tbody td {
-              padding: 12px;
+              padding: 6px 10px;
               border-bottom: 1px solid #e2e8f0;
-              font-size: 13px;
+              font-size: 11px;
             }
             tbody tr:nth-child(even) { background: #f8fafc; }
-            tbody tr:hover { background: #f0f9ff; }
             .total-section {
               background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%);
               color: white;
-              padding: 20px;
-              border-radius: 12px;
+              padding: 10px 15px;
+              border-radius: 8px;
               display: flex;
               justify-content: space-between;
               align-items: center;
-              margin-top: 20px;
+              margin-top: 10px;
             }
             .total-label {
-              font-size: 14px;
+              font-size: 11px;
               font-weight: bold;
-              letter-spacing: 1px;
+              letter-spacing: 0.5px;
             }
             .total-amount {
-              font-size: 24px;
+              font-size: 18px;
               font-weight: 900;
             }
             .signature-section {
               display: flex;
               justify-content: space-between;
-              margin-top: 40px;
-              padding: 0 20px;
+              margin-top: 25px;
+              padding: 0 10px;
+              gap: 40px;
             }
             .signature-box {
               text-align: center;
-              width: 200px;
+              flex: 1;
+            }
+            .signature-name {
+              font-size: 13px;
+              font-style: italic;
+              font-weight: 600;
+              color: #1e3a5f;
+              margin-bottom: 3px;
             }
             .signature-line {
-              border-top: 2px solid #1e3a5f;
-              padding-top: 10px;
-              font-size: 12px;
+              border-top: 1.5px solid #1e3a5f;
+              padding-top: 5px;
+              font-size: 9px;
               font-weight: bold;
               color: #64748b;
+              text-transform: uppercase;
             }
             .footer {
               background: #f8fafc;
-              padding: 20px;
+              padding: 8px 20px;
               text-align: center;
-              font-size: 12px;
+              font-size: 9px;
               color: #64748b;
               border-top: 1px solid #e2e8f0;
             }
             .status-badge {
               display: inline-block;
-              padding: 5px 15px;
-              border-radius: 15px;
-              font-size: 11px;
+              padding: 2px 10px;
+              border-radius: 10px;
+              font-size: 9px;
               font-weight: bold;
-              letter-spacing: 0.5px;
+              letter-spacing: 0.3px;
             }
             .status-pending { background: #fef3c7; color: #d97706; }
             .status-completed { background: #d1fae5; color: #059669; }
@@ -826,7 +832,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               <div class="info-grid">
                 <div class="info-card">
                   <div class="info-label">Oda ID</div>
-                  <div class="info-value">${order.id}</div>
+                  <div class="info-value" style="font-size: 10px;">${order.id}</div>
                 </div>
                 <div class="info-card">
                   <div class="info-label">Tarehe</div>
@@ -846,9 +852,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                 </div>
               </div>
               
-              <hr class="divider">
-              
-              <div class="section-title">👤 TAARIFA ZA MTEJA</div>
+              <div class="section-title" style="margin-top: 8px;">👤 TAARIFA ZA MTEJA</div>
               <div class="info-grid">
                 <div class="info-card" style="background: #fef2f2; border-color: #fecaca;">
                   <div class="info-label" style="color: #dc2626;">Jina la Mteja</div>
@@ -860,9 +864,9 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                 </div>
               </div>
               ${order.notes ? `
-                <div class="info-card" style="background: #fffbeb; border-color: #fde68a; margin-top: 10px;">
-                  <div class="info-label" style="color: #d97706;">📝 Maelezo ya Ziada</div>
-                  <div class="info-value" style="font-size: 13px;">${order.notes}</div>
+                <div class="info-card" style="background: #fffbeb; border-color: #fde68a; margin-top: 8px; padding: 6px 12px;">
+                  <div class="info-label" style="color: #d97706;">📝 Maelezo</div>
+                  <div class="info-value" style="font-size: 10px;">${order.notes}</div>
                 </div>
               ` : ''}
               
@@ -874,9 +878,9 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               <table>
                 <thead>
                   <tr>
-                    <th>#</th>
+                    <th style="width: 30px;">#</th>
                     <th>Bidhaa</th>
-                    <th>Idadi</th>
+                    <th style="width: 50px;">Idadi</th>
                     <th>Bei ya Kimoja</th>
                     <th>Jumla</th>
                   </tr>
@@ -886,7 +890,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                     <tr>
                       <td>${index + 1}</td>
                       <td style="font-weight: bold;">${item.product_name}</td>
-                      <td>${item.quantity}</td>
+                      <td style="text-align: center;">${item.quantity}</td>
                       <td>TSh ${Number(item.unit_price).toLocaleString()}</td>
                       <td style="font-weight: bold;">TSh ${Number(item.total_price).toLocaleString()}</td>
                     </tr>
@@ -901,24 +905,26 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               
               <div class="signature-section">
                 <div class="signature-box">
+                  <div class="signature-name">${order.customer_name}</div>
                   <div class="signature-line">Sahihi ya Mteja</div>
                 </div>
                 <div class="signature-box">
+                  <div class="signature-name">Sonko Sound</div>
                   <div class="signature-line">Sahihi ya Mmiliki</div>
                 </div>
               </div>
             </div>
             
             <div class="footer">
-              <p>📍 Dar es Salaam, Tanzania | 📞 0656738253</p>
-              <p style="margin-top: 5px;">Asante kwa kufanya biashara nasi! 🙏</p>
+              <p>📍 Morogoro, Tanzania | 📞 0656738253</p>
+              <p style="margin-top: 3px;">Asante kwa kufanya biashara nasi! 🙏</p>
             </div>
             
-            <div class="no-print" style="text-align: center; padding: 20px; background: #f1f5f9;">
-              <button onclick="window.print()" style="background: #3b82f6; color: white; border: none; padding: 12px 30px; border-radius: 25px; font-size: 14px; font-weight: bold; cursor: pointer; margin-right: 10px;">
+            <div class="no-print" style="text-align: center; padding: 10px; background: #f1f5f9;">
+              <button onclick="window.print()" style="background: #3b82f6; color: white; border: none; padding: 8px 20px; border-radius: 20px; font-size: 12px; font-weight: bold; cursor: pointer; margin-right: 8px;">
                 🖨️ Chapisha / Save as PDF
               </button>
-              <button onclick="window.close()" style="background: #64748b; color: white; border: none; padding: 12px 30px; border-radius: 25px; font-size: 14px; font-weight: bold; cursor: pointer;">
+              <button onclick="window.close()" style="background: #64748b; color: white; border: none; padding: 8px 20px; border-radius: 20px; font-size: 12px; font-weight: bold; cursor: pointer;">
                 Funga
               </button>
             </div>
