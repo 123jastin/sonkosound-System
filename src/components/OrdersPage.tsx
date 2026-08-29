@@ -24,7 +24,7 @@ interface OrderItem {
   id: string;
   product_name: string;
   quantity: number;
-  unit_price: number;
+  unit_price: number | string;
   total_price: number;
 }
 
@@ -35,7 +35,7 @@ interface ShippingInfo {
   bodaPlateNumber?: string;
   busName?: string;
   busNumber?: string;
-  cargoNumber?: string; // Namba ya Mzigo
+  cargoNumber?: string;
   driverName?: string;
   driverPhone?: string;
 }
@@ -71,7 +71,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   
   const [activeTab, setActiveTab] = useState<'orders' | 'customers'>('orders');
   
-  // Modal states
   const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
   const [isEditCustomerModalOpen, setIsEditCustomerModalOpen] = useState(false);
   const [isAddOrderModalOpen, setIsAddOrderModalOpen] = useState(false);
@@ -83,19 +82,16 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   const [editingCustomer, setEditingCustomer] = useState<OrderCustomer | null>(null);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   
-  // Customer form states
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   
-  // Order form states
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [orderItems, setOrderItems] = useState<OrderItem[]>([
     { id: 'item-' + Date.now(), product_name: '', quantity: 1, unit_price: '', total_price: 0 }
   ]);
   const [orderNotes, setOrderNotes] = useState('');
   
-  // Shipping form states
   const [shippingMethod, setShippingMethod] = useState<'BodaBoda' | 'Bus'>('BodaBoda');
   const [bodaName, setBodaName] = useState('');
   const [bodaPhone, setBodaPhone] = useState('');
@@ -103,49 +99,12 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   const [busType, setBusType] = useState<'company' | 'driver'>('company');
   const [busName, setBusName] = useState('');
   const [busNumber, setBusNumber] = useState('');
-  const [cargoNumber, setCargoNumber] = useState(''); // Namba ya Mzigo
+  const [cargoNumber, setCargoNumber] = useState('');
   const [driverName, setDriverName] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
   
-  // Search states
   const [searchTerm, setSearchTerm] = useState('');
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-
-  // SMS Notification function
-  const sendOrderSMS = async (order: Order, customerPhone: string) => {
-    try {
-      const itemsList = order.items.map((item, index) => 
-        `${index + 1}. ${item.product_name} ~ TSh ${Number(item.total_price).toLocaleString()}`
-      ).join('\n');
-      
-      const message = `Habari ${order.customer_name}, tumepokea oda yako ya:\n${itemsList}\n\nJumla Kuu = TSh ${Number(order.total_amount).toLocaleString()}`;
-      
-      console.log('📱 Sending order SMS:', message);
-      
-      const response = await fetch('/api/orders-send-sms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerName: order.customer_name,
-          customerPhone: customerPhone,
-          orderId: order.id,
-          items: order.items,
-          totalAmount: order.total_amount,
-          message: message
-        })
-      });
-      
-      const result = await response.json();
-      console.log('📱 SMS Result:', result);
-      
-      if (result.success) {
-        setSuccessMessage('SMS imetumwa kwa mteja');
-        setTimeout(() => setSuccessMessage(null), 3000);
-      }
-    } catch (err) {
-      console.error('Failed to send SMS:', err);
-    }
-  };
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -223,7 +182,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         id: 'item-' + Date.now() + '-' + Math.random(), 
         product_name: '', 
         quantity: 1, 
-        unit_price: '', // Empty string instead of 0
+        unit_price: '',
         total_price: 0 
       }
     ]);
@@ -350,7 +309,15 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     e.preventDefault();
     if (!selectedCustomerId || orderItems.length === 0) return;
     
-    const validItems = orderItems.filter(item => item.product_name && Number(item.unit_price) > 0);
+    const validItems = orderItems
+      .filter(item => item.product_name && Number(item.unit_price) > 0)
+      .map(item => ({
+        ...item,
+        quantity: Number(item.quantity),
+        unit_price: Number(item.unit_price),
+        total_price: Number(item.quantity) * Number(item.unit_price)
+      }));
+      
     if (validItems.length === 0) {
       setError('Ongeza bidhaa angalau moja na bei');
       return;
@@ -384,7 +351,31 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         // Send SMS notification
         const customer = customers.find(c => c.id === selectedCustomerId);
         if (customer) {
-          await sendOrderSMS(newOrder, customer.phone_number);
+          try {
+            console.log('📱 Sending order SMS...');
+            
+            const smsResponse = await fetch('/api/orders-send-sms', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                customerName: customer.full_name,
+                customerPhone: customer.phone_number,
+                orderId: newOrder.id,
+                items: validItems,
+                totalAmount: orderTotal
+              })
+            });
+            
+            const smsResult = await smsResponse.json();
+            console.log('📱 SMS Result:', smsResult);
+            
+            if (smsResult.success) {
+              setSuccessMessage('Oda imehifadhiwa na SMS imetumwa kwa mteja');
+              setTimeout(() => setSuccessMessage(null), 3000);
+            }
+          } catch (smsErr) {
+            console.error('Failed to send SMS:', smsErr);
+          }
         }
       } else {
         setError(result.error || 'Imeshindwa kuhifadhi oda');
@@ -510,6 +501,42 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setOrders(prev => prev.map(o => 
           o.id === selectedOrder.id ? { ...o, status: 'Completed', shipping_info: shippingInfo } : o
         ));
+        
+        // Send SMS notification for shipping
+        try {
+          console.log('📱 Sending shipping SMS...');
+          
+          const smsResponse = await fetch('/api/orders-shipping-sms', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              customerName: selectedOrder.customer_name,
+              customerPhone: selectedOrder.customer_phone,
+              orderId: selectedOrder.id,
+              totalAmount: selectedOrder.total_amount,
+              shippingMethod: shippingInfo.method,
+              bodaName: shippingInfo.bodaName,
+              bodaPhone: shippingInfo.bodaPhone,
+              bodaPlateNumber: shippingInfo.bodaPlateNumber,
+              busName: shippingInfo.busName,
+              busNumber: shippingInfo.busNumber,
+              cargoNumber: shippingInfo.cargoNumber,
+              driverName: shippingInfo.driverName,
+              driverPhone: shippingInfo.driverPhone
+            })
+          });
+          
+          const smsResult = await smsResponse.json();
+          console.log('📱 Shipping SMS Result:', smsResult);
+          
+          if (smsResult.success) {
+            setSuccessMessage('Oda imekamilika na SMS imetumwa');
+            setTimeout(() => setSuccessMessage(null), 3000);
+          }
+        } catch (smsErr) {
+          console.error('Failed to send shipping SMS:', smsErr);
+        }
+        
         setIsCompleteOrderModalOpen(false);
         setSelectedOrder(null);
         resetShippingForm();
@@ -703,10 +730,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
           <meta charset="UTF-8">
           <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
-            @page {
-              size: A4;
-              margin: 10mm;
-            }
+            @page { size: A4; margin: 10mm; }
             body { 
               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
               background: #f8fafc;
@@ -730,16 +754,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               padding: 15px 25px;
               text-align: center;
             }
-            .business-name {
-              font-size: 22px;
-              font-weight: 900;
-              letter-spacing: 1px;
-            }
-            .business-slogan {
-              font-size: 10px;
-              opacity: 0.9;
-              margin: 2px 0 8px;
-            }
+            .business-name { font-size: 22px; font-weight: 900; letter-spacing: 1px; }
+            .business-slogan { font-size: 10px; opacity: 0.9; margin: 2px 0 8px; }
             .order-badge {
               display: inline-block;
               background: rgba(255,255,255,0.2);
@@ -749,10 +765,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               font-weight: bold;
               letter-spacing: 1px;
             }
-            .content {
-              padding: 15px 25px;
-              flex: 1;
-            }
+            .content { padding: 15px 25px; flex: 1; }
             .info-grid {
               display: grid;
               grid-template-columns: 1fr 1fr;
@@ -773,27 +786,10 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               letter-spacing: 0.5px;
               margin-bottom: 2px;
             }
-            .info-value {
-              font-size: 12px;
-              font-weight: bold;
-              color: #1e293b;
-            }
-            .divider {
-              border: none;
-              border-top: 1.5px dashed #e2e8f0;
-              margin: 10px 0;
-            }
-            .section-title {
-              font-size: 12px;
-              font-weight: 800;
-              color: #1e3a5f;
-              margin-bottom: 8px;
-            }
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              margin: 8px 0;
-            }
+            .info-value { font-size: 12px; font-weight: bold; color: #1e293b; }
+            .divider { border: none; border-top: 1.5px dashed #e2e8f0; margin: 10px 0; }
+            .section-title { font-size: 12px; font-weight: 800; color: #1e3a5f; margin-bottom: 8px; }
+            table { width: 100%; border-collapse: collapse; margin: 8px 0; }
             thead th {
               background: #1e3a5f;
               color: white;
@@ -821,15 +817,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               align-items: center;
               margin-top: 10px;
             }
-            .total-label {
-              font-size: 11px;
-              font-weight: bold;
-              letter-spacing: 0.5px;
-            }
-            .total-amount {
-              font-size: 18px;
-              font-weight: 900;
-            }
+            .total-label { font-size: 11px; font-weight: bold; letter-spacing: 0.5px; }
+            .total-amount { font-size: 18px; font-weight: 900; }
             .signature-section {
               display: flex;
               justify-content: space-between;
@@ -837,10 +826,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               padding: 0 10px;
               gap: 40px;
             }
-            .signature-box {
-              text-align: center;
-              flex: 1;
-            }
+            .signature-box { text-align: center; flex: 1; }
             .signature-name {
               font-size: 13px;
               font-style: italic;
