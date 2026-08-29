@@ -92,34 +92,32 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const { customerName, customerPhone, orderId, items, totalAmount } = body;
 
-    console.log('📱 Received:', { customerName, customerPhone, orderId, itemsCount: items?.length, totalAmount });
-
     if (!customerName || !customerPhone || !items || !Array.isArray(items)) {
-      console.error('❌ Missing required fields:', { customerName, customerPhone, itemsType: typeof items });
       return json({ success: false, error: 'Missing required fields' }, 400);
     }
 
-    // Use environment variables with fallback for testing
+    // Use environment variables with fallback
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
+    
+    // Admin phone: 0616069692 → 255616069692
     const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
 
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
 
-    console.log('📱 Customer phone normalized:', customerPhoneNormalized);
-    console.log('📱 Admin phone normalized:', ownerPhoneNormalized);
+    console.log('📱 Customer phone:', customerPhoneNormalized);
+    console.log('📱 Admin phone (from env or default):', ownerPhoneNormalized);
 
     // Build order items list
     const itemsList = items.map((item: any, index: number) => 
       `${index + 1}. ${item.product_name} ~ TSh ${Number(item.total_price || item.unit_price * item.quantity).toLocaleString()}`
     ).join('\n');
 
-    // Customer message - "tumepokea oda"
+    // Customer message
     const customerMessage = `Habari ${customerName}, tumepokea oda yako, tumeanza kuifanyia kazi\n\nOda:\n${itemsList}\n\nJumla Kuu = TSh ${Number(totalAmount).toLocaleString()}`;
 
     console.log('📱 Sending to customer:', customerPhoneNormalized);
-    console.log('📱 Customer message:', customerMessage);
 
     // Send to Customer
     const custResult = await sendSingleSMS({
@@ -132,7 +130,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     console.log('📱 Customer SMS Result:', JSON.stringify(custResult));
 
-    // Small delay between SMS
+    // Small delay
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Admin notification
@@ -158,6 +156,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         adminSent: adminResult.success,
         customerMessage,
         adminMessage,
+        customerPhone: customerPhoneNormalized,
+        adminPhone: ownerPhoneNormalized,
       },
       message: `Customer SMS: ${custResult.success ? '✅' : '❌'} | Admin SMS: ${adminResult.success ? '✅' : '❌'}`,
     });
