@@ -21,21 +21,25 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
 
     const { results: pending } = await env.DB.prepare(`
       SELECT * FROM sms_queue 
-      WHERE LOWER(status) = 'pending' 
+      WHERE status != 'sent' 
+      AND status != 'failed'
       LIMIT 5
     `).all();
 
-    console.log(`📬 Found ${pending?.length || 0} pending`);
+    console.log(`📬 Found ${pending?.length || 0} messages`);
 
     if (!pending || pending.length === 0) {
-      return json({ success: true, processed: 0, message: 'No pending messages' });
+      return json({ success: true, processed: 0 });
     }
 
     let sent = 0;
+    const details = [];
     const auth = toBase64(`${BEEM_API_KEY}:${BEEM_SECRET_KEY}`);
 
     for (const msg of pending as any[]) {
-      console.log(`📤 Sending to: ${msg.recipient_phone}`);
+      console.log(`\n📤 Processing: ${msg.id}`);
+      console.log(`📱 To: ${msg.recipient_phone}`);
+      console.log(`📝 Message: ${msg.message}`);
 
       const payload = {
         source_addr: 'Sonko Sound',
@@ -52,21 +56,44 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
       });
 
       const text = await response.text();
-      console.log('📱 Response:', text);
-      
+      console.log('📱 Full Beem Response:', text);
+
       let result: any = {};
       try { result = JSON.parse(text); } catch { result = { raw: text }; }
 
-      if (response.ok && result.successful) {
-        await env.DB.prepare(`UPDATE sms_queue SET status = 'sent' WHERE id = ?`).bind(msg.id).run();
+      // Check different success indicators
+      const isSuccess = 
+        response.ok && 
+        (result.successful === true || 
+         result.code === 100 || 
+         result.message?.includes('Success') ||
+         result.valid > 0);
+
+      details.push({
+        id: msg.id,
+        phone: msg.recipient_phone,
+        status: response.status,
+        response: result,
+        success: isSuccess
+      });
+
+      if (isSuccess) {
+        await env.DB.prepare(`UPDATE sms_queue SET status = 'sent', sent_at = datetime('now') WHERE id = ?`).bind(msg.id).run();
         sent++;
-        console.log(`✅ Sent: ${msg.id}`);
+        console.log(`✅ Marked as sent: ${msg.id}`);
+      } else {
+        console.log(`❌ Not successful:`, result);
       }
 
       await new Promise(r => setTimeout(r, 2000));
     }
 
-    return json({ success: true, processed: pending.length, sent });
+    return json({ 
+      success: true, 
+      processed: pending.length, 
+      sent,
+      details 
+    });
   } catch (error: any) {
     return json({ success: false, error: error?.message }, 500);
   }
