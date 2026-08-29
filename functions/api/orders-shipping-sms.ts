@@ -96,15 +96,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       orderId, 
       totalAmount,
       shippingMethod,
-      // BodaBoda
       bodaName,
       bodaPhone,
       bodaPlateNumber,
-      // Bus Company
       busName,
       busNumber,
       cargoNumber,
-      // Driver
       driverName,
       driverPhone
     } = body;
@@ -113,12 +110,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'Missing required fields' }, 400);
     }
 
+    // Use environment variables with fallback
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    const MY_PHONE = env.MY_PHONE_NUMBER || '255656738253';
+    
+    // Admin phone: 0616069692 → 255616069692
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
 
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
+
+    console.log('📱 Customer phone:', customerPhoneNormalized);
+    console.log('📱 Admin phone:', ownerPhoneNormalized);
 
     // Build customer shipping message
     let customerShippingMessage = '';
@@ -143,8 +146,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     console.log('📱 Sending to customer:', customerPhoneNormalized);
     console.log('📱 Customer shipping message:', customerShippingMessage);
-    console.log('📱 Sending to admin:', ownerPhoneNormalized);
-    console.log('📱 Admin shipping message:', adminShippingMessage);
 
     // Send to Customer
     const custResult = await sendSingleSMS({
@@ -159,6 +160,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     // Small delay
     await new Promise(resolve => setTimeout(resolve, 1000));
+
+    console.log('📱 Sending to admin:', ownerPhoneNormalized);
+    console.log('📱 Admin shipping message:', adminShippingMessage);
 
     // Send to Admin
     const adminResult = await sendSingleSMS({
@@ -178,6 +182,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         adminSent: adminResult.success,
         customerMessage: customerShippingMessage,
         adminMessage: adminShippingMessage,
+        customerPhone: customerPhoneNormalized,
+        adminPhone: ownerPhoneNormalized,
       },
       message: `Customer SMS: ${custResult.success ? '✅' : '❌'} | Admin SMS: ${adminResult.success ? '✅' : '❌'}`,
     });
