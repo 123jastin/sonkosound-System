@@ -1,4 +1,3 @@
-// functions/api/orders-send-sms.ts
 import type { PagesFunction } from '@cloudflare/workers-types';
 
 type Env = {
@@ -90,18 +89,28 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'No data provided' }, 400);
     }
 
-    const { customerName, customerPhone, orderId, items, totalAmount, message } = body;
+    const { customerName, customerPhone, orderId, items, totalAmount } = body;
 
     if (!customerName || !customerPhone || !items || !Array.isArray(items)) {
       return json({ success: false, error: 'Missing required fields' }, 400);
     }
 
-    const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
-    const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    const MY_PHONE = env.MY_PHONE_NUMBER || '255656738253';
+    // Use environment variables with fallback
+    const BEEM_API_KEY = env.BEEM_API_KEY || '';
+    const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || '';
+    // Admin phone: 0616069692 → 255616069692
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
+
+    if (!BEEM_API_KEY || !BEEM_SECRET_KEY) {
+      console.error('❌ Missing Beem API credentials');
+      return json({ success: false, error: 'Missing Beem API credentials' }, 500);
+    }
 
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
+
+    console.log('📱 Customer phone:', customerPhoneNormalized);
+    console.log('📱 Admin phone:', ownerPhoneNormalized);
 
     // Build order items list
     const itemsList = items.map((item: any, index: number) => 
