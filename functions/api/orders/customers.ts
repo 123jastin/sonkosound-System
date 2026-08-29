@@ -59,7 +59,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
-    const customerId = url.pathname.split('/').pop();
+    const parts = url.pathname.split('/').filter(Boolean);
+    const customerId = parts[parts.length - 1];
     
     const body = await request.json().catch(() => null);
     
@@ -75,7 +76,7 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
 
     await env.DB.prepare(`
       UPDATE order_customers 
-      SET full_name = ?, phone_number = ?, address = ?, updated_at = datetime('now')
+      SET full_name = ?, phone_number = ?, address = ?
       WHERE id = ?
     `).bind(fullName, phoneNumber, address || '', customerId).run();
 
@@ -87,7 +88,7 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
     `).bind(fullName, phoneNumber, customerId).run();
 
     const customer = await env.DB.prepare(
-      `SELECT id, full_name, phone_number, address, created_at, updated_at 
+      `SELECT id, full_name, phone_number, address, created_at 
        FROM order_customers WHERE id = ? LIMIT 1`
     ).bind(customerId).first();
 
@@ -105,7 +106,8 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
 export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
-    const customerId = url.pathname.split('/').pop();
+    const parts = url.pathname.split('/').filter(Boolean);
+    const customerId = parts[parts.length - 1];
 
     if (!customerId) {
       return json({ success: false, error: 'Customer ID required' }, 400);
