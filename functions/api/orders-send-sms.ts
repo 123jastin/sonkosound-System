@@ -1,3 +1,4 @@
+// functions/api/orders-send-sms.ts
 import type { PagesFunction } from '@cloudflare/workers-types';
 
 type Env = {
@@ -91,33 +92,30 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const { customerName, customerPhone, orderId, items, totalAmount } = body;
 
+    console.log('📱 Received:', { customerName, customerPhone, orderId, itemsCount: items?.length, totalAmount });
+
     if (!customerName || !customerPhone || !items || !Array.isArray(items)) {
+      console.error('❌ Missing required fields:', { customerName, customerPhone, itemsType: typeof items });
       return json({ success: false, error: 'Missing required fields' }, 400);
     }
 
-    // Use environment variables with fallback
-    const BEEM_API_KEY = env.BEEM_API_KEY || '';
-    const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || '';
-    // Admin phone: 0616069692 → 255616069692
+    // Use environment variables with fallback for testing
+    const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
+    const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
     const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
-
-    if (!BEEM_API_KEY || !BEEM_SECRET_KEY) {
-      console.error('❌ Missing Beem API credentials');
-      return json({ success: false, error: 'Missing Beem API credentials' }, 500);
-    }
 
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
 
-    console.log('📱 Customer phone:', customerPhoneNormalized);
-    console.log('📱 Admin phone:', ownerPhoneNormalized);
+    console.log('📱 Customer phone normalized:', customerPhoneNormalized);
+    console.log('📱 Admin phone normalized:', ownerPhoneNormalized);
 
     // Build order items list
     const itemsList = items.map((item: any, index: number) => 
       `${index + 1}. ${item.product_name} ~ TSh ${Number(item.total_price || item.unit_price * item.quantity).toLocaleString()}`
     ).join('\n');
 
-    // Customer message
+    // Customer message - "tumepokea oda"
     const customerMessage = `Habari ${customerName}, tumepokea oda yako, tumeanza kuifanyia kazi\n\nOda:\n${itemsList}\n\nJumla Kuu = TSh ${Number(totalAmount).toLocaleString()}`;
 
     console.log('📱 Sending to customer:', customerPhoneNormalized);
@@ -134,7 +132,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     console.log('📱 Customer SMS Result:', JSON.stringify(custResult));
 
-    // Small delay
+    // Small delay between SMS
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Admin notification
