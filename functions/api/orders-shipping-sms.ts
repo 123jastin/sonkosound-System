@@ -110,44 +110,34 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'Missing required fields' }, 400);
     }
 
-    // Use environment variables with fallback
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    
-    // Admin phone: 0616069692 → 255616069692
     const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
 
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
 
-    console.log('📱 Customer phone:', customerPhoneNormalized);
-    console.log('📱 Admin phone:', ownerPhoneNormalized);
-
-    // Build customer shipping message
+    // Build messages
     let customerShippingMessage = '';
     let adminShippingMessage = '';
 
     if (shippingMethod === 'BodaBoda') {
       customerShippingMessage = `Habari ${customerName}, Tayari Mzigo wako umepakiwa!\n\nBoda: ${bodaName || 'Haijatolewa'}\nNamba: ${bodaPhone}`;
-      
       adminShippingMessage = `🚚 Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umefanikiwa kutumwa kwa Boda ${bodaPhone}${bodaName ? ` (${bodaName})` : ''}${bodaPlateNumber ? `, Pikipiki: ${bodaPlateNumber}` : ''}`;
     } else if (shippingMethod === 'Bus' && busName) {
       customerShippingMessage = `Habari ${customerName}, Tayari Mzigo wako umepakiwa!\n\nJina la Bus: ${busName}${busNumber ? `\nNamba ya Bus: ${busNumber}` : ''}${cargoNumber ? `\nNamba ya Mzigo: ${cargoNumber}` : ''}`;
-      
       adminShippingMessage = `🚌 Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umefanikiwa kutumwa kwa Bus ${busName}${busNumber ? `, Namba: ${busNumber}` : ''}${cargoNumber ? `, Mzigo No: ${cargoNumber}` : ''}`;
     } else if (shippingMethod === 'Bus' && driverName) {
       customerShippingMessage = `Habari ${customerName}, Tayari Mzigo wako umepakiwa!\n\nJina la Dreva: ${driverName}\nNamba ya Dreva: ${driverPhone}${cargoNumber ? `\nNamba ya Mzigo: ${cargoNumber}` : ''}`;
-      
       adminShippingMessage = `🚌 Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umefanikiwa kutumwa kwa Dreva ${driverName}, Simu: ${driverPhone}${cargoNumber ? `, Mzigo No: ${cargoNumber}` : ''}`;
     } else {
       customerShippingMessage = `Habari ${customerName}, Mzigo wako uko tayari kutumwa.`;
       adminShippingMessage = `📦 Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} uko tayari kutumwa.`;
     }
 
-    console.log('📱 Sending to customer:', customerPhoneNormalized);
-    console.log('📱 Customer shipping message:', customerShippingMessage);
-
-    // Send to Customer
+    // Send to Customer immediately
+    console.log('📱 Sending to customer immediately:', customerPhoneNormalized);
+    
     const custResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
@@ -158,34 +148,34 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     console.log('📱 Customer SMS Result:', JSON.stringify(custResult));
 
-    // Small delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    console.log('📱 Sending to admin:', ownerPhoneNormalized);
-    console.log('📱 Admin shipping message:', adminShippingMessage);
-
-    // Send to Admin
-    const adminResult = await sendSingleSMS({
-      apiKey: BEEM_API_KEY,
-      secretKey: BEEM_SECRET_KEY,
-      message: adminShippingMessage,
-      phone: ownerPhoneNormalized,
-      source_addr: 'Sonko Sound',
-    });
-
-    console.log('📱 Admin SMS Result:', JSON.stringify(adminResult));
+    // Queue admin message
+    const queueId = 'sms-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    
+    try {
+      await env.DB.prepare(`
+        INSERT INTO sms_queue (id, recipient_type, recipient_phone, message, status, metadata)
+        VALUES (?, 'admin', ?, ?, 'pending', ?)
+      `).bind(
+        queueId,
+        ownerPhoneNormalized,
+        adminShippingMessage,
+        JSON.stringify({ orderId, customerName, type: 'shipping', shippingMethod })
+      ).run();
+      
+      console.log('📝 Admin message queued:', queueId);
+    } catch (queueErr: any) {
+      console.error('Failed to queue admin message:', queueErr);
+    }
 
     return json({
-      success: custResult.success || adminResult.success,
+      success: custResult.success,
       data: {
         customerSent: custResult.success,
-        adminSent: adminResult.success,
+        adminQueued: true,
         customerMessage: customerShippingMessage,
         adminMessage: adminShippingMessage,
-        customerPhone: customerPhoneNormalized,
-        adminPhone: ownerPhoneNormalized,
       },
-      message: `Customer SMS: ${custResult.success ? '✅' : '❌'} | Admin SMS: ${adminResult.success ? '✅' : '❌'}`,
+      message: `Customer SMS: ${custResult.success ? '✅' : '❌'} | Admin: Queued 📝`,
     });
   } catch (error: any) {
     console.error('📱 Shipping SMS Error:', error);
