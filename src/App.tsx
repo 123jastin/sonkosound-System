@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from './services/api';
 import { 
   Customer, Debt, Payment, Supplier, 
@@ -180,9 +180,49 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Admin SMS processing state
+  const [isProcessingAdminSMS, setIsProcessingAdminSMS] = useState(false);
+  const adminSMSProcessedRef = useRef(false);
+
   // Total notification count for badge
   const totalAlertCount = notifications.filter(n => n.type === 'Overdue' || n.type === 'Due Today').length + 
                           installmentNotifications.filter(n => n.type === 'Installment Halfway' || n.type === 'Installment Completed').length;
+
+  // Process Admin SMS Queue
+  const processAdminSMSQueue = useCallback(async () => {
+    if (isProcessingAdminSMS) return; // Prevent concurrent processing
+    
+    setIsProcessingAdminSMS(true);
+    try {
+      console.log('🔄 Checking admin SMS queue...');
+      const response = await fetch('/api/admin-sms-process');
+      const result = await response.json();
+      
+      console.log('📬 Admin SMS Queue Result:', result);
+      
+      if (result.success && result.processed > 0) {
+        console.log(`✅ Admin SMS: ${result.sent} sent, ${result.failed} failed`);
+      }
+    } catch (err) {
+      console.error('❌ Failed to process admin SMS:', err);
+    } finally {
+      setIsProcessingAdminSMS(false);
+    }
+  }, [isProcessingAdminSMS]);
+
+  // Trigger admin SMS processing on app load and every 5 minutes
+  useEffect(() => {
+    if (isAuthenticated) {
+      // Process immediately on app load
+      processAdminSMSQueue();
+      
+      // Set up interval to process every 5 minutes
+      const interval = setInterval(processAdminSMSQueue, 5 * 60 * 1000);
+      
+      // Clean up interval on unmount
+      return () => clearInterval(interval);
+    }
+  }, [isAuthenticated, processAdminSMSQueue]);
 
   const tryLoadFromLocalStorage = () => {
     try {
@@ -302,6 +342,8 @@ export default function App() {
     if (isAuthenticated) {
       tryLoadFromLocalStorage();
       syncDatabaseStates(true);
+      // Process admin SMS on load
+      processAdminSMSQueue();
     }
   }, [isAuthenticated]);
 
@@ -512,7 +554,11 @@ export default function App() {
           />
         )}
         {currentTab === 'orders' && (
-          <OrdersPage onUpdate={() => syncDatabaseStates(false)} />
+          <OrdersPage onUpdate={() => {
+            syncDatabaseStates(false);
+            // Process admin SMS queue after order update
+            processAdminSMSQueue();
+          }} />
         )}
         {currentTab === 'calendar' && (
           <CalendarView debts={debts} customers={customers} payments={payments} suppliers={suppliers} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />
