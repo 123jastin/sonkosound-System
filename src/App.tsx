@@ -15,6 +15,7 @@ import CustomerManagement from './components/CustomerManagement';
 import DebtManagement from './components/DebtManagement';
 import SupplierManagement from './components/SupplierManagement';
 import InstallmentManagement, { InstallmentNotification } from './components/InstallmentManagement';
+import OrdersPage from './components/OrdersPage';
 import CalendarView from './components/CalendarView';
 import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
@@ -24,7 +25,7 @@ import {
   LayoutDashboard, Users, BookOpen, Truck, Calendar, 
   FileSpreadsheet, Settings, LogOut, Menu, X, Shield, 
   MapPin, Phone, Bell, Loader2, AlertTriangle, RefreshCw,
-  FolderOpen, Download, Wallet
+  FolderOpen, Download, Wallet, ShoppingCart
 } from 'lucide-react';
 
 // Utility: Get days difference
@@ -320,7 +321,6 @@ export default function App() {
   // Handle installment notifications
   const handleInstallmentNotifications = (notifs: InstallmentNotification[]) => {
     setInstallmentNotifications(prev => {
-      // Filter out duplicates
       const existingIds = new Set(prev.map(n => n.id));
       const newNotifs = notifs.filter(n => !existingIds.has(n.id));
       return [...newNotifs, ...prev];
@@ -340,6 +340,7 @@ export default function App() {
     { id: 'debts', label: 'Madeni ya Wateja (Debt Book)', icon: BookOpen },
     { id: 'suppliers', label: 'Wauzaji (Suppliers)', icon: Truck },
     { id: 'installments', label: 'Kubandika (Installments)', icon: Wallet },
+    { id: 'orders', label: 'Oda (Orders)', icon: ShoppingCart },
     { id: 'calendar', label: 'Kalenda (Calendar)', icon: Calendar },
     { id: 'reports', label: 'Ripoti (Reports)', icon: FileSpreadsheet },
     { id: 'memory', label: 'Kumbukumbu (Memory)', icon: FolderOpen },
@@ -509,6 +510,9 @@ export default function App() {
             onUpdate={() => syncDatabaseStates(false)} 
             onNotificationsGenerated={handleInstallmentNotifications}
           />
+        )}
+        {currentTab === 'orders' && (
+          <OrdersPage onUpdate={() => syncDatabaseStates(false)} />
         )}
         {currentTab === 'calendar' && (
           <CalendarView debts={debts} customers={customers} payments={payments} suppliers={suppliers} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />
