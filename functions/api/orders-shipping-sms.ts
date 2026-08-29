@@ -54,6 +54,9 @@ async function sendSingleSMS(params: {
   const auth = toBase64(`${params.apiKey}:${params.secretKey}`);
 
   try {
+    console.log(`📤 Sending SMS to: ${params.phone}`);
+    console.log(`📝 Message: ${params.message.substring(0, 50)}...`);
+
     const response = await fetch('https://apisms.beem.africa/v1/send', {
       method: 'POST',
       headers: {
@@ -64,7 +67,7 @@ async function sendSingleSMS(params: {
     });
 
     const rawText = await response.text();
-    console.log('📱 BEEM Response:', rawText);
+    console.log(`📱 Response for ${params.phone}:`, rawText);
     
     let parsed: any = null;
     try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
@@ -76,7 +79,7 @@ async function sendSingleSMS(params: {
       error: !response.ok ? (parsed?.message || parsed?.error_description || rawText) : null,
     };
   } catch (err: any) {
-    console.error('📱 SMS Error:', err);
+    console.error(`📱 SMS Error for ${params.phone}:`, err);
     return { success: false, status: 0, data: null, error: err.message };
   }
 }
@@ -112,7 +115,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    const MY_PHONE = env.MY_PHONE_NUMBER || '255724557446';
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
 
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
@@ -120,7 +123,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     console.log('📱 Customer phone:', customerPhoneNormalized);
     console.log('📱 Admin phone:', ownerPhoneNormalized);
 
-    // Build SAME message for both customer and admin
+    // Build SAME message for both
     let message = '';
 
     if (shippingMethod === 'BodaBoda') {
@@ -133,10 +136,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       message = `Habari ${customerName}, Mzigo wako uko tayari kutumwa.`;
     }
 
-    console.log('📱 Message (same for both):', message);
+    console.log('📱 Message:', message);
 
-    // Send to Customer
-    console.log('📱 Sending to customer:', customerPhoneNormalized);
+    // Send to Customer FIRST
+    console.log('\n📱 STEP 1: Sending to CUSTOMER...');
     const custResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
@@ -145,13 +148,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       source_addr: 'Sonko Sound',
     });
 
-    console.log('📱 Customer SMS Result:', JSON.stringify(custResult));
+    console.log('📱 Customer Result:', JSON.stringify(custResult));
 
-    // Wait 1 second
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Wait 2 seconds
+    console.log('⏳ Waiting 2 seconds...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // Send SAME message to Admin
-    console.log('📱 Sending SAME message to admin:', ownerPhoneNormalized);
+    // Send to Admin SECOND
+    console.log('\n📱 STEP 2: Sending to ADMIN...');
     const adminResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
@@ -160,16 +164,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       source_addr: 'Sonko Sound',
     });
 
-    console.log('📱 Admin SMS Result:', JSON.stringify(adminResult));
+    console.log('📱 Admin Result:', JSON.stringify(adminResult));
 
     return json({
       success: custResult.success || adminResult.success,
       data: {
         customerSent: custResult.success,
         adminSent: adminResult.success,
+        customerResult: custResult,
+        adminResult: adminResult,
         message: message,
-        customerPhone: customerPhoneNormalized,
-        adminPhone: ownerPhoneNormalized,
       },
       message: `Customer: ${custResult.success ? '✅' : '❌'} | Admin: ${adminResult.success ? '✅' : '❌'}`,
     });
