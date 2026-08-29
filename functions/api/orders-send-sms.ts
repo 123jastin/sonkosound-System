@@ -1,5 +1,4 @@
-// functions/api/orders-send-sms.ts - Complete updated version
-
+// functions/api/orders-send-sms.ts
 import type { PagesFunction } from '@cloudflare/workers-types';
 
 type Env = {
@@ -94,14 +93,16 @@ async function processQueue(env: Env, apiKey: string, secretKey: string) {
     `).all();
 
     if (!pendingMessages || pendingMessages.length === 0) {
-      return { processed: 0 };
+      return { processed: 0, sent: 0, failed: 0 };
     }
+
+    console.log(`📬 Processing ${pendingMessages.length} queued messages`);
 
     let sentCount = 0;
     let failedCount = 0;
 
     for (const msg of pendingMessages as any[]) {
-      console.log(`📤 Processing queued message ${msg.id} to ${msg.recipient_phone}`);
+      console.log(`📤 Sending queued message ${msg.id} to ${msg.recipient_phone}`);
       
       await env.DB.prepare(`
         UPDATE sms_queue SET attempts = attempts + 1, last_attempt_at = datetime('now') WHERE id = ?
@@ -129,13 +130,14 @@ async function processQueue(env: Env, apiKey: string, secretKey: string) {
         console.log(`❌ Failed queued message: ${msg.id} - ${result.error}`);
       }
 
+      // Small delay between messages
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
     return { processed: pendingMessages.length, sent: sentCount, failed: failedCount };
   } catch (err: any) {
     console.error('Queue processing error:', err);
-    return { processed: 0, error: err.message };
+    return { processed: 0, sent: 0, failed: 0, error: err.message };
   }
 }
 
@@ -175,7 +177,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     // Admin message
     const adminMessage = `📋 ODA MPYA!\nMteja: ${customerName}\nSimu: ${customerPhone}\n\nOda:\n${itemsList}\n\nJumla: TSh ${Number(totalAmount).toLocaleString()}`;
 
-    // 1. Send to Customer
+    // 1. Send to Customer immediately
     console.log('📱 Sending to customer...');
     const custResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
@@ -184,7 +186,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       phone: customerPhoneNormalized,
       source_addr: 'Sonko Sound',
     });
-    console.log('📱 Customer Result:', custResult.success ? '✅' : '❌');
+    console.log('📱 Customer Result:', custResult.success ? '✅ Sent' : '❌ Failed', custResult.error || '');
+
+    // Small delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     // 2. Send to Admin immediately
     console.log('📱 Sending to admin...');
@@ -195,9 +200,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       phone: ownerPhoneNormalized,
       source_addr: 'Sonko Sound',
     });
-    console.log('📱 Admin Result:', adminResult.success ? '✅' : '❌', adminResult.error || '');
+    console.log('📱 Admin Result:', adminResult.success ? '✅ Sent' : '❌ Failed', adminResult.error || '');
 
-    // 3. If admin SMS failed, queue it
+    // 3. If admin SMS failed, queue it for retry
+    let adminQueued = false;
     if (!adminResult.success) {
       console.log('📝 Queueing admin message for retry...');
       const queueId = 'sms-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
@@ -213,26 +219,30 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           JSON.stringify({ orderId, customerName, type: 'order_creation' })
         ).run();
         
+        adminQueued = true;
         console.log('📝 Queued:', queueId);
       } catch (queueErr: any) {
         console.error('Failed to queue:', queueErr);
       }
     }
 
-    // 4. Process any existing queue
+    // 4. Process any existing queued messages
     console.log('🔄 Processing existing queue...');
-    await processQueue(env, BEEM_API_KEY, BEEM_SECRET_KEY);
+    const queueResult = await processQueue(env, BEEM_API_KEY, BEEM_SECRET_KEY);
+    console.log('📬 Queue processed:', queueResult);
 
     return json({
-      success: custResult.success,
+      success: custResult.success || adminResult.success,
       data: {
         customerSent: custResult.success,
         adminSent: adminResult.success,
-        adminQueued: !adminResult.success,
+        adminQueued,
+        queueProcessed: queueResult.processed,
+        queueSent: queueResult.sent,
         customerMessage,
         adminMessage,
       },
-      message: `Customer: ${custResult.success ? '✅' : '❌'} | Admin: ${adminResult.success ? '✅' : '📝 Queued'}`,
+      message: `Customer: ${custResult.success ? '✅' : '❌'} | Admin: ${adminResult.success ? '✅' : adminQueued ? '📝 Queued' : '❌'}`,
     });
   } catch (error: any) {
     console.error('📱 Order SMS Error:', error);
