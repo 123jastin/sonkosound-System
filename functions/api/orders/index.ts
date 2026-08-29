@@ -7,7 +7,7 @@ type Env = {
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
@@ -22,21 +22,19 @@ export const onRequestOptions: PagesFunction = async () =>
 
 export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
   try {
-    // Get all order customers
     const customersResult = await env.DB.prepare(`
-      SELECT id, full_name, phone_number, address, created_at
+      SELECT id, full_name, phone_number, address, created_at, updated_at
       FROM order_customers
       ORDER BY datetime(created_at) DESC, rowid DESC
     `).all();
 
-    // Get all orders
     const ordersResult = await env.DB.prepare(`
-      SELECT id, customer_id, customer_name, customer_phone, total_amount, status, notes, created_at
+      SELECT id, customer_id, customer_name, customer_phone, total_amount, status, notes, 
+             shipping_method, shipping_details, created_at, updated_at
       FROM orders
       ORDER BY datetime(created_at) DESC, rowid DESC
     `).all();
 
-    // Get all order items
     const itemsResult = await env.DB.prepare(`
       SELECT id, order_id, product_name, quantity, unit_price, total_price, created_at
       FROM order_items
@@ -47,11 +45,23 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
     const orders = Array.isArray(ordersResult.results) ? ordersResult.results : [];
     const items = Array.isArray(itemsResult.results) ? itemsResult.results : [];
 
-    // Group items by order
-    const ordersWithItems = orders.map((order: any) => ({
-      ...order,
-      items: items.filter((item: any) => item.order_id === order.id)
-    }));
+    // Parse shipping details and group items
+    const ordersWithItems = orders.map((order: any) => {
+      let shippingInfo = null;
+      try {
+        if (order.shipping_details) {
+          shippingInfo = JSON.parse(order.shipping_details);
+        }
+      } catch (e) {
+        console.error('Failed to parse shipping details:', e);
+      }
+
+      return {
+        ...order,
+        shipping_info: shippingInfo,
+        items: items.filter((item: any) => item.order_id === order.id)
+      };
+    });
 
     return json({
       success: true,
@@ -79,7 +89,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'Missing required fields' }, 400);
     }
 
-    // Get customer info
     const customer = await env.DB.prepare(
       `SELECT id, full_name, phone_number FROM order_customers WHERE id = ? LIMIT 1`
     ).bind(customerId).first();
@@ -88,17 +97,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'Customer not found' }, 404);
     }
 
-    // Calculate total
     const totalAmount = items.reduce((sum: number, item: any) => {
       const quantity = Number(item.quantity) || 0;
       const unitPrice = Number(item.unit_price) || 0;
       return sum + (quantity * unitPrice);
     }, 0);
 
-    // Generate order ID
     const orderId = 'ord-' + Date.now();
 
-    // Insert order
     await env.DB.prepare(`
       INSERT INTO orders (id, customer_id, customer_name, customer_phone, total_amount, status, notes, created_at)
       VALUES (?, ?, ?, ?, ?, 'Pending', ?, datetime('now'))
@@ -111,7 +117,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       notes || ''
     ).run();
 
-    // Insert order items
     for (const item of items) {
       const itemId = 'oi-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
       const quantity = Number(item.quantity) || 0;
@@ -131,7 +136,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       ).run();
     }
 
-    // Get the created order with items
     const orderResult = await env.DB.prepare(
       `SELECT id, customer_id, customer_name, customer_phone, total_amount, status, notes, created_at
        FROM orders WHERE id = ? LIMIT 1`
