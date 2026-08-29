@@ -98,9 +98,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    
-    // Admin phone: 0616069692
-    const MY_PHONE = env.MY_PHONE_NUMBER || '0616069692';
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
 
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
@@ -113,20 +111,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       `${index + 1}. ${item.product_name} ~ TSh ${Number(item.total_price || item.unit_price * item.quantity).toLocaleString()}`
     ).join('\n');
 
-    // Customer message
-    const customerMessage = `Habari ${customerName}, tumepokea oda yako, tumeanza kuifanyia kazi\n\nOda:\n${itemsList}\n\nJumla Kuu = TSh ${Number(totalAmount).toLocaleString()}`;
+    // SAME message for both customer and admin
+    const message = `Habari ${customerName}, tumepokea oda yako, tumeanza kuifanyia kazi\n\nOda:\n${itemsList}\n\nJumla Kuu = TSh ${Number(totalAmount).toLocaleString()}`;
 
-    // Admin message
-    const adminMessage = `📋 ODA MPYA!\nMteja: ${customerName}\nSimu: ${customerPhone}\n\nOda:\n${itemsList}\n\nJumla: TSh ${Number(totalAmount).toLocaleString()}`;
+    console.log('📱 Message (same for both):', message);
 
     // Send to Customer
     console.log('📱 Sending to customer:', customerPhoneNormalized);
-    console.log('📱 Customer message:', customerMessage);
-    
     const custResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
-      message: customerMessage,
+      message: message,
       phone: customerPhoneNormalized,
       source_addr: 'Sonko Sound',
     });
@@ -136,14 +131,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     // Wait 1 second
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Send to Admin (Owner)
-    console.log('📱 Sending to admin:', ownerPhoneNormalized);
-    console.log('📱 Admin message:', adminMessage);
-    
+    // Send SAME message to Admin
+    console.log('📱 Sending SAME message to admin:', ownerPhoneNormalized);
     const adminResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
-      message: adminMessage,
+      message: message, // SAME message
       phone: ownerPhoneNormalized,
       source_addr: 'Sonko Sound',
     });
@@ -155,12 +148,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       data: {
         customerSent: custResult.success,
         adminSent: adminResult.success,
-        customerMessage,
-        adminMessage,
+        message: message,
         customerPhone: customerPhoneNormalized,
         adminPhone: ownerPhoneNormalized,
       },
-      message: `Customer SMS: ${custResult.success ? '✅' : '❌'} | Admin SMS: ${adminResult.success ? '✅' : '❌'}`,
+      message: `Customer: ${custResult.success ? '✅' : '❌'} | Admin: ${adminResult.success ? '✅' : '❌'}`,
     });
   } catch (error: any) {
     console.error('📱 Order SMS Error:', error);
