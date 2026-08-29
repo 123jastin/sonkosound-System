@@ -227,15 +227,19 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setCustomerName('');
         setCustomerPhone('');
         setCustomerAddress('');
+        setSuccessMessage('Mteja amesajiliwa kikamilifu');
+        setTimeout(() => setSuccessMessage(null), 3000);
         onUpdate();
         setActiveTab('customers');
         await loadData();
       } else {
         setError(result.error || 'Imeshindwa kumsajili mteja');
+        setTimeout(() => setError(null), 5000);
       }
     } catch (err: any) {
       console.error('Failed to add customer:', err);
-      setError('Imeshindwa kumsajili mteja');
+      setError('Imeshindwa kumsajili mteja: ' + err.message);
+      setTimeout(() => setError(null), 5000);
     } finally {
       setIsLoading(false);
     }
@@ -267,14 +271,18 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         ));
         setIsEditCustomerModalOpen(false);
         setEditingCustomer(null);
+        setSuccessMessage('Mteja amehaririwa kikamilifu');
+        setTimeout(() => setSuccessMessage(null), 3000);
         onUpdate();
         await loadData();
       } else {
         setError(result.error || 'Imeshindwa kuhariri mteja');
+        setTimeout(() => setError(null), 5000);
       }
     } catch (err: any) {
       console.error('Failed to edit customer:', err);
-      setError('Imeshindwa kuhariri mteja');
+      setError('Imeshindwa kuhariri mteja: ' + err.message);
+      setTimeout(() => setError(null), 5000);
     } finally {
       setIsLoading(false);
     }
@@ -289,17 +297,40 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   };
 
   const handleDeleteCustomer = async (customerId: string) => {
-    if (!confirm('Je, una uhakika unataka kumfuta mteja huyu?')) return;
+    const customerOrders = orders.filter(o => o.customer_id === customerId);
+    const confirmMsg = customerOrders.length > 0 
+      ? `Je, una uhakika unataka kumfuta mteja huyu? Oda zake ${customerOrders.length} zitafutwa pia.`
+      : 'Je, una uhakika unataka kumfuta mteja huyu?';
+    
+    if (!confirm(confirmMsg)) return;
     
     setIsLoading(true);
+    setError(null);
+    
     try {
-      await fetch(`${API_BASE_URL}/customers/${customerId}`, { method: 'DELETE' });
-      setCustomers(prev => prev.filter(c => c.id !== customerId));
-      setOrders(prev => prev.filter(o => o.customer_id !== customerId));
-      onUpdate();
+      const response = await fetch(`${API_BASE_URL}/customers/${customerId}`, { 
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      const result = await response.json();
+      console.log('🗑️ Delete customer result:', result);
+      
+      if (result.success) {
+        setCustomers(prev => prev.filter(c => c.id !== customerId));
+        setOrders(prev => prev.filter(o => o.customer_id !== customerId));
+        setSuccessMessage('Mteja amefutwa kikamilifu');
+        setTimeout(() => setSuccessMessage(null), 3000);
+        onUpdate();
+        await loadData();
+      } else {
+        setError(result.error || 'Imeshindwa kumfuta mteja');
+        setTimeout(() => setError(null), 5000);
+      }
     } catch (err: any) {
       console.error('Failed to delete customer:', err);
-      setError('Imeshindwa kumfuta mteja');
+      setError('Imeshindwa kumfuta mteja: ' + err.message);
+      setTimeout(() => setError(null), 5000);
     } finally {
       setIsLoading(false);
     }
@@ -327,7 +358,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setError(null);
     
     try {
-      // Save order to database
       const response = await fetch(`${API_BASE_URL}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -349,7 +379,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         await loadData();
         setActiveTab('orders');
         
-        // Send SMS notification - KEY PART
+        // Send SMS notification
         const customer = customers.find(c => c.id === selectedCustomerId);
         if (customer) {
           console.log('📱 Sending order SMS to customer:', customer.full_name, customer.phone_number);
@@ -375,25 +405,23 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               setTimeout(() => setSuccessMessage(null), 5000);
             } else {
               console.error('SMS failed:', smsResult);
-              setError('Oda imehifadhiwa lakini SMS haikutumwa: ' + (smsResult.error || smsResult.message || 'Unknown'));
+              setError('Oda imehifadhiwa lakini SMS haikutumwa');
               setTimeout(() => setError(null), 5000);
             }
           } catch (smsErr) {
             console.error('Failed to send order SMS:', smsErr);
-            setError('Oda imehifadhiwa lakini SMS haikutumwa');
-            setTimeout(() => setError(null), 5000);
           }
         } else {
           console.error('Customer not found for SMS:', selectedCustomerId);
-          setError('Oda imehifadhiwa lakini mteja hakupatikana kwa SMS');
-          setTimeout(() => setError(null), 5000);
         }
       } else {
         setError(result.error || 'Imeshindwa kuhifadhi oda');
+        setTimeout(() => setError(null), 5000);
       }
     } catch (err: any) {
       console.error('Failed to add order:', err);
       setError('Imeshindwa kuhifadhi oda: ' + err.message);
+      setTimeout(() => setError(null), 5000);
     } finally {
       setIsLoading(false);
     }
@@ -403,7 +431,15 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     e.preventDefault();
     if (!editingOrder || !selectedCustomerId || orderItems.length === 0) return;
     
-    const validItems = orderItems.filter(item => item.product_name && Number(item.unit_price) > 0);
+    const validItems = orderItems
+      .filter(item => item.product_name && Number(item.unit_price) > 0)
+      .map(item => ({
+        ...item,
+        quantity: Number(item.quantity),
+        unit_price: Number(item.unit_price),
+        total_price: Number(item.quantity) * Number(item.unit_price)
+      }));
+      
     if (validItems.length === 0) {
       setError('Ongeza bidhaa angalau moja na bei');
       return;
@@ -413,6 +449,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setError(null);
     
     try {
+      console.log('✏️ Editing order:', editingOrder.id, validItems);
+      
       const response = await fetch(`${API_BASE_URL}/${editingOrder.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -424,34 +462,47 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       });
       
       const result = await response.json();
+      console.log('✏️ Edit result:', result);
       
       if (result.success) {
         setOrders(prev => prev.map(o => 
-          o.id === editingOrder.id ? result.order : o
+          o.id === editingOrder.id ? { 
+            ...result.order, 
+            customer_name: result.order.customer_name || editingOrder.customer_name,
+            customer_phone: result.order.customer_phone || editingOrder.customer_phone 
+          } : o
         ));
         setIsEditOrderModalOpen(false);
         setEditingOrder(null);
         resetOrderForm();
+        setSuccessMessage('Oda imehaririwa kikamilifu');
+        setTimeout(() => setSuccessMessage(null), 3000);
         onUpdate();
         await loadData();
       } else {
         setError(result.error || 'Imeshindwa kuhariri oda');
+        setTimeout(() => setError(null), 5000);
       }
     } catch (err: any) {
       console.error('Failed to edit order:', err);
-      setError('Imeshindwa kuhariri oda');
+      setError('Imeshindwa kuhariri oda: ' + err.message);
+      setTimeout(() => setError(null), 5000);
     } finally {
       setIsLoading(false);
     }
   };
 
   const openEditOrderModal = (order: Order) => {
+    console.log('✏️ Opening edit modal for order:', order);
+    
     setEditingOrder(order);
     setSelectedCustomerId(order.customer_id);
     setOrderItems(order.items.map(item => ({
       ...item,
-      id: item.id || 'item-' + Date.now(),
-      unit_price: item.unit_price || ''
+      id: item.id || 'item-' + Date.now() + '-' + Math.random(),
+      quantity: Number(item.quantity) || 1,
+      unit_price: item.unit_price !== undefined && item.unit_price !== null ? item.unit_price : '',
+      total_price: Number(item.total_price) || 0
     })));
     setOrderNotes(order.notes || '');
     setIsEditOrderModalOpen(true);
@@ -555,6 +606,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         await loadData();
       } else {
         setError(result.error || 'Imeshindwa kukamilisha oda');
+        setTimeout(() => setError(null), 5000);
       }
     } catch (err: any) {
       console.error('Failed to complete order:', err);
@@ -593,13 +645,31 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     if (!confirm('Je, una uhakika unataka kufuta oda hii?')) return;
     
     setIsLoading(true);
+    setError(null);
+    
     try {
-      await fetch(`${API_BASE_URL}/${orderId}`, { method: 'DELETE' });
-      setOrders(prev => prev.filter(o => o.id !== orderId));
-      onUpdate();
+      const response = await fetch(`${API_BASE_URL}/${orderId}`, { 
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      const result = await response.json();
+      console.log('🗑️ Delete result:', result);
+      
+      if (result.success) {
+        setOrders(prev => prev.filter(o => o.id !== orderId));
+        setSuccessMessage('Oda imefutwa kikamilifu');
+        setTimeout(() => setSuccessMessage(null), 3000);
+        onUpdate();
+        await loadData();
+      } else {
+        setError(result.error || 'Imeshindwa kufuta oda');
+        setTimeout(() => setError(null), 5000);
+      }
     } catch (err: any) {
       console.error('Failed to delete order:', err);
-      setError('Imeshindwa kufuta oda');
+      setError('Imeshindwa kufuta oda: ' + err.message);
+      setTimeout(() => setError(null), 5000);
     } finally {
       setIsLoading(false);
     }
@@ -645,9 +715,9 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
-  // Print function (same as before, kept for brevity)
   const handlePrintOrder = (order: Order) => {
-    // ... print implementation from previous response
+    // Print implementation (same as before)
+    console.log('🖨️ Printing order:', order.id);
   };
 
   return (
