@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   Plus, Trash2, Printer, Phone, ShoppingCart, 
   Package, X, Loader2, AlertCircle, FileText, 
@@ -69,26 +69,48 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   
   const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  // Load data function - useCallback to avoid re-creation
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
+      console.log('📦 Loading orders data...');
       const response = await fetch(`${API_BASE_URL}`);
       const data = await response.json();
+      console.log('📦 API Response:', data);
+      
       if (data.success) {
-        setCustomers(data.customers || []);
-        setOrders(data.orders || []);
+        const loadedCustomers = data.customers || [];
+        const loadedOrders = data.orders || [];
+        console.log('📦 Loaded customers:', loadedCustomers.length);
+        console.log('📦 Loaded orders:', loadedOrders.length);
+        
+        setCustomers(loadedCustomers);
+        setOrders(loadedOrders);
+      } else {
+        console.error('❌ API returned success: false', data.error);
       }
     } catch (err) {
       console.error('Failed to load orders:', err);
+      // Try localStorage fallback
+      const savedData = localStorage.getItem('orders_data');
+      if (savedData) {
+        try {
+          const parsed = JSON.parse(savedData);
+          setCustomers(parsed.customers || []);
+          setOrders(parsed.orders || []);
+        } catch (e) {
+          console.error('Failed to parse saved data:', e);
+        }
+      }
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const updateOrderItem = (index: number, field: string, value: any) => {
     const updatedItems = [...orderItems];
@@ -132,7 +154,11 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     if (!customerName || !customerPhone) return;
     
     setIsLoading(true);
+    setError(null);
+    
     try {
+      console.log('📦 Adding customer:', { customerName, customerPhone, customerAddress });
+      
       const response = await fetch(`${API_BASE_URL}/customers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -144,13 +170,32 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       });
       
       const result = await response.json();
+      console.log('📦 Add customer result:', result);
+      
       if (result.success) {
-        setCustomers(prev => [result.customer, ...prev]);
+        // Add the new customer to state immediately
+        const newCustomer = result.customer;
+        setCustomers(prev => [newCustomer, ...prev]);
+        
+        // Also save to localStorage as backup
+        const savedData = localStorage.getItem('orders_data');
+        const parsed = savedData ? JSON.parse(savedData) : { customers: [], orders: [] };
+        parsed.customers = [newCustomer, ...(parsed.customers || [])];
+        localStorage.setItem('orders_data', JSON.stringify(parsed));
+        
+        // Close modal and reset form
         setIsAddCustomerModalOpen(false);
         setCustomerName('');
         setCustomerPhone('');
         setCustomerAddress('');
+        
+        // Notify parent
         onUpdate();
+        
+        // Reload data to ensure consistency
+        await loadData();
+      } else {
+        setError(result.error || 'Imeshindwa kumsajili mteja');
       }
     } catch (err: any) {
       console.error('Failed to add customer:', err);
@@ -171,7 +216,11 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     }
     
     setIsLoading(true);
+    setError(null);
+    
     try {
+      console.log('📦 Adding order with items:', validItems);
+      
       const response = await fetch(`${API_BASE_URL}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -183,11 +232,20 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       });
       
       const result = await response.json();
+      console.log('📦 Add order result:', result);
+      
       if (result.success) {
+        // Add new order to state
         setOrders(prev => [result.order, ...prev]);
+        
         setIsAddOrderModalOpen(false);
         resetOrderForm();
         onUpdate();
+        
+        // Reload data
+        await loadData();
+      } else {
+        setError(result.error || 'Imeshindwa kuhifadhi oda');
       }
     } catch (err: any) {
       console.error('Failed to add order:', err);
@@ -363,7 +421,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-5 rounded-3xl border border-slate-100 shadow-sm gap-4">
         <div>
           <h2 className="text-md font-bold text-slate-800">Oda za Bidhaa</h2>
-          <p className="text-xs text-slate-400 mt-1">Dhibiti oda za wateja na bidhaa zao.</p>
+          <p className="text-xs text-slate-400 mt-1">Dhibiti oda za wateja na bidhaa zao. Wateja: {customers.length}</p>
         </div>
         <div className="flex gap-2">
           <button 
