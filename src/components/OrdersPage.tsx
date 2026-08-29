@@ -405,14 +405,10 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               setTimeout(() => setSuccessMessage(null), 5000);
             } else {
               console.error('SMS failed:', smsResult);
-              setError('Oda imehifadhiwa lakini SMS haikutumwa');
-              setTimeout(() => setError(null), 5000);
             }
           } catch (smsErr) {
             console.error('Failed to send order SMS:', smsErr);
           }
-        } else {
-          console.error('Customer not found for SMS:', selectedCustomerId);
         }
       } else {
         setError(result.error || 'Imeshindwa kuhifadhi oda');
@@ -716,8 +712,229 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   };
 
   const handlePrintOrder = (order: Order) => {
-    // Print implementation (same as before)
-    console.log('🖨️ Printing order:', order.id);
+    const formatDate = (dateStr: string) => {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('sw-TZ', { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric' 
+      });
+    };
+
+    const formatTime = (dateStr: string) => {
+      const date = new Date(dateStr);
+      return date.toLocaleTimeString('sw-TZ', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
+    };
+
+    const shippingHTML = order.shipping_info ? `
+      <div style="background: #f0fdf4; border: 1.5px solid #22c55e; border-radius: 8px; padding: 10px 15px; margin-top: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+          <span style="font-size: 16px;">🚚</span>
+          <span style="color: #16a34a; font-size: 13px; font-weight: bold;">TAARIFA ZA USAFIRISHAJI</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 11px;">
+          <div>
+            <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Njia</span>
+            <span style="font-weight: bold; color: #16a34a;">${order.shipping_info.method === 'BodaBoda' ? '🏍️ BodaBoda' : '🚌 Bus'}</span>
+          </div>
+          ${
+            order.shipping_info.method === 'BodaBoda'
+              ? `
+                <div>
+                  <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Jina</span>
+                  <span style="font-weight: bold; color: #334155;">${order.shipping_info.bodaName || '-'}</span>
+                </div>
+                <div>
+                  <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Simu</span>
+                  <span style="font-weight: bold; color: #334155;">${order.shipping_info.bodaPhone}</span>
+                </div>
+                <div>
+                  <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Pikipiki</span>
+                  <span style="font-weight: bold; color: #334155;">${order.shipping_info.bodaPlateNumber || '-'}</span>
+                </div>
+              `
+              : order.shipping_info.busName
+                ? `
+                  <div>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Bus/Kampuni</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.busName}</span>
+                  </div>
+                  <div>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Bus</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.busNumber || '-'}</span>
+                  </div>
+                  <div>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Mzigo</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.cargoNumber || '-'}</span>
+                  </div>
+                `
+                : `
+                  <div>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Dreva</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverName}</span>
+                  </div>
+                  <div>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Simu ya Dreva</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverPhone}</span>
+                  </div>
+                  <div>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Mzigo</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.cargoNumber || '-'}</span>
+                  </div>
+                `
+          }
+        </div>
+      </div>
+    ` : '';
+
+    const docContent = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Oda - ${order.id}</title>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    @page { size: A4; margin: 10mm; }
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; background: white; color: #1e293b; padding: 10px; }
+    .container { max-width: 190mm; margin: 0 auto; background: white; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+    .header { background: linear-gradient(135deg, #1e3a5f, #3b82f6, #22c55e); color: white; padding: 20px; text-align: center; }
+    .business-name { font-size: 22px; font-weight: 900; }
+    .business-slogan { font-size: 11px; opacity: 0.9; margin: 4px 0 8px; }
+    .order-badge { display: inline-block; background: rgba(255,255,255,0.2); padding: 5px 20px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+    .content { padding: 20px; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+    .info-card { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 10px; }
+    .info-label { color: #0284c7; font-size: 8px; font-weight: 800; text-transform: uppercase; }
+    .info-value { font-size: 13px; font-weight: bold; margin-top: 3px; }
+    .section-title { font-size: 13px; font-weight: 800; color: #1e3a5f; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+    thead th { background: #1e3a5f; color: white; padding: 10px; text-align: left; font-size: 10px; }
+    tbody td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 12px; }
+    .total-section { background: #1e3a5f; color: white; padding: 12px 15px; border-radius: 8px; display: flex; justify-content: space-between; margin-top: 15px; }
+    .total-amount { font-size: 20px; font-weight: 900; }
+    .signature-section { display: flex; justify-content: space-between; margin-top: 30px; gap: 40px; }
+    .signature-box { text-align: center; flex: 1; }
+    .signature-name { font-size: 14px; font-style: italic; font-weight: 600; color: #1e3a5f; }
+    .signature-line { border-top: 1.5px solid #1e3a5f; padding-top: 5px; font-size: 10px; font-weight: bold; color: #64748b; }
+    .footer { background: #f8fafc; padding: 12px; text-align: center; font-size: 10px; color: #64748b; }
+    .no-print { text-align: center; padding: 15px; background: #f1f5f9; }
+    .print-btn { background: #3b82f6; color: white; border: none; padding: 10px 25px; border-radius: 25px; font-size: 13px; font-weight: bold; cursor: pointer; margin-right: 8px; }
+    .close-btn { background: #64748b; color: white; border: none; padding: 10px 25px; border-radius: 25px; font-size: 13px; font-weight: bold; cursor: pointer; }
+    @media print { .no-print { display: none !important; } body { padding: 0; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="business-name">SONKO SOUND</div>
+      <div class="business-slogan">Electronics & Appliances</div>
+      <div class="order-badge">ODA YA BIDHAA</div>
+    </div>
+    <div class="content">
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="info-label">Oda ID</div>
+          <div class="info-value" style="font-size:10px;">${order.id}</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">Tarehe</div>
+          <div class="info-value">${formatDate(order.created_at)}</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">Saa</div>
+          <div class="info-value">${formatTime(order.created_at)}</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">Hali</div>
+          <div class="info-value">${order.status === 'Completed' ? 'Imekamilika' : 'Inasubiri'}</div>
+        </div>
+      </div>
+      
+      <div class="section-title">TAARIFA ZA MTEJA</div>
+      <div class="info-grid">
+        <div class="info-card" style="background:#fef2f2;border-color:#fecaca;">
+          <div class="info-label" style="color:#dc2626;">Jina la Mteja</div>
+          <div class="info-value">${order.customer_name}</div>
+        </div>
+        <div class="info-card" style="background:#fef2f2;border-color:#fecaca;">
+          <div class="info-label" style="color:#dc2626;">Namba ya Simu</div>
+          <div class="info-value">${order.customer_phone}</div>
+        </div>
+      </div>
+      ${order.notes ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px;margin-top:10px;"><strong>Maelezo:</strong> ${order.notes}</div>` : ''}
+      ${shippingHTML}
+      
+      <hr style="border:none;border-top:1.5px dashed #e2e8f0;margin:15px 0;">
+      
+      <div class="section-title">BIDHAA ZILIZOAGIZWA</div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:30px;">#</th>
+            <th>Bidhaa</th>
+            <th style="width:50px;">Idadi</th>
+            <th>Bei</th>
+            <th>Jumla</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${order.items.map((item, index) => `
+            <tr>
+              <td>${index + 1}</td>
+              <td style="font-weight:bold;">${item.product_name}</td>
+              <td style="text-align:center;">${item.quantity}</td>
+              <td>TSh ${Number(item.unit_price).toLocaleString()}</td>
+              <td style="font-weight:bold;">TSh ${Number(item.total_price).toLocaleString()}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      
+      <div class="total-section">
+        <span>JUMLA KUU</span>
+        <span class="total-amount">TSh ${Number(order.total_amount).toLocaleString()}</span>
+      </div>
+      
+      <div class="signature-section">
+        <div class="signature-box">
+          <div class="signature-name">${order.customer_name}</div>
+          <div class="signature-line">Sahihi ya Mteja</div>
+        </div>
+        <div class="signature-box">
+          <div class="signature-name">Sonko Sound</div>
+          <div class="signature-line">Sahihi ya Mmiliki</div>
+        </div>
+      </div>
+    </div>
+    <div class="footer">
+      <p>Morogoro, Tanzania | 0656738253</p>
+      <p>Asante kwa kufanya biashara nasi!</p>
+    </div>
+    <div class="no-print">
+      <button class="print-btn" onclick="window.print()">Chapisha / Save as PDF</button>
+      <button class="close-btn" onclick="window.close()">Funga</button>
+    </div>
+  </div>
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.print(); }, 500);
+    };
+  </script>
+</body>
+</html>`;
+
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    
+    if (printWindow) {
+      printWindow.document.open();
+      printWindow.document.write(docContent);
+      printWindow.document.close();
+    } else {
+      alert('Tafadhali ruhusu pop-ups kwa ajili ya kuchapisha');
+    }
   };
 
   return (
