@@ -7,7 +7,8 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   Plus, Trash2, Printer, Phone, ShoppingCart, 
   Package, X, Loader2, AlertCircle, FileText, 
-  Search, User, MapPin, Calendar, Users, ChevronRight
+  Search, User, MapPin, Users, CheckCircle,
+  Bike, Bus, Edit2, ChevronRight
 } from 'lucide-react';
 
 // Interfaces
@@ -27,6 +28,19 @@ interface OrderItem {
   total_price: number;
 }
 
+interface ShippingInfo {
+  method: 'BodaBoda' | 'Bus';
+  // BodaBoda fields
+  bodaName?: string;
+  bodaPhone?: string;
+  bodaPlateNumber?: string;
+  // Bus fields
+  busName?: string;
+  driverName?: string;
+  busNumber?: string;
+  driverPhone?: string;
+}
+
 interface Order {
   id: string;
   customer_id: string;
@@ -37,6 +51,7 @@ interface Order {
   status: 'Pending' | 'Completed' | 'Cancelled';
   notes: string;
   created_at: string;
+  shipping_info?: ShippingInfo;
 }
 
 interface OrdersPageProps {
@@ -52,24 +67,44 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   const [customers, setCustomers] = useState<OrderCustomer[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   
-  // Tab state
   const [activeTab, setActiveTab] = useState<'orders' | 'customers'>('orders');
   
+  // Modal states
   const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
+  const [isEditCustomerModalOpen, setIsEditCustomerModalOpen] = useState(false);
   const [isAddOrderModalOpen, setIsAddOrderModalOpen] = useState(false);
+  const [isEditOrderModalOpen, setIsEditOrderModalOpen] = useState(false);
   const [isViewOrderModalOpen, setIsViewOrderModalOpen] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [isCompleteOrderModalOpen, setIsCompleteOrderModalOpen] = useState(false);
   
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [editingCustomer, setEditingCustomer] = useState<OrderCustomer | null>(null);
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+  
+  // Customer form states
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   
+  // Order form states
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [orderItems, setOrderItems] = useState<OrderItem[]>([
     { id: 'item-' + Date.now(), product_name: '', quantity: 1, unit_price: 0, total_price: 0 }
   ]);
   const [orderNotes, setOrderNotes] = useState('');
   
+  // Shipping form states
+  const [shippingMethod, setShippingMethod] = useState<'BodaBoda' | 'Bus'>('BodaBoda');
+  const [bodaName, setBodaName] = useState('');
+  const [bodaPhone, setBodaPhone] = useState('');
+  const [bodaPlateNumber, setBodaPlateNumber] = useState('');
+  const [busType, setBusType] = useState<'company' | 'driver'>('company');
+  const [busName, setBusName] = useState('');
+  const [busNumber, setBusNumber] = useState('');
+  const [driverName, setDriverName] = useState('');
+  const [driverPhone, setDriverPhone] = useState('');
+  
+  // Search states
   const [searchTerm, setSearchTerm] = useState('');
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
 
@@ -77,10 +112,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setIsLoading(true);
     setError(null);
     try {
-      console.log('📦 Loading orders data...');
       const response = await fetch(`${API_BASE_URL}`);
       const data = await response.json();
-      console.log('📦 API Response:', data);
       
       if (data.success) {
         setCustomers(data.customers || []);
@@ -144,6 +177,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     return orderItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
   }, [orderItems]);
 
+  // Handle Add Customer
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerName || !customerPhone) return;
@@ -163,21 +197,15 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       });
       
       const result = await response.json();
-      console.log('📦 Add customer result:', result);
       
       if (result.success) {
-        const newCustomer = result.customer;
-        setCustomers(prev => [newCustomer, ...prev]);
-        
+        setCustomers(prev => [result.customer, ...prev]);
         setIsAddCustomerModalOpen(false);
         setCustomerName('');
         setCustomerPhone('');
         setCustomerAddress('');
-        
         onUpdate();
         await loadData();
-        
-        // Switch to customers tab to show the new customer
         setActiveTab('customers');
       } else {
         setError(result.error || 'Imeshindwa kumsajili mteja');
@@ -190,6 +218,55 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     }
   };
 
+  // Handle Edit Customer
+  const handleEditCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCustomer || !customerName || !customerPhone) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/customers/${editingCustomer.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          fullName: customerName, 
+          phoneNumber: customerPhone, 
+          address: customerAddress 
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setCustomers(prev => prev.map(c => 
+          c.id === editingCustomer.id ? result.customer : c
+        ));
+        setIsEditCustomerModalOpen(false);
+        setEditingCustomer(null);
+        onUpdate();
+        await loadData();
+      } else {
+        setError(result.error || 'Imeshindwa kuhariri mteja');
+      }
+    } catch (err: any) {
+      console.error('Failed to edit customer:', err);
+      setError('Imeshindwa kuhariri mteja');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const openEditCustomerModal = (customer: OrderCustomer) => {
+    setEditingCustomer(customer);
+    setCustomerName(customer.full_name);
+    setCustomerPhone(customer.phone_number);
+    setCustomerAddress(customer.address);
+    setIsEditCustomerModalOpen(true);
+  };
+
+  // Handle Delete Customer
   const handleDeleteCustomer = async (customerId: string) => {
     if (!confirm('Je, una uhakika unataka kumfuta mteja huyu?')) return;
     
@@ -207,6 +284,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     }
   };
 
+  // Handle Add Order
   const handleAddOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomerId || orderItems.length === 0) return;
@@ -251,6 +329,157 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     }
   };
 
+  // Handle Edit Order
+  const handleEditOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingOrder || !selectedCustomerId || orderItems.length === 0) return;
+    
+    const validItems = orderItems.filter(item => item.product_name && item.unit_price > 0);
+    if (validItems.length === 0) {
+      setError('Ongeza bidhaa angalau moja na bei');
+      return;
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/${editingOrder.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId: selectedCustomerId,
+          items: validItems,
+          notes: orderNotes
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setOrders(prev => prev.map(o => 
+          o.id === editingOrder.id ? result.order : o
+        ));
+        setIsEditOrderModalOpen(false);
+        setEditingOrder(null);
+        resetOrderForm();
+        onUpdate();
+        await loadData();
+      } else {
+        setError(result.error || 'Imeshindwa kuhariri oda');
+      }
+    } catch (err: any) {
+      console.error('Failed to edit order:', err);
+      setError('Imeshindwa kuhariri oda');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const openEditOrderModal = (order: Order) => {
+    setEditingOrder(order);
+    setSelectedCustomerId(order.customer_id);
+    setOrderItems(order.items.map(item => ({
+      ...item,
+      id: item.id || 'item-' + Date.now()
+    })));
+    setOrderNotes(order.notes || '');
+    setIsEditOrderModalOpen(true);
+  };
+
+  // Handle Complete Order (Shipping)
+  const handleCompleteOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrder) return;
+    
+    const shippingInfo: ShippingInfo = {
+      method: shippingMethod,
+    };
+    
+    if (shippingMethod === 'BodaBoda') {
+      if (!bodaPhone) {
+        setError('Namba ya BodaBoda inahitajika');
+        return;
+      }
+      shippingInfo.bodaName = bodaName;
+      shippingInfo.bodaPhone = bodaPhone;
+      shippingInfo.bodaPlateNumber = bodaPlateNumber;
+    } else {
+      if (busType === 'company') {
+        if (!busName) {
+          setError('Jina la Bus/Kampuni inahitajika');
+          return;
+        }
+        shippingInfo.busName = busName;
+        shippingInfo.busNumber = busNumber;
+      } else {
+        if (!driverName || !driverPhone) {
+          setError('Jina na namba ya Dreva vinahitajika');
+          return;
+        }
+        shippingInfo.driverName = driverName;
+        shippingInfo.driverPhone = driverPhone;
+      }
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/${selectedOrder.id}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(shippingInfo)
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setOrders(prev => prev.map(o => 
+          o.id === selectedOrder.id ? { ...o, status: 'Completed', shipping_info: shippingInfo } : o
+        ));
+        setIsCompleteOrderModalOpen(false);
+        setSelectedOrder(null);
+        resetShippingForm();
+        onUpdate();
+        await loadData();
+      } else {
+        setError(result.error || 'Imeshindwa kukamilisha oda');
+      }
+    } catch (err: any) {
+      console.error('Failed to complete order:', err);
+      // Update locally even if API fails
+      setOrders(prev => prev.map(o => 
+        o.id === selectedOrder.id ? { ...o, status: 'Completed', shipping_info: shippingInfo } : o
+      ));
+      setIsCompleteOrderModalOpen(false);
+      setSelectedOrder(null);
+      resetShippingForm();
+      onUpdate();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const openCompleteOrderModal = (order: Order) => {
+    setSelectedOrder(order);
+    resetShippingForm();
+    setIsCompleteOrderModalOpen(true);
+  };
+
+  const resetShippingForm = () => {
+    setShippingMethod('BodaBoda');
+    setBodaName('');
+    setBodaPhone('');
+    setBodaPlateNumber('');
+    setBusType('company');
+    setBusName('');
+    setBusNumber('');
+    setDriverName('');
+    setDriverPhone('');
+  };
+
+  // Handle Delete Order
   const handleDeleteOrder = async (orderId: string) => {
     if (!confirm('Je, una uhakika unataka kufuta oda hii?')) return;
     
@@ -311,6 +540,28 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     const printWindow = window.open('', '_blank', 'width=800,height=600');
     if (!printWindow) return;
     
+    const shippingText = order.shipping_info 
+      ? `
+        <p><strong>Njia ya Usafirishaji:</strong> ${order.shipping_info.method}</p>
+        ${order.shipping_info.method === 'BodaBoda' 
+          ? `
+            <p><strong>Jina la BodaBoda:</strong> ${order.shipping_info.bodaName || '-'}</p>
+            <p><strong>Namba ya BodaBoda:</strong> ${order.shipping_info.bodaPhone || '-'}</p>
+            <p><strong>Namba ya Pikipiki:</strong> ${order.shipping_info.bodaPlateNumber || '-'}</p>
+          `
+          : order.shipping_info.busName 
+            ? `
+              <p><strong>Jina la Bus/Kampuni:</strong> ${order.shipping_info.busName}</p>
+              <p><strong>Namba ya Bus:</strong> ${order.shipping_info.busNumber || '-'}</p>
+            `
+            : `
+              <p><strong>Jina la Dreva:</strong> ${order.shipping_info.driverName}</p>
+              <p><strong>Namba ya Simu:</strong> ${order.shipping_info.driverPhone}</p>
+            `
+        }
+      `
+      : '<p><strong>Njia ya Usafirishaji:</strong> Haijachaguliwa</p>';
+    
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
@@ -342,6 +593,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
             <p><strong>Tarehe:</strong> ${new Date(order.created_at).toLocaleDateString('sw-TZ')}</p>
             <p><strong>Mteja:</strong> ${order.customer_name}</p>
             <p><strong>Simu:</strong> ${order.customer_phone}</p>
+            <p><strong>Hali:</strong> ${order.status === 'Completed' ? 'Imekamilika' : 'Inasubiri'}</p>
+            ${shippingText}
             ${order.notes ? `<p><strong>Maelezo:</strong> ${order.notes}</p>` : ''}
           </div>
           <table>
@@ -487,7 +740,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       {/* ORDERS TAB */}
       {activeTab === 'orders' && (
         <>
-          {/* Search */}
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
             <input
@@ -499,13 +751,14 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
             />
           </div>
 
-          {/* Orders List */}
           <div className="space-y-4">
             {filteredOrders.length > 0 ? filteredOrders.map(order => (
               <div key={order.id} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex items-start gap-3 flex-1">
-                    <div className="h-12 w-12 rounded-xl bg-accent/10 text-accent flex items-center justify-center">
+                    <div className={`h-12 w-12 rounded-xl flex items-center justify-center ${
+                      order.status === 'Completed' ? 'bg-emerald-50 text-emerald-600' : 'bg-accent/10 text-accent'
+                    }`}>
                       <ShoppingCart size={20} />
                     </div>
                     <div className="flex-1">
@@ -533,6 +786,16 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                           <p className="text-xs text-slate-400">+ {order.items.length - 3} bidhaa nyingine</p>
                         )}
                       </div>
+                      {order.shipping_info && (
+                        <p className="text-xs text-emerald-600 mt-2 flex items-center gap-1">
+                          {order.shipping_info.method === 'BodaBoda' 
+                            ? <Bike size={12} /> 
+                            : <Bus size={12} />} 
+                          {order.shipping_info.method === 'BodaBoda' 
+                            ? order.shipping_info.bodaName || 'BodaBoda'
+                            : order.shipping_info.busName || order.shipping_info.driverName || 'Bus'}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex md:flex-col items-center gap-2">
@@ -540,6 +803,15 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                       TSh {Number(order.total_amount).toLocaleString()}
                     </span>
                     <div className="flex gap-1">
+                      {order.status === 'Pending' && (
+                        <button 
+                          onClick={() => openCompleteOrderModal(order)}
+                          className="p-2 rounded-xl border border-emerald-200 hover:bg-emerald-50 text-emerald-600 transition"
+                          title="Kamilisha Oda"
+                        >
+                          <CheckCircle size={14} />
+                        </button>
+                      )}
                       <button 
                         onClick={() => {
                           setSelectedOrder(order);
@@ -549,6 +821,13 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                         title="Angalia Oda"
                       >
                         <FileText size={14} />
+                      </button>
+                      <button 
+                        onClick={() => openEditOrderModal(order)}
+                        className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition"
+                        title="Hariri Oda"
+                      >
+                        <Edit2 size={14} />
                       </button>
                       <button 
                         onClick={() => handlePrintOrder(order)}
@@ -582,7 +861,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       {/* CUSTOMERS TAB */}
       {activeTab === 'customers' && (
         <>
-          {/* Search */}
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
             <input
@@ -594,7 +872,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
             />
           </div>
 
-          {/* Customers List */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredCustomers.length > 0 ? filteredCustomers.map(customer => {
               const customerOrders = orders.filter(o => o.customer_id === customer.id);
@@ -614,13 +891,22 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                         </p>
                       </div>
                     </div>
-                    <button 
-                      onClick={() => handleDeleteCustomer(customer.id)}
-                      className="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                      title="Futa Mteja"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="flex gap-1">
+                      <button 
+                        onClick={() => openEditCustomerModal(customer)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-accent hover:bg-accent/10 transition"
+                        title="Hariri Mteja"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteCustomer(customer.id)}
+                        className="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                        title="Futa Mteja"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
                   
                   {customer.address && (
@@ -658,15 +944,21 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         </>
       )}
 
-      {/* Add Customer Modal */}
-      {isAddCustomerModalOpen && (
+      {/* Add/Edit Customer Modal */}
+      {(isAddCustomerModalOpen || isEditCustomerModalOpen) && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
-            <button onClick={() => setIsAddCustomerModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
+            <button onClick={() => {
+              setIsAddCustomerModalOpen(false);
+              setIsEditCustomerModalOpen(false);
+              setEditingCustomer(null);
+            }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
               <X size={18} />
             </button>
-            <h3 className="text-md font-bold text-slate-800">Sajili Mteja wa Oda</h3>
-            <form onSubmit={handleAddCustomer} className="space-y-4 text-xs text-left">
+            <h3 className="text-md font-bold text-slate-800">
+              {isEditCustomerModalOpen ? 'Hariri Mteja' : 'Sajili Mteja wa Oda'}
+            </h3>
+            <form onSubmit={isEditCustomerModalOpen ? handleEditCustomer : handleAddCustomer} className="space-y-4 text-xs text-left">
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina Kamili *</label>
                 <input type="text" required value={customerName} onChange={(e) => setCustomerName(e.target.value)} 
@@ -683,11 +975,15 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                   placeholder="Mtaa, Jiji" className="w-full p-2.5 border border-slate-200 rounded-xl" />
               </div>
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => setIsAddCustomerModalOpen(false)} 
+                <button type="button" onClick={() => {
+                  setIsAddCustomerModalOpen(false);
+                  setIsEditCustomerModalOpen(false);
+                  setEditingCustomer(null);
+                }} 
                   className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition">Ghairi</button>
                 <button type="submit" disabled={isLoading} 
                   className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50">
-                  {isLoading ? 'Inasajili...' : 'Sajili Mteja'}
+                  {isLoading ? 'Inahifadhi...' : isEditCustomerModalOpen ? 'Hifadhi Mabadiliko' : 'Sajili Mteja'}
                 </button>
               </div>
             </form>
@@ -695,15 +991,21 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         </div>
       )}
 
-      {/* Add Order Modal */}
-      {isAddOrderModalOpen && (
+      {/* Add/Edit Order Modal */}
+      {(isAddOrderModalOpen || isEditOrderModalOpen) && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <button onClick={() => setIsAddOrderModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
+            <button onClick={() => {
+              setIsAddOrderModalOpen(false);
+              setIsEditOrderModalOpen(false);
+              setEditingOrder(null);
+            }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
               <X size={18} />
             </button>
-            <h3 className="text-md font-bold text-slate-800">Oda Mpya</h3>
-            <form onSubmit={handleAddOrder} className="space-y-4 text-xs text-left">
+            <h3 className="text-md font-bold text-slate-800">
+              {isEditOrderModalOpen ? 'Hariri Oda' : 'Oda Mpya'}
+            </h3>
+            <form onSubmit={isEditOrderModalOpen ? handleEditOrder : handleAddOrder} className="space-y-4 text-xs text-left">
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Mteja *</label>
                 <select 
@@ -797,11 +1099,162 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               </div>
 
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => setIsAddOrderModalOpen(false)} 
+                <button type="button" onClick={() => {
+                  setIsAddOrderModalOpen(false);
+                  setIsEditOrderModalOpen(false);
+                  setEditingOrder(null);
+                }} 
                   className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition">Ghairi</button>
                 <button type="submit" disabled={isLoading} 
                   className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50">
-                  {isLoading ? 'Inahifadhi...' : 'Hifadhi Oda'}
+                  {isLoading ? 'Inahifadhi...' : isEditOrderModalOpen ? 'Hifadhi Mabadiliko' : 'Hifadhi Oda'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Complete Order (Shipping) Modal */}
+      {isCompleteOrderModalOpen && selectedOrder && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button onClick={() => {
+              setIsCompleteOrderModalOpen(false);
+              setSelectedOrder(null);
+              resetShippingForm();
+            }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
+              <X size={18} />
+            </button>
+            <h3 className="text-md font-bold text-slate-800">Kamilisha Oda - Usafirishaji</h3>
+            <p className="text-xs text-slate-400">
+              Oda ya {selectedOrder.customer_name} - TSh {Number(selectedOrder.total_amount).toLocaleString()}
+            </p>
+            
+            <form onSubmit={handleCompleteOrder} className="space-y-4 text-xs text-left">
+              <div>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-2">Kutuma Kwa *</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShippingMethod('BodaBoda')}
+                    className={`p-4 rounded-2xl border-2 transition flex flex-col items-center gap-2 ${
+                      shippingMethod === 'BodaBoda' 
+                        ? 'border-accent bg-accent/5 text-accent' 
+                        : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                    }`}
+                  >
+                    <Bike size={24} />
+                    <span className="font-bold">BodaBoda</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShippingMethod('Bus')}
+                    className={`p-4 rounded-2xl border-2 transition flex flex-col items-center gap-2 ${
+                      shippingMethod === 'Bus' 
+                        ? 'border-accent bg-accent/5 text-accent' 
+                        : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                    }`}
+                  >
+                    <Bus size={24} />
+                    <span className="font-bold">Bus</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* BodaBoda Form */}
+              {shippingMethod === 'BodaBoda' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina la BodaBoda (Optional)</label>
+                    <input type="text" value={bodaName} onChange={(e) => setBodaName(e.target.value)} 
+                      placeholder="Mfano: Juma Boda" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya BodaBoda *</label>
+                    <input type="tel" required value={bodaPhone} onChange={(e) => setBodaPhone(e.target.value)} 
+                      placeholder="0712345678" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Pikipiki (Optional)</label>
+                    <input type="text" value={bodaPlateNumber} onChange={(e) => setBodaPlateNumber(e.target.value)} 
+                      placeholder="T123 ABC" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                  </div>
+                </div>
+              )}
+
+              {/* Bus Form */}
+              {shippingMethod === 'Bus' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-2">Chagua Aina</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setBusType('company')}
+                        className={`p-3 rounded-xl border-2 transition ${
+                          busType === 'company' 
+                            ? 'border-accent bg-accent/5 text-accent' 
+                            : 'border-slate-200 text-slate-500'
+                        }`}
+                      >
+                        Kampuni ya Bus
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBusType('driver')}
+                        className={`p-3 rounded-xl border-2 transition ${
+                          busType === 'driver' 
+                            ? 'border-accent bg-accent/5 text-accent' 
+                            : 'border-slate-200 text-slate-500'
+                        }`}
+                      >
+                        Dreva
+                      </button>
+                    </div>
+                  </div>
+
+                  {busType === 'company' ? (
+                    <>
+                      <div>
+                        <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina la Bus/Kampuni *</label>
+                        <input type="text" required value={busName} onChange={(e) => setBusName(e.target.value)} 
+                          placeholder="Mfano: ABC Express" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Bus (Optional)</label>
+                        <input type="text" value={busNumber} onChange={(e) => setBusNumber(e.target.value)} 
+                          placeholder="T123 ABC" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina la Dreva *</label>
+                        <input type="text" required value={driverName} onChange={(e) => setDriverName(e.target.value)} 
+                          placeholder="Mfano: Juma Dreva" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Simu *</label>
+                        <input type="tel" required value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} 
+                          placeholder="0712345678" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button type="button" onClick={() => {
+                  setIsCompleteOrderModalOpen(false);
+                  setSelectedOrder(null);
+                  resetShippingForm();
+                }} 
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition">Ghairi</button>
+                <button type="submit" disabled={isLoading} 
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2">
+                  <CheckCircle size={14} />
+                  {isLoading ? 'Inakamilisha...' : 'Kamilisha Oda'}
                 </button>
               </div>
             </form>
@@ -834,6 +1287,39 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                 <span className="text-slate-400">Tarehe:</span>
                 <span className="font-bold">{new Date(selectedOrder.created_at).toLocaleDateString('sw-TZ')}</span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Hali:</span>
+                <span className={`font-bold ${selectedOrder.status === 'Completed' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                  {selectedOrder.status === 'Pending' ? 'Inasubiri' : 
+                   selectedOrder.status === 'Completed' ? 'Imekamilika' : 'Imefutwa'}
+                </span>
+              </div>
+              
+              {selectedOrder.shipping_info && (
+                <div className="border-t border-slate-100 pt-3">
+                  <h4 className="font-bold text-slate-700 mb-2">Taarifa za Usafirishaji:</h4>
+                  <div className="space-y-2">
+                    <p><strong>Njia:</strong> {selectedOrder.shipping_info.method}</p>
+                    {selectedOrder.shipping_info.method === 'BodaBoda' ? (
+                      <>
+                        <p><strong>Jina:</strong> {selectedOrder.shipping_info.bodaName || '-'}</p>
+                        <p><strong>Namba:</strong> {selectedOrder.shipping_info.bodaPhone}</p>
+                        <p><strong>Pikipiki:</strong> {selectedOrder.shipping_info.bodaPlateNumber || '-'}</p>
+                      </>
+                    ) : selectedOrder.shipping_info.busName ? (
+                      <>
+                        <p><strong>Bus/Kampuni:</strong> {selectedOrder.shipping_info.busName}</p>
+                        <p><strong>Namba ya Bus:</strong> {selectedOrder.shipping_info.busNumber || '-'}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p><strong>Dreva:</strong> {selectedOrder.shipping_info.driverName}</p>
+                        <p><strong>Simu:</strong> {selectedOrder.shipping_info.driverPhone}</p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
               
               <div className="border-t border-slate-100 pt-3">
                 <h4 className="font-bold text-slate-700 mb-2">Bidhaa:</h4>
