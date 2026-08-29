@@ -81,6 +81,66 @@ async function sendSingleSMS(params: {
   }
 }
 
+async function processQueue(env: Env, apiKey: string, secretKey: string) {
+  try {
+    // Get pending messages
+    const { results: pendingMessages } = await env.DB.prepare(`
+      SELECT * FROM sms_queue 
+      WHERE status = 'pending' 
+      AND attempts < max_attempts 
+      ORDER BY created_at ASC 
+      LIMIT 5
+    `).all();
+
+    if (!pendingMessages || pendingMessages.length === 0) {
+      return { processed: 0, sent: 0, failed: 0 };
+    }
+
+    console.log(`📬 Processing ${pendingMessages.length} queued messages`);
+
+    let sentCount = 0;
+    let failedCount = 0;
+
+    for (const msg of pendingMessages as any[]) {
+      console.log(`📤 Sending queued message ${msg.id} to ${msg.recipient_phone}`);
+      
+      await env.DB.prepare(`
+        UPDATE sms_queue SET attempts = attempts + 1, last_attempt_at = datetime('now') WHERE id = ?
+      `).bind(msg.id).run();
+
+      const result = await sendSingleSMS({
+        apiKey,
+        secretKey,
+        message: msg.message,
+        phone: msg.recipient_phone,
+        source_addr: 'Sonko Sound',
+      });
+
+      if (result.success) {
+        await env.DB.prepare(`
+          UPDATE sms_queue SET status = 'sent', sent_at = datetime('now') WHERE id = ?
+        `).bind(msg.id).run();
+        sentCount++;
+        console.log(`✅ Sent queued message: ${msg.id}`);
+      } else {
+        await env.DB.prepare(`
+          UPDATE sms_queue SET status = 'failed', error_message = ? WHERE id = ?
+        `).bind(result.error || 'Unknown error', msg.id).run();
+        failedCount++;
+        console.log(`❌ Failed queued message: ${msg.id} - ${result.error}`);
+      }
+
+      // Small delay between messages
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    return { processed: pendingMessages.length, sent: sentCount, failed: failedCount };
+  } catch (err: any) {
+    console.error('Queue processing error:', err);
+    return { processed: 0, sent: 0, failed: 0, error: err.message };
+  }
+}
+
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => null);
@@ -117,6 +177,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
 
+    console.log('📱 Customer phone:', customerPhoneNormalized);
+    console.log('📱 Admin phone:', ownerPhoneNormalized);
+
     // Build messages
     let customerShippingMessage = '';
     let adminShippingMessage = '';
@@ -135,9 +198,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       adminShippingMessage = `📦 Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} uko tayari kutumwa.`;
     }
 
-    // Send to Customer immediately
-    console.log('📱 Sending to customer immediately:', customerPhoneNormalized);
-    
+    // 1. Send to Customer immediately
+    console.log('📱 Sending to customer...');
     const custResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
@@ -145,37 +207,63 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       phone: customerPhoneNormalized,
       source_addr: 'Sonko Sound',
     });
+    console.log('📱 Customer Result:', custResult.success ? '✅ Sent' : '❌ Failed', custResult.error || '');
 
-    console.log('📱 Customer SMS Result:', JSON.stringify(custResult));
+    // Small delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Queue admin message
-    const queueId = 'sms-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-    
-    try {
-      await env.DB.prepare(`
-        INSERT INTO sms_queue (id, recipient_type, recipient_phone, message, status, metadata)
-        VALUES (?, 'admin', ?, ?, 'pending', ?)
-      `).bind(
-        queueId,
-        ownerPhoneNormalized,
-        adminShippingMessage,
-        JSON.stringify({ orderId, customerName, type: 'shipping', shippingMethod })
-      ).run();
+    // 2. Send to Admin immediately
+    console.log('📱 Sending to admin...');
+    const adminResult = await sendSingleSMS({
+      apiKey: BEEM_API_KEY,
+      secretKey: BEEM_SECRET_KEY,
+      message: adminShippingMessage,
+      phone: ownerPhoneNormalized,
+      source_addr: 'Sonko Sound',
+    });
+    console.log('📱 Admin Result:', adminResult.success ? '✅ Sent' : '❌ Failed', adminResult.error || '');
+
+    // 3. If admin SMS failed, queue it for retry
+    let adminQueued = false;
+    if (!adminResult.success) {
+      console.log('📝 Queueing admin message for retry...');
+      const queueId = 'sms-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
       
-      console.log('📝 Admin message queued:', queueId);
-    } catch (queueErr: any) {
-      console.error('Failed to queue admin message:', queueErr);
+      try {
+        await env.DB.prepare(`
+          INSERT INTO sms_queue (id, recipient_type, recipient_phone, message, status, metadata)
+          VALUES (?, 'admin', ?, ?, 'pending', ?)
+        `).bind(
+          queueId,
+          ownerPhoneNormalized,
+          adminShippingMessage,
+          JSON.stringify({ orderId, customerName, type: 'shipping', shippingMethod })
+        ).run();
+        
+        adminQueued = true;
+        console.log('📝 Queued:', queueId);
+      } catch (queueErr: any) {
+        console.error('Failed to queue:', queueErr);
+      }
     }
 
+    // 4. Process any existing queued messages
+    console.log('🔄 Processing existing queue...');
+    const queueResult = await processQueue(env, BEEM_API_KEY, BEEM_SECRET_KEY);
+    console.log('📬 Queue processed:', queueResult);
+
     return json({
-      success: custResult.success,
+      success: custResult.success || adminResult.success,
       data: {
         customerSent: custResult.success,
-        adminQueued: true,
+        adminSent: adminResult.success,
+        adminQueued,
+        queueProcessed: queueResult.processed,
+        queueSent: queueResult.sent,
         customerMessage: customerShippingMessage,
         adminMessage: adminShippingMessage,
       },
-      message: `Customer SMS: ${custResult.success ? '✅' : '❌'} | Admin: Queued 📝`,
+      message: `Customer: ${custResult.success ? '✅' : '❌'} | Admin: ${adminResult.success ? '✅' : adminQueued ? '📝 Queued' : '❌'}`,
     });
   } catch (error: any) {
     console.error('📱 Shipping SMS Error:', error);
