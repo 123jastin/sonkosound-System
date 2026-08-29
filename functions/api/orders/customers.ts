@@ -56,6 +56,52 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
 };
 
+export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
+  try {
+    const url = new URL(request.url);
+    const customerId = url.pathname.split('/').pop();
+    
+    const body = await request.json().catch(() => null);
+    
+    if (!customerId || !body) {
+      return json({ success: false, error: 'Missing required fields' }, 400);
+    }
+
+    const { fullName, phoneNumber, address } = body;
+
+    if (!fullName || !phoneNumber) {
+      return json({ success: false, error: 'Missing required fields' }, 400);
+    }
+
+    await env.DB.prepare(`
+      UPDATE order_customers 
+      SET full_name = ?, phone_number = ?, address = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(fullName, phoneNumber, address || '', customerId).run();
+
+    // Also update orders with new customer info
+    await env.DB.prepare(`
+      UPDATE orders 
+      SET customer_name = ?, customer_phone = ?
+      WHERE customer_id = ?
+    `).bind(fullName, phoneNumber, customerId).run();
+
+    const customer = await env.DB.prepare(
+      `SELECT id, full_name, phone_number, address, created_at, updated_at 
+       FROM order_customers WHERE id = ? LIMIT 1`
+    ).bind(customerId).first();
+
+    return json({
+      success: true,
+      customer,
+      message: 'Mteja amehaririwa kikamilifu'
+    });
+  } catch (error: any) {
+    console.error('Failed to edit customer:', error);
+    return json({ success: false, error: error?.message }, 500);
+  }
+};
+
 export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
@@ -65,7 +111,6 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'Customer ID required' }, 400);
     }
 
-    // Delete all orders and items for this customer
     const orders = await env.DB.prepare(
       `SELECT id FROM orders WHERE customer_id = ?`
     ).bind(customerId).all();
