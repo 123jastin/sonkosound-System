@@ -5,9 +5,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  Plus, Trash2, Printer, Phone, MapPin, ShoppingCart, 
-  Package, X, Loader2, AlertCircle, ChevronRight, 
-  FileText, Calendar, User, Wallet, Search, Download
+  Plus, Trash2, Printer, Phone, ShoppingCart, 
+  Package, X, Loader2, AlertCircle, FileText, 
+  Search, User
 } from 'lucide-react';
 
 // Interfaces
@@ -52,25 +52,21 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   const [customers, setCustomers] = useState<OrderCustomer[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   
-  // Modal states
   const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
   const [isAddOrderModalOpen, setIsAddOrderModalOpen] = useState(false);
   const [isViewOrderModalOpen, setIsViewOrderModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   
-  // Customer form states
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   
-  // Order form states
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [orderItems, setOrderItems] = useState<OrderItem[]>([
     { id: 'item-' + Date.now(), product_name: '', quantity: 1, unit_price: 0, total_price: 0 }
   ]);
   const [orderNotes, setOrderNotes] = useState('');
   
-  // Search
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -83,41 +79,17 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     try {
       const response = await fetch(`${API_BASE_URL}`);
       const data = await response.json();
-      if (data.customers) {
-        setCustomers(data.customers);
+      if (data.success) {
+        setCustomers(data.customers || []);
         setOrders(data.orders || []);
       }
     } catch (err) {
       console.error('Failed to load orders:', err);
-      // Load from localStorage
-      const savedData = localStorage.getItem('orders_data');
-      if (savedData) {
-        try {
-          const parsed = JSON.parse(savedData);
-          setCustomers(parsed.customers || []);
-          setOrders(parsed.orders || []);
-        } catch (e) {
-          console.error('Failed to parse saved data:', e);
-        }
-      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  const saveToLocalStorage = (customersData: OrderCustomer[], ordersData: Order[]) => {
-    localStorage.setItem('orders_data', JSON.stringify({ 
-      customers: customersData, 
-      orders: ordersData 
-    }));
-  };
-
-  // Calculate order item total
-  const calculateItemTotal = (item: OrderItem) => {
-    return item.quantity * item.unit_price;
-  };
-
-  // Update order item
   const updateOrderItem = (index: number, field: string, value: any) => {
     const updatedItems = [...orderItems];
     updatedItems[index] = {
@@ -125,7 +97,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       [field]: value
     };
     
-    // Recalculate total for this item
     if (field === 'quantity' || field === 'unit_price') {
       updatedItems[index].total_price = 
         updatedItems[index].quantity * updatedItems[index].unit_price;
@@ -134,7 +105,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setOrderItems(updatedItems);
   };
 
-  // Add new order item
   const addOrderItem = () => {
     setOrderItems([
       ...orderItems,
@@ -148,75 +118,99 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     ]);
   };
 
-  // Remove order item
   const removeOrderItem = (index: number) => {
     if (orderItems.length === 1) return;
     setOrderItems(orderItems.filter((_, i) => i !== index));
   };
 
-  // Calculate order total
   const orderTotal = useMemo(() => {
     return orderItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
   }, [orderItems]);
 
-  // Handle add customer
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerName || !customerPhone) return;
     
-    const newCustomer: OrderCustomer = {
-      id: 'ocust-' + Date.now(),
-      full_name: customerName,
-      phone_number: customerPhone,
-      address: customerAddress,
-      created_at: new Date().toISOString()
-    };
-    
-    const updatedCustomers = [newCustomer, ...customers];
-    setCustomers(updatedCustomers);
-    saveToLocalStorage(updatedCustomers, orders);
-    
-    setIsAddCustomerModalOpen(false);
-    setCustomerName('');
-    setCustomerPhone('');
-    setCustomerAddress('');
-    onUpdate();
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/customers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          fullName: customerName, 
+          phoneNumber: customerPhone, 
+          address: customerAddress 
+        })
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        setCustomers(prev => [result.customer, ...prev]);
+        setIsAddCustomerModalOpen(false);
+        setCustomerName('');
+        setCustomerPhone('');
+        setCustomerAddress('');
+        onUpdate();
+      }
+    } catch (err: any) {
+      console.error('Failed to add customer:', err);
+      setError('Imeshindwa kumsajili mteja');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Handle add order
   const handleAddOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomerId || orderItems.length === 0) return;
     
-    // Validate items
     const validItems = orderItems.filter(item => item.product_name && item.unit_price > 0);
     if (validItems.length === 0) {
       setError('Ongeza bidhaa angalau moja na bei');
       return;
     }
     
-    const customer = customers.find(c => c.id === selectedCustomerId);
-    if (!customer) return;
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId: selectedCustomerId,
+          items: validItems,
+          notes: orderNotes
+        })
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        setOrders(prev => [result.order, ...prev]);
+        setIsAddOrderModalOpen(false);
+        resetOrderForm();
+        onUpdate();
+      }
+    } catch (err: any) {
+      console.error('Failed to add order:', err);
+      setError('Imeshindwa kuhifadhi oda');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteOrder = async (orderId: string) => {
+    if (!confirm('Je, una uhakika unataka kufuta oda hii?')) return;
     
-    const newOrder: Order = {
-      id: 'ord-' + Date.now(),
-      customer_id: selectedCustomerId,
-      customer_name: customer.full_name,
-      customer_phone: customer.phone_number,
-      items: validItems,
-      total_amount: validItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0),
-      status: 'Pending',
-      notes: orderNotes,
-      created_at: new Date().toISOString()
-    };
-    
-    const updatedOrders = [newOrder, ...orders];
-    setOrders(updatedOrders);
-    saveToLocalStorage(customers, updatedOrders);
-    
-    setIsAddOrderModalOpen(false);
-    resetOrderForm();
-    onUpdate();
+    setIsLoading(true);
+    try {
+      await fetch(`${API_BASE_URL}/${orderId}`, { method: 'DELETE' });
+      setOrders(prev => prev.filter(o => o.id !== orderId));
+      onUpdate();
+    } catch (err: any) {
+      console.error('Failed to delete order:', err);
+      setError('Imeshindwa kufuta oda');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const resetOrderForm = () => {
@@ -227,17 +221,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setOrderNotes('');
   };
 
-  // Handle delete order
-  const handleDeleteOrder = async (orderId: string) => {
-    if (!confirm('Je, una uhakika unataka kufuta oda hii?')) return;
-    
-    const updatedOrders = orders.filter(o => o.id !== orderId);
-    setOrders(updatedOrders);
-    saveToLocalStorage(customers, updatedOrders);
-    onUpdate();
-  };
-
-  // Filter orders
   const filteredOrders = useMemo(() => {
     if (!searchTerm) return orders;
     const term = searchTerm.toLowerCase();
@@ -248,21 +231,17 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     );
   }, [orders, searchTerm]);
 
-  // Stats
   const stats = useMemo(() => {
     const totalOrders = orders.length;
-    const totalAmount = orders.reduce((sum, order) => sum + order.total_amount, 0);
+    const totalAmount = orders.reduce((sum, order) => sum + Number(order.total_amount), 0);
     const pendingOrders = orders.filter(o => o.status === 'Pending').length;
     const completedOrders = orders.filter(o => o.status === 'Completed').length;
     return { totalOrders, totalAmount, pendingOrders, completedOrders };
   }, [orders]);
 
-  // Print order
   const handlePrintOrder = (order: Order) => {
     const printWindow = window.open('', '_blank', 'width=800,height=600');
     if (!printWindow) return;
-    
-    const customer = customers.find(c => c.id === order.customer_id);
     
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -278,12 +257,9 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
             th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
             th { background-color: #f5f5f5; }
             .total { font-size: 18px; font-weight: bold; text-align: right; }
-            .footer { margin-top: 50px; text-align: center; }
             .signature { display: flex; justify-content: space-between; margin-top: 50px; }
             .signature-line { width: 200px; border-top: 1px solid #000; padding-top: 5px; text-align: center; }
-            @media print {
-              .no-print { display: none; }
-            }
+            @media print { .no-print { display: none; } }
           </style>
         </head>
         <body>
@@ -292,7 +268,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
             <div>Dar es Salaam, Tanzania</div>
             <div>Tel: 0656738253</div>
           </div>
-          
           <div class="order-info">
             <h2>Oda ya Bidhaa</h2>
             <p><strong>Oda ID:</strong> ${order.id}</p>
@@ -301,7 +276,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
             <p><strong>Simu:</strong> ${order.customer_phone}</p>
             ${order.notes ? `<p><strong>Maelezo:</strong> ${order.notes}</p>` : ''}
           </div>
-          
           <table>
             <thead>
               <tr>
@@ -318,26 +292,22 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                   <td>${index + 1}</td>
                   <td>${item.product_name}</td>
                   <td>${item.quantity}</td>
-                  <td>TSh ${item.unit_price.toLocaleString()}</td>
-                  <td>TSh ${item.total_price.toLocaleString()}</td>
+                  <td>TSh ${Number(item.unit_price).toLocaleString()}</td>
+                  <td>TSh ${Number(item.total_price).toLocaleString()}</td>
                 </tr>
               `).join('')}
             </tbody>
           </table>
-          
           <div class="total">
-            Jumla Kuu: TSh ${order.total_amount.toLocaleString()}
+            Jumla Kuu: TSh ${Number(order.total_amount).toLocaleString()}
           </div>
-          
           <div class="signature">
             <div class="signature-line">Sahihi ya Mteja</div>
             <div class="signature-line">Sahihi ya Mmiliki</div>
           </div>
-          
-          <div class="footer">
+          <div style="text-align: center; margin-top: 50px;">
             <p>Asante kwa kufanya biashara nasi!</p>
           </div>
-          
           <button class="no-print" onclick="window.print()" style="margin: 20px; padding: 10px 20px; cursor: pointer;">
             Print / Save as PDF
           </button>
@@ -346,10 +316,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     `);
     
     printWindow.document.close();
-  };
-
-  const getInitials = (name: string) => {
-    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
   return (
@@ -457,7 +423,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                   <div className="mt-2 space-y-1">
                     {order.items.slice(0, 3).map(item => (
                       <p key={item.id} className="text-xs text-slate-500">
-                        {item.quantity}x {item.product_name} - TSh {item.total_price.toLocaleString()}
+                        {item.quantity}x {item.product_name} - TSh {Number(item.total_price).toLocaleString()}
                       </p>
                     ))}
                     {order.items.length > 3 && (
@@ -468,7 +434,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               </div>
               <div className="flex md:flex-col items-center gap-2">
                 <span className="text-sm font-black text-slate-800">
-                  TSh {order.total_amount.toLocaleString()}
+                  TSh {Number(order.total_amount).toLocaleString()}
                 </span>
                 <div className="flex gap-1">
                   <button 
@@ -535,8 +501,9 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               <div className="pt-2 flex justify-end gap-2">
                 <button type="button" onClick={() => setIsAddCustomerModalOpen(false)} 
                   className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition">Ghairi</button>
-                <button type="submit" className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition">
-                  Sajili Mteja
+                <button type="submit" disabled={isLoading} 
+                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50">
+                  {isLoading ? 'Inasajili...' : 'Sajili Mteja'}
                 </button>
               </div>
             </form>
@@ -570,7 +537,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                 </select>
               </div>
 
-              {/* Order Items */}
               <div className="space-y-3">
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide">Bidhaa za Oda</label>
                 {orderItems.map((item, index) => (
@@ -618,7 +584,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                     </div>
                     <div className="text-right">
                       <span className="text-xs font-bold text-slate-700">
-                        Jumla: TSh {calculateItemTotal(item).toLocaleString()}
+                        Jumla: TSh {(item.quantity * item.unit_price).toLocaleString()}
                       </span>
                     </div>
                   </div>
@@ -629,7 +595,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                 </button>
               </div>
 
-              {/* Order Total */}
               <div className="bg-accent/5 p-4 rounded-2xl border border-accent/10">
                 <div className="flex justify-between items-center">
                   <span className="text-sm font-bold text-slate-800">Jumla Kuu:</span>
@@ -650,8 +615,9 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               <div className="pt-2 flex justify-end gap-2">
                 <button type="button" onClick={() => setIsAddOrderModalOpen(false)} 
                   className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition">Ghairi</button>
-                <button type="submit" className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition">
-                  Hifadhi Oda
+                <button type="submit" disabled={isLoading} 
+                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50">
+                  {isLoading ? 'Inahifadhi...' : 'Hifadhi Oda'}
                 </button>
               </div>
             </form>
@@ -691,7 +657,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                   {selectedOrder.items.map((item, index) => (
                     <div key={item.id} className="flex justify-between items-center">
                       <span>{index + 1}. {item.product_name} ({item.quantity}x)</span>
-                      <span className="font-bold">TSh {item.total_price.toLocaleString()}</span>
+                      <span className="font-bold">TSh {Number(item.total_price).toLocaleString()}</span>
                     </div>
                   ))}
                 </div>
@@ -700,7 +666,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               <div className="border-t border-slate-100 pt-3">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-slate-700">Jumla Kuu:</span>
-                  <span className="text-lg font-black text-accent">TSh {selectedOrder.total_amount.toLocaleString()}</span>
+                  <span className="text-lg font-black text-accent">TSh {Number(selectedOrder.total_amount).toLocaleString()}</span>
                 </div>
               </div>
               
