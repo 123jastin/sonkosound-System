@@ -1,4 +1,3 @@
-// functions/api/admin-sms-process.ts
 import type { PagesFunction } from '@cloudflare/workers-types';
 
 type Env = {
@@ -8,131 +7,144 @@ type Env = {
   MY_PHONE_NUMBER: string;
 };
 
+const cors = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });
+
+export const onRequestOptions: PagesFunction = async () =>
+  new Response(null, { status: 204, headers: cors });
+
+const normalizePhone = (value: any) => {
+  let v = String(value || '').trim();
+  v = v.replace(/[^\d+]/g, '');
+  if (!v) return '';
+  if (v.startsWith('+')) v = v.slice(1);
+  if (v.startsWith('00')) v = v.slice(2);
+  if (v.startsWith('0')) v = '255' + v.slice(1);
+  if (!v.startsWith('255')) v = '255' + v;
+  return v;
+};
 
 const toBase64 = (value: string) => btoa(value);
 
-export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
-    const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
+    const body = await request.json().catch(() => null);
+    console.log('📱 Order SMS Request:', body);
 
-    console.log('🔍 Checking admin SMS queue...');
-    console.log('📱 Admin phone:', MY_PHONE);
-
-    // Get ALL pending messages (not just admin type)
-    const { results: pendingMessages } = await env.DB.prepare(`
-      SELECT * FROM sms_queue 
-      WHERE status = 'pending' 
-      AND attempts < max_attempts 
-      ORDER BY created_at ASC 
-      LIMIT 10
-    `).all();
-
-    console.log(`📬 Found ${pendingMessages?.length || 0} pending messages`);
-
-    if (!pendingMessages || pendingMessages.length === 0) {
-      return json({ 
-        success: true, 
-        processed: 0, 
-        message: 'No pending messages',
-        pendingCount: 0
-      });
+    if (!body) {
+      return json({ success: false, error: 'No data provided' }, 400);
     }
 
-    let sentCount = 0;
-    let failedCount = 0;
-    const details = [];
+    const { customerName, customerPhone, orderId, items, totalAmount } = body;
 
-    for (const msg of pendingMessages as any[]) {
-      console.log(`\n📤 Processing: ${msg.id}`);
-      console.log(`📱 To: ${msg.recipient_phone}`);
-      console.log(`📝 Message: ${msg.message.substring(0, 80)}...`);
+    if (!customerName || !customerPhone || !items || !Array.isArray(items)) {
+      return json({ success: false, error: 'Missing required fields' }, 400);
+    }
 
-      // Update attempts
-      await env.DB.prepare(`
-        UPDATE sms_queue SET attempts = attempts + 1, last_attempt_at = datetime('now') WHERE id = ?
-      `).bind(msg.id).run();
+    const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
+    const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
+    const MY_PHONE = '255616069692';
 
-      const payload = {
-        source_addr: 'Sonko Sound',
-        schedule_time: '',
-        encoding: 0,
-        message: msg.message,
-        recipients: [{ recipient_id: 1, dest_addr: msg.recipient_phone }],
-      };
+    const customerPhoneNormalized = normalizePhone(customerPhone);
+    const ownerPhoneNormalized = normalizePhone(MY_PHONE);
 
-      const auth = toBase64(`${BEEM_API_KEY}:${BEEM_SECRET_KEY}`);
+    console.log('📱 Customer:', customerPhoneNormalized);
+    console.log('📱 Admin:', ownerPhoneNormalized);
 
+    const itemsList = items.map((item: any, index: number) => 
+      `${index + 1}. ${item.product_name} ~ TSh ${Number(item.total_price || item.unit_price * item.quantity).toLocaleString()}`
+    ).join('\n');
+
+    const customerMessage = `Habari ${customerName}, tumepokea oda yako, tumeanza kuifanyia kazi\n\nOda:\n${itemsList}\n\nJumla Kuu = TSh ${Number(totalAmount).toLocaleString()}`;
+    const adminMessage = `📋 ODA MPYA!\nMteja: ${customerName}\nSimu: ${customerPhone}\n\nOda:\n${itemsList}\n\nJumla: TSh ${Number(totalAmount).toLocaleString()}`;
+
+    // Send to Customer
+    const auth = toBase64(`${BEEM_API_KEY}:${BEEM_SECRET_KEY}`);
+    
+    const custPayload = {
+      source_addr: 'Sonko Sound',
+      schedule_time: '',
+      encoding: 0,
+      message: customerMessage,
+      recipients: [{ recipient_id: 1, dest_addr: customerPhoneNormalized }],
+    };
+
+    const custResponse = await fetch('https://apisms.beem.africa/v1/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
+      body: JSON.stringify(custPayload),
+    });
+
+    const custText = await custResponse.text();
+    console.log('📱 Customer Response:', custText);
+    
+    let custParsed: any = {};
+    try { custParsed = JSON.parse(custText); } catch { custParsed = { raw: custText }; }
+    
+    const customerSent = custResponse.ok && custParsed.successful;
+
+    // Create table if not exists and save admin message
+    if (env.DB) {
       try {
-        const response = await fetch('https://apisms.beem.africa/v1/send', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Basic ${auth}`,
-          },
-          body: JSON.stringify(payload),
-        });
-
-        const rawText = await response.text();
-        console.log('📱 Beem Response:', rawText);
-
-        let parsed: any = null;
-        try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
-
-        if (response.ok && parsed?.successful) {
-          await env.DB.prepare(`
-            UPDATE sms_queue SET status = 'sent', sent_at = datetime('now') WHERE id = ?
-          `).bind(msg.id).run();
-          
-          sentCount++;
-          details.push({ 
-            id: msg.id, 
-            phone: msg.recipient_phone, 
-            success: true,
-            requestId: parsed.request_id
-          });
-          console.log(`✅ Sent: ${msg.id} (Request ID: ${parsed.request_id})`);
-        } else {
-          await env.DB.prepare(`
-            UPDATE sms_queue SET status = 'failed', error_message = ? WHERE id = ?
-          `).bind(parsed?.message || rawText, msg.id).run();
-          
-          failedCount++;
-          details.push({ 
-            id: msg.id, 
-            success: false, 
-            error: parsed?.message || rawText 
-          });
-          console.log(`❌ Failed: ${msg.id} - ${parsed?.message || rawText}`);
-        }
-      } catch (err: any) {
+        // Create table
         await env.DB.prepare(`
-          UPDATE sms_queue SET status = 'failed', error_message = ? WHERE id = ?
-        `).bind(err.message, msg.id).run();
-        
-        failedCount++;
-        details.push({ id: msg.id, success: false, error: err.message });
-      }
+          CREATE TABLE IF NOT EXISTS sms_queue (
+            id TEXT PRIMARY KEY,
+            recipient_type TEXT NOT NULL,
+            recipient_phone TEXT NOT NULL,
+            message TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            attempts INTEGER DEFAULT 0,
+            max_attempts INTEGER DEFAULT 3,
+            created_at TEXT DEFAULT (datetime('now')),
+            sent_at TEXT,
+            last_attempt_at TEXT,
+            error_message TEXT,
+            metadata TEXT
+          )
+        `).run();
+        console.log('✅ Table ready');
 
-      // Wait 2 seconds
-      await new Promise(resolve => setTimeout(resolve, 2000));
+        // Insert admin message
+        const queueId = 'sms-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+        
+        await env.DB.prepare(`
+          INSERT INTO sms_queue (id, recipient_type, recipient_phone, message, status, metadata)
+          VALUES (?, 'admin', ?, ?, 'pending', ?)
+        `).bind(
+          queueId,
+          ownerPhoneNormalized,
+          adminMessage,
+          JSON.stringify({ orderId, customerName, type: 'order_creation' })
+        ).run();
+        
+        console.log('✅ Admin message queued:', queueId);
+      } catch (dbErr: any) {
+        console.error('❌ DB Error:', dbErr.message);
+      }
+    } else {
+      console.error('❌ DB binding not available');
     }
 
     return json({
-      success: true,
-      processed: pendingMessages.length,
-      sent: sentCount,
-      failed: failedCount,
-      details,
+      success: customerSent,
+      data: {
+        customerSent,
+        adminQueued: true,
+      },
+      message: customerSent ? '✅ Customer sent, Admin queued' : '❌ Customer failed',
     });
   } catch (error: any) {
-    console.error('❌ Admin SMS Processor Error:', error);
+    console.error('❌ Error:', error);
     return json({ success: false, error: error?.message }, 500);
   }
 };
