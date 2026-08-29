@@ -5,7 +5,6 @@ type Env = {
   DB: D1Database;
   BEEM_API_KEY: string;
   BEEM_SECRET_KEY: string;
-  MY_PHONE_NUMBER: string;
 };
 
 const cors = {
@@ -53,40 +52,33 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    
-    // Admin phone
-    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
 
     const customerPhoneNormalized = normalizePhone(customerPhone);
-    const ownerPhoneNormalized = normalizePhone(MY_PHONE);
 
     console.log('📱 Customer phone:', customerPhoneNormalized);
-    console.log('📱 Admin phone:', ownerPhoneNormalized);
 
     // Build order items list
     const itemsList = items.map((item: any, index: number) => 
       `${index + 1}. ${item.product_name} ~ TSh ${Number(item.total_price || item.unit_price * item.quantity).toLocaleString()}`
     ).join('\n');
 
-    // SAME message for both
-    const message = `Habari ${customerName}, tumepokea oda yako, tumeanza kuifanyia kazi\n\nOda:\n${itemsList}\n\nJumla Kuu = TSh ${Number(totalAmount).toLocaleString()}`;
+    // Customer message
+    const customerMessage = `Habari ${customerName}, tumepokea oda yako, tumeanza kuifanyia kazi\n\nOda:\n${itemsList}\n\nJumla Kuu = TSh ${Number(totalAmount).toLocaleString()}`;
 
-    // Send ONE request with BOTH recipients
+    // Admin message to queue
+    const adminMessage = `📋 ODA MPYA!\nMteja: ${customerName}\nSimu: ${customerPhone}\n\nOda:\n${itemsList}\n\nJumla: TSh ${Number(totalAmount).toLocaleString()}`;
+
     const payload = {
       source_addr: 'Sonko Sound',
       schedule_time: '',
       encoding: 0,
-      message: message,
-      recipients: [
-        { recipient_id: 1, dest_addr: customerPhoneNormalized },
-        { recipient_id: 2, dest_addr: ownerPhoneNormalized }
-      ],
+      message: customerMessage,
+      recipients: [{ recipient_id: 1, dest_addr: customerPhoneNormalized }],
     };
 
     const auth = toBase64(`${BEEM_API_KEY}:${BEEM_SECRET_KEY}`);
 
-    console.log('📱 Sending bulk SMS to BOTH numbers...');
-    console.log('📱 Payload:', JSON.stringify(payload));
+    console.log('📱 Sending to customer:', customerPhoneNormalized);
 
     const response = await fetch('https://apisms.beem.africa/v1/send', {
       method: 'POST',
@@ -98,22 +90,43 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     });
 
     const rawText = await response.text();
-    console.log('📱 BEEM Response:', rawText);
+    console.log('📱 Customer SMS Response:', rawText);
 
     let parsed: any = null;
     try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
 
-    const success = response.ok && !parsed?.error;
+    const customerSmsSuccess = response.ok && !parsed?.error;
+
+    // Save admin message to queue table
+    if (customerSmsSuccess) {
+      try {
+        const queueId = 'sms-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+        
+        await env.DB.prepare(`
+          INSERT INTO sms_queue (id, recipient_type, recipient_phone, message, status, metadata)
+          VALUES (?, 'admin', ?, ?, 'pending', ?)
+        `).bind(
+          queueId,
+          '255616069692', // Admin phone
+          adminMessage,
+          JSON.stringify({ orderId, customerName, type: 'order_creation' })
+        ).run();
+        
+        console.log('📝 Admin message queued:', queueId);
+      } catch (queueErr: any) {
+        console.error('Failed to queue admin message:', queueErr);
+      }
+    }
 
     return json({
-      success: success,
+      success: customerSmsSuccess,
       data: {
-        sent: success,
-        message: message,
-        recipients: [customerPhoneNormalized, ownerPhoneNormalized],
-        response: parsed,
+        customerSent: customerSmsSuccess,
+        adminQueued: customerSmsSuccess,
+        customerMessage,
+        adminMessage,
       },
-      message: success ? '✅ SMS sent to both numbers' : '❌ Failed: ' + (parsed?.message || rawText),
+      message: customerSmsSuccess ? '✅ Customer SMS sent, Admin queued' : '❌ Failed',
     });
   } catch (error: any) {
     console.error('📱 Order SMS Error:', error);
