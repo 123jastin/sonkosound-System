@@ -113,14 +113,17 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setIsLoading(true);
     setError(null);
     try {
-      console.log('📦 Loading orders data...');
+      console.log('📦 Loading orders data from:', `${API_BASE_URL}`);
       const response = await fetch(`${API_BASE_URL}`);
       const data = await response.json();
-      console.log('📦 API Response:', data);
+      console.log('📦 Full API Response:', JSON.stringify(data));
       
       if (data.success) {
-        const loadedCustomers = data.customers || [];
-        const loadedOrders = data.orders || [];
+        const loadedCustomers = Array.isArray(data.customers) ? data.customers : [];
+        const loadedOrders = Array.isArray(data.orders) ? data.orders : [];
+        
+        console.log('📦 Loaded customers:', loadedCustomers.length);
+        console.log('📦 Customer data:', loadedCustomers);
         
         // Parse shipping info for each order
         const parsedOrders = loadedOrders.map((order: any) => {
@@ -135,21 +138,27 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
           return {
             ...order,
             shipping_info: shippingInfo,
-            items: order.items || []
+            items: Array.isArray(order.items) ? order.items : []
           };
         });
         
         setCustomers(loadedCustomers);
         setOrders(parsedOrders);
+        console.log('📦 State updated with customers:', loadedCustomers.length);
+      } else {
+        console.error('❌ API returned success: false', data.error);
+        setError(data.error || 'Failed to load data');
       }
     } catch (err) {
       console.error('Failed to load orders:', err);
+      // Try localStorage fallback
       const savedData = localStorage.getItem('orders_data');
       if (savedData) {
         try {
           const parsed = JSON.parse(savedData);
           setCustomers(parsed.customers || []);
           setOrders(parsed.orders || []);
+          console.log('📦 Loaded from localStorage:', parsed.customers?.length, 'customers');
         } catch (e) {
           console.error('Failed to parse saved data:', e);
         }
@@ -200,7 +209,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     return orderItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
   }, [orderItems]);
 
-  // Handle Add Customer
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerName || !customerPhone) return;
@@ -209,6 +217,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setError(null);
     
     try {
+      console.log('📦 Adding customer:', { customerName, customerPhone, customerAddress });
+      
       const response = await fetch(`${API_BASE_URL}/customers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -220,17 +230,40 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       });
       
       const result = await response.json();
+      console.log('📦 Add customer API response:', result);
       
-      if (result.success) {
-        setCustomers(prev => [result.customer, ...prev]);
+      if (result.success && result.customer) {
+        // Add new customer to state immediately
+        const newCustomer = result.customer;
+        console.log('📦 New customer:', newCustomer);
+        
+        setCustomers(prev => {
+          const updated = [newCustomer, ...prev];
+          console.log('📦 Updated customers state:', updated.length);
+          return updated;
+        });
+        
+        // Save to localStorage as backup
+        const savedData = localStorage.getItem('orders_data');
+        const parsed = savedData ? JSON.parse(savedData) : { customers: [], orders: [] };
+        parsed.customers = [newCustomer, ...(parsed.customers || [])];
+        localStorage.setItem('orders_data', JSON.stringify(parsed));
+        
+        // Close modal and reset form
         setIsAddCustomerModalOpen(false);
         setCustomerName('');
         setCustomerPhone('');
         setCustomerAddress('');
+        
         onUpdate();
-        await loadData();
+        
+        // Switch to customers tab
         setActiveTab('customers');
+        
+        // Reload data
+        await loadData();
       } else {
+        console.error('❌ Add customer failed:', result);
         setError(result.error || 'Imeshindwa kumsajili mteja');
       }
     } catch (err: any) {
@@ -241,7 +274,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     }
   };
 
-  // Handle Edit Customer
   const handleEditCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingCustomer || !customerName || !customerPhone) return;
@@ -289,7 +321,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setIsEditCustomerModalOpen(true);
   };
 
-  // Handle Delete Customer
   const handleDeleteCustomer = async (customerId: string) => {
     if (!confirm('Je, una uhakika unataka kumfuta mteja huyu?')) return;
     
@@ -307,7 +338,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     }
   };
 
-  // Handle Add Order
   const handleAddOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomerId || orderItems.length === 0) return;
@@ -352,7 +382,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     }
   };
 
-  // Handle Edit Order
   const handleEditOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingOrder || !selectedCustomerId || orderItems.length === 0) return;
@@ -410,7 +439,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setIsEditOrderModalOpen(true);
   };
 
-  // Handle Complete Order (Shipping)
   const handleCompleteOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOrder) return;
@@ -449,25 +477,20 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setError(null);
     
     try {
-      console.log('📦 Completing order:', selectedOrder.id);
-      console.log('📦 Shipping info:', shippingInfo);
-      
-      const response = await fetch(`${API_BASE_URL}/complete/${selectedOrder.id}`, {
+      const response = await fetch('/api/orders-complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(shippingInfo)
+        body: JSON.stringify({
+          orderId: selectedOrder.id,
+          ...shippingInfo
+        })
       });
       
       const result = await response.json();
-      console.log('📦 Complete order result:', result);
       
       if (result.success) {
         setOrders(prev => prev.map(o => 
-          o.id === selectedOrder.id ? { 
-            ...o, 
-            status: 'Completed', 
-            shipping_info: shippingInfo 
-          } : o
+          o.id === selectedOrder.id ? { ...o, status: 'Completed', shipping_info: shippingInfo } : o
         ));
         setIsCompleteOrderModalOpen(false);
         setSelectedOrder(null);
@@ -479,7 +502,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       }
     } catch (err: any) {
       console.error('Failed to complete order:', err);
-      // Update locally even if API fails
       setOrders(prev => prev.map(o => 
         o.id === selectedOrder.id ? { ...o, status: 'Completed', shipping_info: shippingInfo } : o
       ));
@@ -510,7 +532,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setDriverPhone('');
   };
 
-  // Handle Delete Order
   const handleDeleteOrder = async (orderId: string) => {
     if (!confirm('Je, una uhakika unataka kufuta oda hii?')) return;
     
