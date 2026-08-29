@@ -8,7 +8,7 @@ import {
   Plus, Trash2, Printer, Phone, ShoppingCart, 
   Package, X, Loader2, AlertCircle, FileText, 
   Search, User, MapPin, Users, CheckCircle,
-  Bike, Bus, Edit2, ChevronRight
+  Bike, Bus, Edit2
 } from 'lucide-react';
 
 // Interfaces
@@ -18,6 +18,7 @@ interface OrderCustomer {
   phone_number: string;
   address: string;
   created_at: string;
+  updated_at?: string;
 }
 
 interface OrderItem {
@@ -30,14 +31,12 @@ interface OrderItem {
 
 interface ShippingInfo {
   method: 'BodaBoda' | 'Bus';
-  // BodaBoda fields
   bodaName?: string;
   bodaPhone?: string;
   bodaPlateNumber?: string;
-  // Bus fields
   busName?: string;
-  driverName?: string;
   busNumber?: string;
+  driverName?: string;
   driverPhone?: string;
 }
 
@@ -52,6 +51,8 @@ interface Order {
   notes: string;
   created_at: string;
   shipping_info?: ShippingInfo;
+  shipping_method?: string;
+  shipping_details?: string;
 }
 
 interface OrdersPageProps {
@@ -112,12 +113,34 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setIsLoading(true);
     setError(null);
     try {
+      console.log('📦 Loading orders data...');
       const response = await fetch(`${API_BASE_URL}`);
       const data = await response.json();
+      console.log('📦 API Response:', data);
       
       if (data.success) {
-        setCustomers(data.customers || []);
-        setOrders(data.orders || []);
+        const loadedCustomers = data.customers || [];
+        const loadedOrders = data.orders || [];
+        
+        // Parse shipping info for each order
+        const parsedOrders = loadedOrders.map((order: any) => {
+          let shippingInfo = order.shipping_info || null;
+          if (!shippingInfo && order.shipping_details) {
+            try {
+              shippingInfo = JSON.parse(order.shipping_details);
+            } catch (e) {
+              console.error('Failed to parse shipping details:', e);
+            }
+          }
+          return {
+            ...order,
+            shipping_info: shippingInfo,
+            items: order.items || []
+          };
+        });
+        
+        setCustomers(loadedCustomers);
+        setOrders(parsedOrders);
       }
     } catch (err) {
       console.error('Failed to load orders:', err);
@@ -426,17 +449,25 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setError(null);
     
     try {
-      const response = await fetch(`${API_BASE_URL}/${selectedOrder.id}/complete`, {
+      console.log('📦 Completing order:', selectedOrder.id);
+      console.log('📦 Shipping info:', shippingInfo);
+      
+      const response = await fetch(`${API_BASE_URL}/complete/${selectedOrder.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(shippingInfo)
       });
       
       const result = await response.json();
+      console.log('📦 Complete order result:', result);
       
       if (result.success) {
         setOrders(prev => prev.map(o => 
-          o.id === selectedOrder.id ? { ...o, status: 'Completed', shipping_info: shippingInfo } : o
+          o.id === selectedOrder.id ? { 
+            ...o, 
+            status: 'Completed', 
+            shipping_info: shippingInfo 
+          } : o
         ));
         setIsCompleteOrderModalOpen(false);
         setSelectedOrder(null);
@@ -792,7 +823,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                             ? <Bike size={12} /> 
                             : <Bus size={12} />} 
                           {order.shipping_info.method === 'BodaBoda' 
-                            ? order.shipping_info.bodaName || 'BodaBoda'
+                            ? order.shipping_info.bodaName || order.shipping_info.bodaPhone || 'BodaBoda'
                             : order.shipping_info.busName || order.shipping_info.driverName || 'Bus'}
                         </p>
                       )}
@@ -1162,7 +1193,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                 </div>
               </div>
 
-              {/* BodaBoda Form */}
               {shippingMethod === 'BodaBoda' && (
                 <div className="space-y-3">
                   <div>
@@ -1183,7 +1213,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                 </div>
               )}
 
-              {/* Bus Form */}
               {shippingMethod === 'Bus' && (
                 <div className="space-y-3">
                   <div>
