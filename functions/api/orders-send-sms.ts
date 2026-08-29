@@ -96,30 +96,23 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'Missing required fields' }, 400);
     }
 
-    // Use environment variables with fallback
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    
-    // Admin phone: 0616069692 → 255616069692
     const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
 
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
-
-    console.log('📱 Customer phone:', customerPhoneNormalized);
-    console.log('📱 Admin phone (from env or default):', ownerPhoneNormalized);
 
     // Build order items list
     const itemsList = items.map((item: any, index: number) => 
       `${index + 1}. ${item.product_name} ~ TSh ${Number(item.total_price || item.unit_price * item.quantity).toLocaleString()}`
     ).join('\n');
 
-    // Customer message
+    // Customer message - SENT IMMEDIATELY
     const customerMessage = `Habari ${customerName}, tumepokea oda yako, tumeanza kuifanyia kazi\n\nOda:\n${itemsList}\n\nJumla Kuu = TSh ${Number(totalAmount).toLocaleString()}`;
 
-    console.log('📱 Sending to customer:', customerPhoneNormalized);
-
-    // Send to Customer
+    console.log('📱 Sending to customer immediately:', customerPhoneNormalized);
+    
     const custResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
@@ -130,36 +123,46 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     console.log('📱 Customer SMS Result:', JSON.stringify(custResult));
 
-    // Small delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Admin notification
+    // Admin message - SAVED TO QUEUE
     const adminMessage = `📋 ODA MPYA!\nMteja: ${customerName}\nSimu: ${customerPhone}\n\nOda:\n${itemsList}\n\nJumla: TSh ${Number(totalAmount).toLocaleString()}`;
 
-    console.log('📱 Sending to admin:', ownerPhoneNormalized);
-    console.log('📱 Admin message:', adminMessage);
-
-    const adminResult = await sendSingleSMS({
-      apiKey: BEEM_API_KEY,
-      secretKey: BEEM_SECRET_KEY,
-      message: adminMessage,
-      phone: ownerPhoneNormalized,
-      source_addr: 'Sonko Sound',
-    });
-
-    console.log('📱 Admin SMS Result:', JSON.stringify(adminResult));
+    // Queue admin message
+    const queueId = 'sms-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    
+    try {
+      await env.DB.prepare(`
+        INSERT INTO sms_queue (id, recipient_type, recipient_phone, message, status, metadata)
+        VALUES (?, 'admin', ?, ?, 'pending', ?)
+      `).bind(
+        queueId,
+        ownerPhoneNormalized,
+        adminMessage,
+        JSON.stringify({ orderId, customerName, type: 'order_creation' })
+      ).run();
+      
+      console.log('📝 Admin message queued:', queueId);
+    } catch (queueErr: any) {
+      console.error('Failed to queue admin message:', queueErr);
+      // If queue fails, try to send directly
+      console.log('📱 Attempting direct admin send...');
+      await sendSingleSMS({
+        apiKey: BEEM_API_KEY,
+        secretKey: BEEM_SECRET_KEY,
+        message: adminMessage,
+        phone: ownerPhoneNormalized,
+        source_addr: 'Sonko Sound',
+      });
+    }
 
     return json({
-      success: custResult.success || adminResult.success,
+      success: custResult.success,
       data: {
         customerSent: custResult.success,
-        adminSent: adminResult.success,
+        adminQueued: true,
         customerMessage,
         adminMessage,
-        customerPhone: customerPhoneNormalized,
-        adminPhone: ownerPhoneNormalized,
       },
-      message: `Customer SMS: ${custResult.success ? '✅' : '❌'} | Admin SMS: ${adminResult.success ? '✅' : '❌'}`,
+      message: `Customer SMS: ${custResult.success ? '✅' : '❌'} | Admin: Queued 📝`,
     });
   } catch (error: any) {
     console.error('📱 Order SMS Error:', error);
