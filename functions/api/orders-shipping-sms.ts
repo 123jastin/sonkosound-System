@@ -112,9 +112,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    
-    // Admin phone: 0616069692
-    const MY_PHONE = env.MY_PHONE_NUMBER || '0616069692';
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
 
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
@@ -122,32 +120,27 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     console.log('📱 Customer phone:', customerPhoneNormalized);
     console.log('📱 Admin phone:', ownerPhoneNormalized);
 
-    // Build messages
-    let customerShippingMessage = '';
-    let adminShippingMessage = '';
+    // Build SAME message for both customer and admin
+    let message = '';
 
     if (shippingMethod === 'BodaBoda') {
-      customerShippingMessage = `Habari ${customerName}, Tayari Mzigo wako umepakiwa!\n\nBoda: ${bodaName || 'Haijatolewa'}\nNamba: ${bodaPhone}`;
-      adminShippingMessage = `🚚 Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umefanikiwa kutumwa kwa Boda ${bodaPhone}${bodaName ? ` (${bodaName})` : ''}${bodaPlateNumber ? `, Pikipiki: ${bodaPlateNumber}` : ''}`;
+      message = `Habari ${customerName}, Tayari Mzigo wako umepakiwa!\n\nBoda: ${bodaName || 'Haijatolewa'}\nNamba: ${bodaPhone}`;
     } else if (shippingMethod === 'Bus' && busName) {
-      customerShippingMessage = `Habari ${customerName}, Tayari Mzigo wako umepakiwa!\n\nJina la Bus: ${busName}${busNumber ? `\nNamba ya Bus: ${busNumber}` : ''}${cargoNumber ? `\nNamba ya Mzigo: ${cargoNumber}` : ''}`;
-      adminShippingMessage = `🚌 Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umefanikiwa kutumwa kwa Bus ${busName}${busNumber ? `, Namba: ${busNumber}` : ''}${cargoNumber ? `, Mzigo No: ${cargoNumber}` : ''}`;
+      message = `Habari ${customerName}, Tayari Mzigo wako umepakiwa!\n\nJina la Bus: ${busName}${busNumber ? `\nNamba ya Bus: ${busNumber}` : ''}${cargoNumber ? `\nNamba ya Mzigo: ${cargoNumber}` : ''}`;
     } else if (shippingMethod === 'Bus' && driverName) {
-      customerShippingMessage = `Habari ${customerName}, Tayari Mzigo wako umepakiwa!\n\nJina la Dreva: ${driverName}\nNamba ya Dreva: ${driverPhone}${cargoNumber ? `\nNamba ya Mzigo: ${cargoNumber}` : ''}`;
-      adminShippingMessage = `🚌 Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umefanikiwa kutumwa kwa Dreva ${driverName}, Simu: ${driverPhone}${cargoNumber ? `, Mzigo No: ${cargoNumber}` : ''}`;
+      message = `Habari ${customerName}, Tayari Mzigo wako umepakiwa!\n\nJina la Dreva: ${driverName}\nNamba ya Dreva: ${driverPhone}${cargoNumber ? `\nNamba ya Mzigo: ${cargoNumber}` : ''}`;
     } else {
-      customerShippingMessage = `Habari ${customerName}, Mzigo wako uko tayari kutumwa.`;
-      adminShippingMessage = `📦 Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} uko tayari kutumwa.`;
+      message = `Habari ${customerName}, Mzigo wako uko tayari kutumwa.`;
     }
+
+    console.log('📱 Message (same for both):', message);
 
     // Send to Customer
     console.log('📱 Sending to customer:', customerPhoneNormalized);
-    console.log('📱 Customer message:', customerShippingMessage);
-    
     const custResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
-      message: customerShippingMessage,
+      message: message,
       phone: customerPhoneNormalized,
       source_addr: 'Sonko Sound',
     });
@@ -157,14 +150,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     // Wait 1 second
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Send to Admin (Owner)
-    console.log('📱 Sending to admin:', ownerPhoneNormalized);
-    console.log('📱 Admin message:', adminShippingMessage);
-    
+    // Send SAME message to Admin
+    console.log('📱 Sending SAME message to admin:', ownerPhoneNormalized);
     const adminResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
-      message: adminShippingMessage,
+      message: message, // SAME message
       phone: ownerPhoneNormalized,
       source_addr: 'Sonko Sound',
     });
@@ -176,12 +167,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       data: {
         customerSent: custResult.success,
         adminSent: adminResult.success,
-        customerMessage: customerShippingMessage,
-        adminMessage: adminShippingMessage,
+        message: message,
         customerPhone: customerPhoneNormalized,
         adminPhone: ownerPhoneNormalized,
       },
-      message: `Customer SMS: ${custResult.success ? '✅' : '❌'} | Admin SMS: ${adminResult.success ? '✅' : '❌'}`,
+      message: `Customer: ${custResult.success ? '✅' : '❌'} | Admin: ${adminResult.success ? '✅' : '❌'}`,
     });
   } catch (error: any) {
     console.error('📱 Shipping SMS Error:', error);
