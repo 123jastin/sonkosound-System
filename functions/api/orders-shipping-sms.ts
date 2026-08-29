@@ -5,6 +5,7 @@ type Env = {
   DB: D1Database;
   BEEM_API_KEY: string;
   BEEM_SECRET_KEY: string;
+  MY_PHONE_NUMBER: string;
 };
 
 const cors = {
@@ -34,6 +35,51 @@ const normalizePhone = (value: any) => {
 };
 
 const toBase64 = (value: string) => btoa(value);
+
+async function sendSingleSMS(params: {
+  apiKey: string;
+  secretKey: string;
+  message: string;
+  phone: string;
+  source_addr?: string;
+}) {
+  const payload: any = {
+    source_addr: params.source_addr || 'Sonko Sound',
+    schedule_time: '',
+    encoding: 0,
+    message: params.message,
+    recipients: [{ recipient_id: 1, dest_addr: params.phone }],
+  };
+
+  const auth = toBase64(`${params.apiKey}:${params.secretKey}`);
+
+  try {
+    const response = await fetch('https://apisms.beem.africa/v1/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${auth}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const rawText = await response.text();
+    console.log('📱 BEEM Response:', rawText);
+    
+    let parsed: any = null;
+    try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
+
+    return {
+      success: response.ok && !parsed?.error,
+      status: response.status,
+      data: parsed,
+      error: !response.ok ? (parsed?.message || parsed?.error_description || rawText) : null,
+    };
+  } catch (err: any) {
+    console.error('📱 SMS Error:', err);
+    return { success: false, status: 0, data: null, error: err.message };
+  }
+}
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -66,87 +112,67 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
+    const MY_PHONE = env.MY_PHONE_NUMBER || '255616069692';
 
     const customerPhoneNormalized = normalizePhone(customerPhone);
+    const ownerPhoneNormalized = normalizePhone(MY_PHONE);
 
-    // Build messages
+    // Build messages (NO EMOJI in admin messages)
     let customerMessage = '';
     let adminMessage = '';
 
     if (shippingMethod === 'BodaBoda') {
       customerMessage = `Habari ${customerName}, Tayari Mzigo wako umepakiwa!\n\nBoda: ${bodaName || 'Haijatolewa'}\nNamba: ${bodaPhone}`;
-      adminMessage = `🚚 Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umefanikiwa kutumwa kwa Boda ${bodaPhone}${bodaName ? ` (${bodaName})` : ''}`;
+      adminMessage = `Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umefanikiwa kutumwa kwa Boda ${bodaPhone}${bodaName ? ` (${bodaName})` : ''}${bodaPlateNumber ? `, Pikipiki: ${bodaPlateNumber}` : ''}`;
     } else if (shippingMethod === 'Bus' && busName) {
       customerMessage = `Habari ${customerName}, Tayari Mzigo wako umepakiwa!\n\nJina la Bus: ${busName}${busNumber ? `\nNamba ya Bus: ${busNumber}` : ''}${cargoNumber ? `\nNamba ya Mzigo: ${cargoNumber}` : ''}`;
-      adminMessage = `🚌 Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umefanikiwa kutumwa kwa Bus ${busName}${cargoNumber ? `, Mzigo No: ${cargoNumber}` : ''}`;
+      adminMessage = `Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umefanikiwa kutumwa kwa Bus ${busName}${busNumber ? `, Namba: ${busNumber}` : ''}${cargoNumber ? `, Mzigo No: ${cargoNumber}` : ''}`;
     } else if (shippingMethod === 'Bus' && driverName) {
       customerMessage = `Habari ${customerName}, Tayari Mzigo wako umepakiwa!\n\nJina la Dreva: ${driverName}\nNamba ya Dreva: ${driverPhone}${cargoNumber ? `\nNamba ya Mzigo: ${cargoNumber}` : ''}`;
-      adminMessage = `🚌 Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umefanikiwa kutumwa kwa Dreva ${driverName}, Simu: ${driverPhone}`;
+      adminMessage = `Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umefanikiwa kutumwa kwa Dreva ${driverName}, Simu: ${driverPhone}${cargoNumber ? `, Mzigo No: ${cargoNumber}` : ''}`;
     } else {
       customerMessage = `Habari ${customerName}, Mzigo wako uko tayari kutumwa.`;
-      adminMessage = `📦 Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} uko tayari kutumwa.`;
+      adminMessage = `Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} uko tayari kutumwa.`;
     }
 
-    // Send to Customer
-    const payload = {
-      source_addr: 'Sonko Sound',
-      schedule_time: '',
-      encoding: 0,
+    // 1. Send to Customer
+    console.log('📱 Sending to customer...');
+    const custResult = await sendSingleSMS({
+      apiKey: BEEM_API_KEY,
+      secretKey: BEEM_SECRET_KEY,
       message: customerMessage,
-      recipients: [{ recipient_id: 1, dest_addr: customerPhoneNormalized }],
-    };
-
-    const auth = toBase64(`${BEEM_API_KEY}:${BEEM_SECRET_KEY}`);
-
-    console.log('📱 Sending to customer:', customerPhoneNormalized);
-
-    const response = await fetch('https://apisms.beem.africa/v1/send', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Basic ${auth}`,
-      },
-      body: JSON.stringify(payload),
+      phone: customerPhoneNormalized,
+      source_addr: 'Sonko Sound',
     });
 
-    const rawText = await response.text();
-    console.log('📱 Customer SMS Response:', rawText);
+    console.log('📱 Customer Result:', JSON.stringify(custResult));
 
-    let parsed: any = null;
-    try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
+    // Wait 1 second
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
-    const customerSmsSuccess = response.ok && !parsed?.error;
+    // 2. Send to Admin
+    console.log('📱 Sending to admin...');
+    const adminResult = await sendSingleSMS({
+      apiKey: BEEM_API_KEY,
+      secretKey: BEEM_SECRET_KEY,
+      message: adminMessage,
+      phone: ownerPhoneNormalized,
+      source_addr: 'Sonko Sound',
+    });
 
-    // Save admin message to queue
-    if (customerSmsSuccess) {
-      try {
-        const queueId = 'sms-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-        
-        await env.DB.prepare(`
-          INSERT INTO sms_queue (id, recipient_type, recipient_phone, message, status, metadata)
-          VALUES (?, 'admin', ?, ?, 'pending', ?)
-        `).bind(
-          queueId,
-          '255616069692',
-          adminMessage,
-          JSON.stringify({ orderId, customerName, type: 'shipping', shippingMethod })
-        ).run();
-        
-        console.log('📝 Admin message queued:', queueId);
-      } catch (queueErr: any) {
-        console.error('Failed to queue admin message:', queueErr);
-      }
-    }
+    console.log('📱 Admin Result:', JSON.stringify(adminResult));
 
     return json({
-      success: customerSmsSuccess,
+      success: custResult.success || adminResult.success,
       data: {
-        customerSent: customerSmsSuccess,
-        adminQueued: customerSmsSuccess,
+        customerSent: custResult.success,
+        adminSent: adminResult.success,
         customerMessage,
         adminMessage,
+        customerResult: custResult,
+        adminResult: adminResult,
       },
-      message: customerSmsSuccess ? '✅ Customer SMS sent, Admin queued' : '❌ Failed',
+      message: `Customer: ${custResult.success ? 'OK' : 'FAIL'} | Admin: ${adminResult.success ? 'OK' : 'FAIL'}`,
     });
   } catch (error: any) {
     console.error('📱 Shipping SMS Error:', error);
