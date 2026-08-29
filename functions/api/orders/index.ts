@@ -7,7 +7,7 @@ type Env = {
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
@@ -23,14 +23,14 @@ export const onRequestOptions: PagesFunction = async () =>
 export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
   try {
     const customersResult = await env.DB.prepare(`
-      SELECT id, full_name, phone_number, address, created_at, updated_at
+      SELECT id, full_name, phone_number, address, created_at
       FROM order_customers
       ORDER BY datetime(created_at) DESC, rowid DESC
     `).all();
 
     const ordersResult = await env.DB.prepare(`
       SELECT id, customer_id, customer_name, customer_phone, total_amount, status, notes, 
-             shipping_method, shipping_details, created_at, updated_at
+             shipping_method, shipping_details, created_at
       FROM orders
       ORDER BY datetime(created_at) DESC, rowid DESC
     `).all();
@@ -45,7 +45,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
     const orders = Array.isArray(ordersResult.results) ? ordersResult.results : [];
     const items = Array.isArray(itemsResult.results) ? itemsResult.results : [];
 
-    // Parse shipping details and group items
     const ordersWithItems = orders.map((order: any) => {
       let shippingInfo = null;
       try {
@@ -146,14 +145,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
        FROM order_items WHERE order_id = ? ORDER BY datetime(created_at) ASC, rowid ASC`
     ).bind(orderId).all();
 
-    const orderWithItems = {
-      ...(orderResult as any),
-      items: itemsResult.results || []
-    };
-
     return json({
       success: true,
-      order: orderWithItems,
+      order: {
+        ...(orderResult as any),
+        items: itemsResult.results || []
+      },
       message: 'Oda imehifadhiwa kikamilifu'
     });
   } catch (error: any) {
