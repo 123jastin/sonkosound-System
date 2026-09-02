@@ -123,17 +123,49 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         
         const parsedOrders = loadedOrders.map((order: any) => {
           let shippingInfo = order.shipping_info || null;
-          if (!shippingInfo && order.shipping_details) {
+          
+          // Try to parse if it's a string
+          if (typeof shippingInfo === 'string' && shippingInfo !== 'null') {
+            try {
+              shippingInfo = JSON.parse(shippingInfo);
+            } catch (e) {
+              console.error('Failed to parse shipping_info string:', e);
+              shippingInfo = null;
+            }
+          }
+          
+          // If no shipping_info, check shipping_details
+          if (!shippingInfo && order.shipping_details && order.shipping_details !== 'null') {
             try {
               shippingInfo = JSON.parse(order.shipping_details);
             } catch (e) {
-              console.error('Failed to parse shipping details:', e);
+              console.error('Failed to parse shipping_details:', e);
+              shippingInfo = null;
             }
           }
+          
+          // Ensure all fields exist
+          if (shippingInfo) {
+            shippingInfo = {
+              method: shippingInfo.method || 'BodaBoda',
+              bodaName: shippingInfo.bodaName || '',
+              bodaPhone: shippingInfo.bodaPhone || '',
+              bodaPlateNumber: shippingInfo.bodaPlateNumber || '',
+              busName: shippingInfo.busName || '',
+              busNumber: shippingInfo.busNumber || '',
+              cargoNumber: shippingInfo.cargoNumber || '',
+              driverName: shippingInfo.driverName || '',
+              driverPhone: shippingInfo.driverPhone || '',
+              transporterName: shippingInfo.transporterName || '',
+              transporterPhone: shippingInfo.transporterPhone || '',
+            };
+          }
+          
           return {
             ...order,
             shipping_info: shippingInfo,
-            items: Array.isArray(order.items) ? order.items : []
+            items: Array.isArray(order.items) ? order.items : 
+                   (typeof order.items === 'string' ? JSON.parse(order.items) : [])
           };
         });
         
@@ -736,7 +768,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                 </div>
                 <div>
                   <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Simu</span>
-                  <span style="font-weight: bold; color: #334155;">${order.shipping_info.bodaPhone}</span>
+                  <span style="font-weight: bold; color: #334155;">${order.shipping_info.bodaPhone || '-'}</span>
                 </div>
                 <div>
                   <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Pikipiki</span>
@@ -762,11 +794,11 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                   : `
                     <div>
                       <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Dreva</span>
-                      <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverName}</span>
+                      <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverName || '-'}</span>
                     </div>
                     <div>
                       <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Simu ya Dreva</span>
-                      <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverPhone}</span>
+                      <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverPhone || '-'}</span>
                     </div>
                     <div>
                       <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Mzigo</span>
@@ -775,11 +807,11 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                   `
                 : `
                   <div>
-                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Jina la Msafirishaji</span>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Jina la Wakala</span>
                     <span style="font-weight: bold; color: #334155;">${order.shipping_info.transporterName || '-'}</span>
                   </div>
                   <div>
-                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Simu ya Msafirishaji</span>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Simu ya Wakala</span>
                     <span style="font-weight: bold; color: #334155;">${order.shipping_info.transporterPhone || '-'}</span>
                   </div>
                   <div></div>
@@ -1647,7 +1679,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                     {selectedOrder.shipping_info.method === 'BodaBoda' ? (
                       <>
                         <p><strong>Jina:</strong> {selectedOrder.shipping_info.bodaName || '-'}</p>
-                        <p><strong>Namba:</strong> {selectedOrder.shipping_info.bodaPhone}</p>
+                        <p><strong>Namba:</strong> {selectedOrder.shipping_info.bodaPhone || '-'}</p>
                         <p><strong>Pikipiki:</strong> {selectedOrder.shipping_info.bodaPlateNumber || '-'}</p>
                       </>
                     ) : selectedOrder.shipping_info.method === 'Bus' ? (
@@ -1661,8 +1693,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                         </>
                       ) : (
                         <>
-                          <p><strong>Dreva:</strong> {selectedOrder.shipping_info.driverName}</p>
-                          <p><strong>Simu:</strong> {selectedOrder.shipping_info.driverPhone}</p>
+                          <p><strong>Dreva:</strong> {selectedOrder.shipping_info.driverName || '-'}</p>
+                          <p><strong>Simu:</strong> {selectedOrder.shipping_info.driverPhone || '-'}</p>
                           {selectedOrder.shipping_info.cargoNumber && (
                             <p><strong>Namba ya Mzigo:</strong> {selectedOrder.shipping_info.cargoNumber}</p>
                           )}
@@ -1670,8 +1702,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                       )
                     ) : (
                       <>
-                        <p><strong>Msafirishaji:</strong> {selectedOrder.shipping_info.transporterName}</p>
-                        <p><strong>Simu:</strong> {selectedOrder.shipping_info.transporterPhone}</p>
+                        <p><strong>Msafirishaji:</strong> {selectedOrder.shipping_info.transporterName || '-'}</p>
+                        <p><strong>Simu:</strong> {selectedOrder.shipping_info.transporterPhone || '-'}</p>
                       </>
                     )}
                   </div>
