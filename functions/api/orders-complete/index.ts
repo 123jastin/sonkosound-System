@@ -24,13 +24,26 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => null);
     
-    console.log('📦 Complete order request:', JSON.stringify(body));
+    console.log('Complete order request:', JSON.stringify(body));
 
     if (!body) {
       return json({ success: false, error: 'No data provided' }, 400);
     }
 
-    const { orderId, method, bodaName, bodaPhone, bodaPlateNumber, busName, busNumber, driverName, driverPhone } = body;
+    const { 
+      orderId, 
+      method, 
+      bodaName, 
+      bodaPhone, 
+      bodaPlateNumber, 
+      busName, 
+      busNumber, 
+      cargoNumber,
+      driverName, 
+      driverPhone,
+      transporterName,
+      transporterPhone
+    } = body;
 
     if (!orderId) {
       return json({ success: false, error: 'Order ID required' }, 400);
@@ -43,8 +56,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       bodaPlateNumber: bodaPlateNumber || '',
       busName: busName || '',
       busNumber: busNumber || '',
+      cargoNumber: cargoNumber || '',
       driverName: driverName || '',
-      driverPhone: driverPhone || ''
+      driverPhone: driverPhone || '',
+      transporterName: transporterName || '',
+      transporterPhone: transporterPhone || ''
     };
 
     const shippingDetails = JSON.stringify(shippingInfo);
@@ -57,13 +73,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       WHERE id = ?
     `).bind(shippingInfo.method, shippingDetails, orderId).run();
 
+    console.log('Order completed successfully:', orderId);
+    console.log('Shipping info saved:', shippingDetails);
+
     return json({
       success: true,
       message: 'Oda imekamilika kikamilifu',
       order: {
         id: orderId,
         status: 'Completed',
-        shipping_info: shippingInfo
+        shipping_info: shippingInfo,
+        shipping_details: shippingDetails
       }
     });
   } catch (error: any) {
