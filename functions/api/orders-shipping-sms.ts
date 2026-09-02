@@ -64,7 +64,7 @@ async function sendSingleSMS(params: {
     });
 
     const rawText = await response.text();
-    console.log('📱 BEEM Response:', rawText);
+    console.log('BEEM Response:', rawText);
     
     let parsed: any = null;
     try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
@@ -76,7 +76,7 @@ async function sendSingleSMS(params: {
       error: !response.ok ? (parsed?.message || parsed?.error_description || rawText) : null,
     };
   } catch (err: any) {
-    console.error('📱 SMS Error:', err);
+    console.error('SMS Error:', err);
     return { success: false, status: 0, data: null, error: err.message };
   }
 }
@@ -84,7 +84,7 @@ async function sendSingleSMS(params: {
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => null);
-    console.log('📱 Shipping SMS Request:', JSON.stringify(body));
+    console.log('Shipping SMS Request:', JSON.stringify(body));
 
     if (!body) {
       return json({ success: false, error: 'No data provided' }, 400);
@@ -103,7 +103,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       busNumber,
       cargoNumber,
       driverName,
-      driverPhone
+      driverPhone,
+      transporterName,
+      transporterPhone
     } = body;
 
     if (!customerName || !customerPhone) {
@@ -119,8 +121,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
 
-    console.log('📱 Customer phone:', customerPhoneNormalized);
-    console.log('📱 Admin phone:', ownerPhoneNormalized);
+    console.log('Customer phone:', customerPhoneNormalized);
+    console.log('Admin phone:', ownerPhoneNormalized);
 
     // Build messages (NO EMOJI)
     let customerMessage = '';
@@ -135,13 +137,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     } else if (shippingMethod === 'Bus' && driverName) {
       customerMessage = `Habari ${customerName}, Tayari Mzigo wako umepakiwa! Asante Kwa kutuamini\n\nTaarifa za Usafirishaji:\nJina la Dreva: ${driverName}\nNamba ya Dreva: ${driverPhone}${cargoNumber ? `\nNamba ya Mzigo: ${cargoNumber}` : ''}`;
       adminMessage = `Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umefanikiwa kutumwa kwa Dreva ${driverName}, Simu: ${driverPhone}${cargoNumber ? `, Mzigo No: ${cargoNumber}` : ''}`;
+    } else if (shippingMethod === 'Msafirishaji') {
+      customerMessage = `Habari ${customerName}\nMzigo wako ushatoka Ofisini tumemkabizi Wakala wetu Ndiye Atakae pakia mzigo wako\n\nWakala\nJina: ${transporterName}\nNamba: ${transporterPhone}`;
+      adminMessage = `Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} umekabidhiwa kwa Wakala ${transporterName}, Simu: ${transporterPhone}`;
     } else {
       customerMessage = `Habari ${customerName}, Mzigo wako uko tayari kutumwa. Asante Kwa kutuamini`;
       adminMessage = `Mzigo wa ${customerName} wa Sh ${Number(totalAmount).toLocaleString()} uko tayari kutumwa.`;
     }
 
     // 1. Send to Customer
-    console.log('📱 Sending to customer...');
+    console.log('Sending to customer...');
     const custResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
@@ -150,13 +155,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       source_addr: 'Sonko Sound',
     });
 
-    console.log('📱 Customer Result:', JSON.stringify(custResult));
+    console.log('Customer Result:', JSON.stringify(custResult));
 
     // Wait 1 second
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     // 2. Send to Admin (0656738253)
-    console.log('📱 Sending to admin:', ownerPhoneNormalized);
+    console.log('Sending to admin:', ownerPhoneNormalized);
     const adminResult = await sendSingleSMS({
       apiKey: BEEM_API_KEY,
       secretKey: BEEM_SECRET_KEY,
@@ -165,7 +170,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       source_addr: 'Sonko Sound',
     });
 
-    console.log('📱 Admin Result:', JSON.stringify(adminResult));
+    console.log('Admin Result:', JSON.stringify(adminResult));
 
     return json({
       success: custResult.success || adminResult.success,
@@ -180,7 +185,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       message: `Customer: ${custResult.success ? 'OK' : 'FAIL'} | Admin: ${adminResult.success ? 'OK' : 'FAIL'}`,
     });
   } catch (error: any) {
-    console.error('📱 Shipping SMS Error:', error);
+    console.error('Shipping SMS Error:', error);
     return json({ success: false, error: error?.message }, 500);
   }
 };
