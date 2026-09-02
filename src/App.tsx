@@ -378,7 +378,7 @@ export default function App() {
 
   const navigationItems = [
     { id: 'dashboard', label: 'Bao Kuu (Dashboard)', icon: LayoutDashboard },
-    { id: 'customers', label: 'Wateja (Customers)', icon: Users },
+    { id: 'customers', label: 'Wateja (wadaiwa)', icon: Users },
     { id: 'debts', label: 'Madeni ya Wateja (Debt Book)', icon: BookOpen },
     { id: 'suppliers', label: 'Wauzaji (Suppliers)', icon: Truck },
     { id: 'installments', label: 'Kubandika (Installments)', icon: Wallet },
