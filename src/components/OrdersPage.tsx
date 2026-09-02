@@ -8,7 +8,7 @@ import {
   Plus, Trash2, Printer, Phone, ShoppingCart, 
   Package, X, Loader2, AlertCircle, FileText, 
   Search, User, MapPin, Users, CheckCircle,
-  Bike, Bus, Edit2, MessageSquare
+  Bike, Bus, Edit2, MessageSquare, Truck
 } from 'lucide-react';
 
 // Interfaces
@@ -29,7 +29,7 @@ interface OrderItem {
 }
 
 interface ShippingInfo {
-  method: 'BodaBoda' | 'Bus';
+  method: 'BodaBoda' | 'Bus' | 'Msafirishaji';
   bodaName?: string;
   bodaPhone?: string;
   bodaPlateNumber?: string;
@@ -38,6 +38,8 @@ interface ShippingInfo {
   cargoNumber?: string;
   driverName?: string;
   driverPhone?: string;
+  transporterName?: string;
+  transporterPhone?: string;
 }
 
 interface Order {
@@ -92,7 +94,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   ]);
   const [orderNotes, setOrderNotes] = useState('');
   
-  const [shippingMethod, setShippingMethod] = useState<'BodaBoda' | 'Bus'>('BodaBoda');
+  const [shippingMethod, setShippingMethod] = useState<'BodaBoda' | 'Bus' | 'Msafirishaji'>('BodaBoda');
   const [bodaName, setBodaName] = useState('');
   const [bodaPhone, setBodaPhone] = useState('');
   const [bodaPlateNumber, setBodaPlateNumber] = useState('');
@@ -102,6 +104,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   const [cargoNumber, setCargoNumber] = useState('');
   const [driverName, setDriverName] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
+  const [transporterName, setTransporterName] = useState('');
+  const [transporterPhone, setTransporterPhone] = useState('');
   
   const [searchTerm, setSearchTerm] = useState('');
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
@@ -314,7 +318,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       });
       
       const result = await response.json();
-      console.log('🗑️ Delete customer result:', result);
       
       if (result.success) {
         setCustomers(prev => prev.filter(c => c.id !== customerId));
@@ -379,35 +382,22 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         await loadData();
         setActiveTab('orders');
         
-        // Send SMS notification
         const customer = customers.find(c => c.id === selectedCustomerId);
         if (customer) {
-          console.log('📱 Sending order SMS to customer:', customer.full_name, customer.phone_number);
-          
           try {
-            const smsResponse = await fetch('/api/orders-send-sms', {
+            await fetch('/api/orders-send-sms', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 customerName: customer.full_name,
                 customerPhone: customer.phone_number,
-                orderId: newOrder.id || 'ORDER-' + Date.now(),
+                orderId: newOrder.id,
                 items: validItems,
                 totalAmount: orderTotal
               })
             });
-            
-            const smsResult = await smsResponse.json();
-            console.log('📱 Order SMS Result:', smsResult);
-            
-            if (smsResult.success) {
-              setSuccessMessage('Oda imehifadhiwa na SMS imetumwa kwa mteja');
-              setTimeout(() => setSuccessMessage(null), 5000);
-            } else {
-              console.error('SMS failed:', smsResult);
-            }
           } catch (smsErr) {
-            console.error('Failed to send order SMS:', smsErr);
+            console.error('Failed to send SMS:', smsErr);
           }
         }
       } else {
@@ -445,8 +435,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setError(null);
     
     try {
-      console.log('✏️ Editing order:', editingOrder.id, validItems);
-      
       const response = await fetch(`${API_BASE_URL}/${editingOrder.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -458,7 +446,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       });
       
       const result = await response.json();
-      console.log('✏️ Edit result:', result);
       
       if (result.success) {
         setOrders(prev => prev.map(o => 
@@ -489,8 +476,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   };
 
   const openEditOrderModal = (order: Order) => {
-    console.log('✏️ Opening edit modal for order:', order);
-    
     setEditingOrder(order);
     setSelectedCustomerId(order.customer_id);
     setOrderItems(order.items.map(item => ({
@@ -520,7 +505,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       shippingInfo.bodaName = bodaName;
       shippingInfo.bodaPhone = bodaPhone;
       shippingInfo.bodaPlateNumber = bodaPlateNumber;
-    } else {
+    } else if (shippingMethod === 'Bus') {
       if (busType === 'company') {
         if (!busName) {
           setError('Jina la Bus/Kampuni inahitajika');
@@ -538,6 +523,13 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         shippingInfo.driverPhone = driverPhone;
         shippingInfo.cargoNumber = cargoNumber;
       }
+    } else if (shippingMethod === 'Msafirishaji') {
+      if (!transporterName || !transporterPhone) {
+        setError('Jina na namba ya Msafirishaji vinahitajika');
+        return;
+      }
+      shippingInfo.transporterName = transporterName;
+      shippingInfo.transporterPhone = transporterPhone;
     }
     
     setIsLoading(true);
@@ -560,11 +552,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
           o.id === selectedOrder.id ? { ...o, status: 'Completed', shipping_info: shippingInfo } : o
         ));
         
-        // Send SMS notification for shipping
         try {
-          console.log('📱 Sending shipping SMS...');
-          
-          const smsResponse = await fetch('/api/orders-shipping-sms', {
+          await fetch('/api/orders-shipping-sms', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -580,17 +569,11 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               busNumber: shippingInfo.busNumber,
               cargoNumber: shippingInfo.cargoNumber,
               driverName: shippingInfo.driverName,
-              driverPhone: shippingInfo.driverPhone
+              driverPhone: shippingInfo.driverPhone,
+              transporterName: shippingInfo.transporterName,
+              transporterPhone: shippingInfo.transporterPhone
             })
           });
-          
-          const smsResult = await smsResponse.json();
-          console.log('📱 Shipping SMS Result:', smsResult);
-          
-          if (smsResult.success) {
-            setSuccessMessage('Oda imekamilika na SMS imetumwa');
-            setTimeout(() => setSuccessMessage(null), 5000);
-          }
         } catch (smsErr) {
           console.error('Failed to send shipping SMS:', smsErr);
         }
@@ -635,6 +618,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     setCargoNumber('');
     setDriverName('');
     setDriverPhone('');
+    setTransporterName('');
+    setTransporterPhone('');
   };
 
   const handleDeleteOrder = async (orderId: string) => {
@@ -650,7 +635,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       });
       
       const result = await response.json();
-      console.log('🗑️ Delete result:', result);
       
       if (result.success) {
         setOrders(prev => prev.filter(o => o.id !== orderId));
@@ -738,7 +722,10 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 11px;">
           <div>
             <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Njia</span>
-            <span style="font-weight: bold; color: #16a34a;">${order.shipping_info.method === 'BodaBoda' ? '🏍️ BodaBoda' : '🚌 Bus'}</span>
+            <span style="font-weight: bold; color: #16a34a;">${
+              order.shipping_info.method === 'BodaBoda' ? 'BodaBoda' : 
+              order.shipping_info.method === 'Bus' ? 'Bus' : 'Msafirishaji'
+            }</span>
           </div>
           ${
             order.shipping_info.method === 'BodaBoda'
@@ -756,34 +743,46 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                   <span style="font-weight: bold; color: #334155;">${order.shipping_info.bodaPlateNumber || '-'}</span>
                 </div>
               `
-              : order.shipping_info.busName
-                ? `
-                  <div>
-                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Bus/Kampuni</span>
-                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.busName}</span>
-                  </div>
-                  <div>
-                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Bus</span>
-                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.busNumber || '-'}</span>
-                  </div>
-                  <div>
-                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Mzigo</span>
-                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.cargoNumber || '-'}</span>
-                  </div>
-                `
+              : order.shipping_info.method === 'Bus'
+                ? order.shipping_info.busName
+                  ? `
+                    <div>
+                      <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Bus/Kampuni</span>
+                      <span style="font-weight: bold; color: #334155;">${order.shipping_info.busName}</span>
+                    </div>
+                    <div>
+                      <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Bus</span>
+                      <span style="font-weight: bold; color: #334155;">${order.shipping_info.busNumber || '-'}</span>
+                    </div>
+                    <div>
+                      <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Mzigo</span>
+                      <span style="font-weight: bold; color: #334155;">${order.shipping_info.cargoNumber || '-'}</span>
+                    </div>
+                  `
+                  : `
+                    <div>
+                      <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Dreva</span>
+                      <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverName}</span>
+                    </div>
+                    <div>
+                      <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Simu ya Dreva</span>
+                      <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverPhone}</span>
+                    </div>
+                    <div>
+                      <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Mzigo</span>
+                      <span style="font-weight: bold; color: #334155;">${order.shipping_info.cargoNumber || '-'}</span>
+                    </div>
+                  `
                 : `
                   <div>
-                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Dreva</span>
-                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverName}</span>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Jina la Msafirishaji</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.transporterName || '-'}</span>
                   </div>
                   <div>
-                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Simu ya Dreva</span>
-                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverPhone}</span>
+                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Simu ya Msafirishaji</span>
+                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.transporterPhone || '-'}</span>
                   </div>
-                  <div>
-                    <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Mzigo</span>
-                    <span style="font-weight: bold; color: #334155;">${order.shipping_info.cargoNumber || '-'}</span>
-                  </div>
+                  <div></div>
                 `
           }
         </div>
@@ -1095,10 +1094,14 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                         <p className="text-xs text-emerald-600 mt-2 flex items-center gap-1">
                           {order.shipping_info.method === 'BodaBoda' 
                             ? <Bike size={12} /> 
-                            : <Bus size={12} />} 
+                            : order.shipping_info.method === 'Bus' 
+                              ? <Bus size={12} />
+                              : <Truck size={12} />} 
                           {order.shipping_info.method === 'BodaBoda' 
                             ? order.shipping_info.bodaName || order.shipping_info.bodaPhone || 'BodaBoda'
-                            : order.shipping_info.busName || order.shipping_info.driverName || 'Bus'}
+                            : order.shipping_info.method === 'Bus'
+                              ? order.shipping_info.busName || order.shipping_info.driverName || 'Bus'
+                              : order.shipping_info.transporterName || 'Msafirishaji'}
                         </p>
                       )}
                     </div>
@@ -1440,7 +1443,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
             <form onSubmit={handleCompleteOrder} className="space-y-4 text-xs text-left">
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-2">Kutuma Kwa *</label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   <button
                     type="button"
                     onClick={() => setShippingMethod('BodaBoda')}
@@ -1451,7 +1454,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                     }`}
                   >
                     <Bike size={24} />
-                    <span className="font-bold">BodaBoda</span>
+                    <span className="font-bold text-center">BodaBoda</span>
                   </button>
                   <button
                     type="button"
@@ -1463,7 +1466,19 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                     }`}
                   >
                     <Bus size={24} />
-                    <span className="font-bold">Bus</span>
+                    <span className="font-bold text-center">Bus</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShippingMethod('Msafirishaji')}
+                    className={`p-4 rounded-2xl border-2 transition flex flex-col items-center gap-2 ${
+                      shippingMethod === 'Msafirishaji' 
+                        ? 'border-accent bg-accent/5 text-accent' 
+                        : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                    }`}
+                  >
+                    <Truck size={24} />
+                    <span className="font-bold text-center">Msafirishaji</span>
                   </button>
                 </div>
               </div>
@@ -1558,6 +1573,21 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                 </div>
               )}
 
+              {shippingMethod === 'Msafirishaji' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina la Msafirishaji *</label>
+                    <input type="text" required value={transporterName} onChange={(e) => setTransporterName(e.target.value)} 
+                      placeholder="Mfano: Juma Msafirishaji" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Simu *</label>
+                    <input type="tel" required value={transporterPhone} onChange={(e) => setTransporterPhone(e.target.value)} 
+                      placeholder="0712345678" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                  </div>
+                </div>
+              )}
+
               <div className="pt-2 flex justify-end gap-2">
                 <button type="button" onClick={() => {
                   setIsCompleteOrderModalOpen(false);
@@ -1620,21 +1650,28 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                         <p><strong>Namba:</strong> {selectedOrder.shipping_info.bodaPhone}</p>
                         <p><strong>Pikipiki:</strong> {selectedOrder.shipping_info.bodaPlateNumber || '-'}</p>
                       </>
-                    ) : selectedOrder.shipping_info.busName ? (
-                      <>
-                        <p><strong>Bus/Kampuni:</strong> {selectedOrder.shipping_info.busName}</p>
-                        <p><strong>Namba ya Bus:</strong> {selectedOrder.shipping_info.busNumber || '-'}</p>
-                        {selectedOrder.shipping_info.cargoNumber && (
-                          <p><strong>Namba ya Mzigo:</strong> {selectedOrder.shipping_info.cargoNumber}</p>
-                        )}
-                      </>
+                    ) : selectedOrder.shipping_info.method === 'Bus' ? (
+                      selectedOrder.shipping_info.busName ? (
+                        <>
+                          <p><strong>Bus/Kampuni:</strong> {selectedOrder.shipping_info.busName}</p>
+                          <p><strong>Namba ya Bus:</strong> {selectedOrder.shipping_info.busNumber || '-'}</p>
+                          {selectedOrder.shipping_info.cargoNumber && (
+                            <p><strong>Namba ya Mzigo:</strong> {selectedOrder.shipping_info.cargoNumber}</p>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <p><strong>Dreva:</strong> {selectedOrder.shipping_info.driverName}</p>
+                          <p><strong>Simu:</strong> {selectedOrder.shipping_info.driverPhone}</p>
+                          {selectedOrder.shipping_info.cargoNumber && (
+                            <p><strong>Namba ya Mzigo:</strong> {selectedOrder.shipping_info.cargoNumber}</p>
+                          )}
+                        </>
+                      )
                     ) : (
                       <>
-                        <p><strong>Dreva:</strong> {selectedOrder.shipping_info.driverName}</p>
-                        <p><strong>Simu:</strong> {selectedOrder.shipping_info.driverPhone}</p>
-                        {selectedOrder.shipping_info.cargoNumber && (
-                          <p><strong>Namba ya Mzigo:</strong> {selectedOrder.shipping_info.cargoNumber}</p>
-                        )}
+                        <p><strong>Msafirishaji:</strong> {selectedOrder.shipping_info.transporterName}</p>
+                        <p><strong>Simu:</strong> {selectedOrder.shipping_info.transporterPhone}</p>
                       </>
                     )}
                   </div>
