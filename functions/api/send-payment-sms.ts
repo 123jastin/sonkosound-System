@@ -36,51 +36,6 @@ const normalizePhone = (value: any) => {
 
 const toBase64 = (value: string) => btoa(value);
 
-async function sendSingleSMS(params: {
-  apiKey: string;
-  secretKey: string;
-  message: string;
-  phone: string;
-  source_addr?: string;
-}) {
-  const payload: any = {
-    source_addr: params.source_addr || 'Sonko Sound',
-    schedule_time: '',
-    encoding: 0,
-    message: params.message,
-    recipients: [{ recipient_id: 1, dest_addr: params.phone }],
-  };
-
-  const auth = toBase64(`${params.apiKey}:${params.secretKey}`);
-
-  try {
-    const response = await fetch('https://apisms.beem.africa/v1/send', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Basic ${auth}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const rawText = await response.text();
-    console.log('BEEM Response:', rawText);
-    
-    let parsed: any = null;
-    try { parsed = JSON.parse(rawText); } catch { parsed = { raw: rawText }; }
-
-    return {
-      success: response.ok && !parsed?.error,
-      status: response.status,
-      data: parsed,
-      error: !response.ok ? (parsed?.message || parsed?.error_description || rawText) : null,
-    };
-  } catch (err: any) {
-    console.error('SMS Error:', err);
-    return { success: false, status: 0, data: null, error: err.message };
-  }
-}
-
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => null);
@@ -90,7 +45,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'No data provided' }, 400);
     }
 
-    const { customerName, customerPhone, paidAmount, remainingAmount, paymentMethod } = body;
+    const { customerName, customerPhone, paidAmount, remainingAmount } = body;
 
     if (!customerName || !customerPhone || !paidAmount) {
       return json({ success: false, error: 'Missing required fields' }, 400);
@@ -98,8 +53,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const BEEM_API_KEY = env.BEEM_API_KEY || '4594d67f9df36874';
     const BEEM_SECRET_KEY = env.BEEM_SECRET_KEY || 'YzRmMjU0OTlhZmFlNTdkODI2ZDAyNWY1YmJkMWYyMWNmZDQ0MDllZGI5MTg2YzE1ZTg5YmE4YTI4NmI1ZTY2Mw==';
-    
-    // Admin number: 0656738253 → 255656738253
     const MY_PHONE = env.MY_PHONE_NUMBER || '255656738253';
 
     const customerPhoneNormalized = normalizePhone(customerPhone);
@@ -111,46 +64,58 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     // Admin message (NO EMOJI)
     const adminMessage = `${customerName} Amepunguza sh ${Number(paidAmount).toLocaleString()} bado ${Number(remainingAmount).toLocaleString()}. Asante`;
 
-    console.log('Sending to customer:', customerPhoneNormalized);
-    console.log('Customer message:', customerMessage);
+    const auth = toBase64(`${BEEM_API_KEY}:${BEEM_SECRET_KEY}`);
 
     // Send to Customer
-    const custResult = await sendSingleSMS({
-      apiKey: BEEM_API_KEY,
-      secretKey: BEEM_SECRET_KEY,
-      message: customerMessage,
-      phone: customerPhoneNormalized,
+    console.log('Sending to customer:', customerPhoneNormalized);
+    const custPayload = {
       source_addr: 'Sonko Sound',
+      schedule_time: '',
+      encoding: 0,
+      message: customerMessage,
+      recipients: [{ recipient_id: 1, dest_addr: customerPhoneNormalized }],
+    };
+
+    const custResponse = await fetch('https://apisms.beem.africa/v1/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
+      body: JSON.stringify(custPayload),
     });
 
-    console.log('Customer Result:', JSON.stringify(custResult));
+    const custText = await custResponse.text();
+    console.log('Customer SMS Response:', custText);
 
     // Wait 1 second
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    console.log('Sending to admin:', ownerPhoneNormalized);
-    console.log('Admin message:', adminMessage);
-
     // Send to Admin
-    const adminResult = await sendSingleSMS({
-      apiKey: BEEM_API_KEY,
-      secretKey: BEEM_SECRET_KEY,
-      message: adminMessage,
-      phone: ownerPhoneNormalized,
+    console.log('Sending to admin:', ownerPhoneNormalized);
+    const adminPayload = {
       source_addr: 'Sonko Sound',
+      schedule_time: '',
+      encoding: 0,
+      message: adminMessage,
+      recipients: [{ recipient_id: 1, dest_addr: ownerPhoneNormalized }],
+    };
+
+    const adminResponse = await fetch('https://apisms.beem.africa/v1/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
+      body: JSON.stringify(adminPayload),
     });
 
-    console.log('Admin Result:', JSON.stringify(adminResult));
+    const adminText = await adminResponse.text();
+    console.log('Admin SMS Response:', adminText);
 
     return json({
-      success: custResult.success || adminResult.success,
+      success: true,
       data: {
-        customerSent: custResult.success,
-        adminSent: adminResult.success,
+        customerSent: custResponse.ok,
+        adminSent: adminResponse.ok,
         customerMessage,
         adminMessage,
       },
-      message: `Customer: ${custResult.success ? 'OK' : 'FAIL'} | Admin: ${adminResult.success ? 'OK' : 'FAIL'}`,
+      message: `Customer: ${custResponse.ok ? 'OK' : 'FAIL'} | Admin: ${adminResponse.ok ? 'OK' : 'FAIL'}`,
     });
   } catch (error: any) {
     console.error('Payment SMS Error:', error);
