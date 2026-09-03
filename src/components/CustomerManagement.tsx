@@ -260,7 +260,7 @@ export default function CustomerManagement({
       const selectedDebt = activeCustomerHistory.debts.find(d => d.id === payDebtId);
       const paymentNotes = payNotes || (selectedDebt ? `Malipo kwa: ${selectedDebt.description}` : 'Malipo ya deni');
       
-      // Calculate remaining balance BEFORE payment
+      // Calculate remaining balance AFTER payment
       const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === payDebtId);
       const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
       const totalDebtAmount = selectedDebt?.amount || 0;
@@ -279,14 +279,18 @@ export default function CustomerManagement({
       setIsAddPaymentOpen(false);
       resetPaymentForm();
       
-      // Send SMS notifications
-      if (activeCustomer && selectedDebt) {
+      // ==================== SMS NOTIFICATION ====================
+      if (activeCustomer) {
         const customerName = activeCustomer.fullName;
         const customerPhone = activeCustomer.phoneNumber;
         const paidAmount = Number(payAmount);
         
+        console.log('Sending payment SMS...');
+        console.log('Customer:', customerName, customerPhone);
+        console.log('Paid:', paidAmount, 'Remaining:', remainingAfterPayment);
+        
         try {
-          await fetch('/api/send-payment-sms', {
+          const smsResponse = await fetch('/api/send-payment-sms', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -298,11 +302,14 @@ export default function CustomerManagement({
             })
           });
           
-          console.log('Payment SMS sent for:', customerName);
+          const smsResult = await smsResponse.json();
+          console.log('Payment SMS Result:', smsResult);
         } catch (smsErr) {
           console.error('Failed to send payment SMS:', smsErr);
         }
       }
+      // ==================== END SMS NOTIFICATION ====================
+      
     } catch (err: any) {
       setError('Imeshindwa kurekodi malipo: ' + err.message);
     } finally {
