@@ -260,6 +260,12 @@ export default function CustomerManagement({
       const selectedDebt = activeCustomerHistory.debts.find(d => d.id === payDebtId);
       const paymentNotes = payNotes || (selectedDebt ? `Malipo kwa: ${selectedDebt.description}` : 'Malipo ya deni');
       
+      // Calculate remaining balance BEFORE payment
+      const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === payDebtId);
+      const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
+      const totalDebtAmount = selectedDebt?.amount || 0;
+      const remainingAfterPayment = Math.max(0, totalDebtAmount - paidSum - Number(payAmount));
+      
       await api.payments.create({
         id: 'pay-' + Date.now(),
         debtId: payDebtId,
@@ -272,6 +278,31 @@ export default function CustomerManagement({
       onUpdate();
       setIsAddPaymentOpen(false);
       resetPaymentForm();
+      
+      // Send SMS notifications
+      if (activeCustomer && selectedDebt) {
+        const customerName = activeCustomer.fullName;
+        const customerPhone = activeCustomer.phoneNumber;
+        const paidAmount = Number(payAmount);
+        
+        try {
+          await fetch('/api/send-payment-sms', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              customerName,
+              customerPhone,
+              paidAmount,
+              remainingAmount: remainingAfterPayment,
+              paymentMethod: payMethod
+            })
+          });
+          
+          console.log('Payment SMS sent for:', customerName);
+        } catch (smsErr) {
+          console.error('Failed to send payment SMS:', smsErr);
+        }
+      }
     } catch (err: any) {
       setError('Imeshindwa kurekodi malipo: ' + err.message);
     } finally {
@@ -310,8 +341,8 @@ export default function CustomerManagement({
 
   const settings = {
     businessName: 'Sonko Sound',
-    businessAddress: 'Dar es Salaam, Tanzania',
-    businessPhone: '255XXXXXXXXX'
+    businessAddress: 'Morogoro, Tanzania',
+    businessPhone: '0688423753'
   };
 
   return (
@@ -603,7 +634,7 @@ export default function CustomerManagement({
         </div>
       )}
 
-      {/* MODAL: Add Payment - UPGRADED WITH DEBT SELECTION */}
+      {/* MODAL: Add Payment */}
       {isAddPaymentOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -615,7 +646,6 @@ export default function CustomerManagement({
             
             <form onSubmit={handleAddPayment} className="space-y-4 text-xs text-left">
               
-              {/* Select which debt to pay */}
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
                   Deni Unalolipia *
@@ -650,7 +680,6 @@ export default function CustomerManagement({
                 </select>
               </div>
 
-              {/* Amount and Payment Method */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
@@ -687,7 +716,6 @@ export default function CustomerManagement({
                 </div>
               </div>
 
-              {/* Notes */}
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
                   Kumbukumbu / Maelezo ya Malipo
@@ -700,7 +728,6 @@ export default function CustomerManagement({
                 />
               </div>
 
-              {/* Summary */}
               {payDebtId && payAmount && (
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-1.5">
                   {(() => {
