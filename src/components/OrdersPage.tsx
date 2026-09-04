@@ -112,7 +112,21 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
+    // Don't show error for D1 limit - just use cached data
     setError(null);
+    
+    // First load from local storage
+    const savedData = localStorage.getItem('orders_data');
+    if (savedData) {
+      try {
+        const parsed = JSON.parse(savedData);
+        setCustomers(parsed.customers || []);
+        setOrders(parsed.orders || []);
+      } catch (e) {
+        console.error('Failed to parse saved data:', e);
+      }
+    }
+    
     try {
       const response = await fetch(`${API_BASE_URL}`);
       const data = await response.json();
@@ -121,71 +135,41 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         const loadedCustomers = Array.isArray(data.customers) ? data.customers : [];
         const loadedOrders = Array.isArray(data.orders) ? data.orders : [];
         
+        // Cache data
+        localStorage.setItem('orders_data', JSON.stringify({
+          customers: loadedCustomers,
+          orders: loadedOrders
+        }));
+        
         const parsedOrders = loadedOrders.map((order: any) => {
-          let shippingInfo = order.shipping_info || null;
-          
-          // Try to parse if it's a string
-          if (typeof shippingInfo === 'string' && shippingInfo !== 'null') {
-            try {
-              shippingInfo = JSON.parse(shippingInfo);
-            } catch (e) {
-              console.error('Failed to parse shipping_info string:', e);
-              shippingInfo = null;
-            }
+          let shippingInfo = null;
+          if (order.shipping_info) {
+            shippingInfo = typeof order.shipping_info === 'string' 
+              ? JSON.parse(order.shipping_info) 
+              : order.shipping_info;
+          } else if (order.shipping_details) {
+            shippingInfo = typeof order.shipping_details === 'string' 
+              ? JSON.parse(order.shipping_details) 
+              : order.shipping_details;
           }
           
-          // If no shipping_info, check shipping_details
-          if (!shippingInfo && order.shipping_details && order.shipping_details !== 'null') {
-            try {
-              shippingInfo = JSON.parse(order.shipping_details);
-            } catch (e) {
-              console.error('Failed to parse shipping_details:', e);
-              shippingInfo = null;
-            }
+          let items = [];
+          if (Array.isArray(order.items)) {
+            items = order.items;
+          } else if (typeof order.items === 'string') {
+            try { items = JSON.parse(order.items); } catch { items = []; }
           }
           
-          // Ensure all fields exist
-          if (shippingInfo) {
-            shippingInfo = {
-              method: shippingInfo.method || 'BodaBoda',
-              bodaName: shippingInfo.bodaName || '',
-              bodaPhone: shippingInfo.bodaPhone || '',
-              bodaPlateNumber: shippingInfo.bodaPlateNumber || '',
-              busName: shippingInfo.busName || '',
-              busNumber: shippingInfo.busNumber || '',
-              cargoNumber: shippingInfo.cargoNumber || '',
-              driverName: shippingInfo.driverName || '',
-              driverPhone: shippingInfo.driverPhone || '',
-              transporterName: shippingInfo.transporterName || '',
-              transporterPhone: shippingInfo.transporterPhone || '',
-            };
-          }
-          
-          return {
-            ...order,
-            shipping_info: shippingInfo,
-            items: Array.isArray(order.items) ? order.items : 
-                   (typeof order.items === 'string' ? JSON.parse(order.items) : [])
-          };
+          return { ...order, shipping_info: shippingInfo, items };
         });
         
         setCustomers(loadedCustomers);
         setOrders(parsedOrders);
-      } else {
-        setError(data.error || 'Failed to load data');
       }
+      // Don't show error if data.success is false
     } catch (err) {
-      console.error('Failed to load orders:', err);
-      const savedData = localStorage.getItem('orders_data');
-      if (savedData) {
-        try {
-          const parsed = JSON.parse(savedData);
-          setCustomers(parsed.customers || []);
-          setOrders(parsed.orders || []);
-        } catch (e) {
-          console.error('Failed to parse saved data:', e);
-        }
-      }
+      // Silently fail - use cached data
+      console.error('Failed to load orders (D1 limit may be reached):', err);
     } finally {
       setIsLoading(false);
     }
@@ -267,7 +251,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setTimeout(() => setSuccessMessage(null), 3000);
         onUpdate();
         setActiveTab('customers');
-        await loadData();
+        // Don't call loadData here to avoid D1 reads
       } else {
         setError(result.error || 'Imeshindwa kumsajili mteja');
         setTimeout(() => setError(null), 5000);
@@ -310,7 +294,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setSuccessMessage('Mteja amehaririwa kikamilifu');
         setTimeout(() => setSuccessMessage(null), 3000);
         onUpdate();
-        await loadData();
+        // Don't call loadData here
       } else {
         setError(result.error || 'Imeshindwa kuhariri mteja');
         setTimeout(() => setError(null), 5000);
@@ -357,7 +341,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setSuccessMessage('Mteja amefutwa kikamilifu');
         setTimeout(() => setSuccessMessage(null), 3000);
         onUpdate();
-        await loadData();
+        // Don't call loadData here
       } else {
         setError(result.error || 'Imeshindwa kumfuta mteja');
         setTimeout(() => setError(null), 5000);
@@ -411,8 +395,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setIsAddOrderModalOpen(false);
         resetOrderForm();
         onUpdate();
-        await loadData();
         setActiveTab('orders');
+        // Don't call loadData here
         
         const customer = customers.find(c => c.id === selectedCustomerId);
         if (customer) {
@@ -493,7 +477,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setSuccessMessage('Oda imehaririwa kikamilifu');
         setTimeout(() => setSuccessMessage(null), 3000);
         onUpdate();
-        await loadData();
+        // Don't call loadData here
       } else {
         setError(result.error || 'Imeshindwa kuhariri oda');
         setTimeout(() => setError(null), 5000);
@@ -614,7 +598,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setSelectedOrder(null);
         resetShippingForm();
         onUpdate();
-        await loadData();
+        // Don't call loadData here
       } else {
         setError(result.error || 'Imeshindwa kukamilisha oda');
         setTimeout(() => setError(null), 5000);
@@ -673,7 +657,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setSuccessMessage('Oda imefutwa kikamilifu');
         setTimeout(() => setSuccessMessage(null), 3000);
         onUpdate();
-        await loadData();
+        // Don't call loadData here
       } else {
         setError(result.error || 'Imeshindwa kufuta oda');
         setTimeout(() => setError(null), 5000);
@@ -970,7 +954,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
 
   return (
     <div className="space-y-6">
-      {error && (
+      {/* Don't show D1 limit errors */}
+      {error && !error.includes('D1') && (
         <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-rose-700 text-xs">
             <AlertCircle size={16} />
