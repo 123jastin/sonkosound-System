@@ -58,16 +58,29 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const customerPhoneNormalized = normalizePhone(customerPhone);
     const ownerPhoneNormalized = normalizePhone(MY_PHONE);
 
-    // Customer message (NO EMOJI)
-    const customerMessage = `Habari, ${customerName} Malipo yako yamepokelewa Sh ${Number(paidAmount).toLocaleString()}. Bado sh ${Number(remainingAmount).toLocaleString()} Kukamilisha. Asante Kwa kutuamini\n\nDuka la mziki Sonko Sound Morogoro\nTel: 0688423753`;
+    const numPaid = Number(paidAmount) || 0;
+    const numRemaining = Number(remainingAmount) || 0;
 
-    // Admin message (NO EMOJI)
-    const adminMessage = `${customerName} Amepunguza sh ${Number(paidAmount).toLocaleString()} bado ${Number(remainingAmount).toLocaleString()}. Asante`;
+    // Customer message with NEW format
+    let customerMessage = '';
+    
+    if (numRemaining <= 0) {
+      // Fully paid - completion message
+      customerMessage = `Habari, ${customerName} Malipo yako yamepokelewa Sh ${numPaid.toLocaleString()}. Umemaliza malipo yote. Asante Kwa kutuamini\n\nDuka la mziki Sonko Sound Morogoro\nKwa mawasiliano Piga: 0688423753`;
+    } else {
+      // Partial payment
+      customerMessage = `Habari, ${customerName} Malipo yako yamepokelewa Sh ${numPaid.toLocaleString()}. Bado sh ${numRemaining.toLocaleString()} Kukamilisha. Asante Kwa kutuamini\n\nDuka la mziki Sonko Sound Morogoro\nKwa mawasiliano Piga: 0688423753`;
+    }
+
+    // Admin message
+    const adminMessage = `${customerName} Amepunguza sh ${numPaid.toLocaleString()} bado ${numRemaining.toLocaleString()}. Asante`;
 
     const auth = toBase64(`${BEEM_API_KEY}:${BEEM_SECRET_KEY}`);
 
     // Send to Customer
     console.log('Sending to customer:', customerPhoneNormalized);
+    console.log('Customer message:', customerMessage);
+    
     const custPayload = {
       source_addr: 'Sonko Sound',
       schedule_time: '',
@@ -85,11 +98,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const custText = await custResponse.text();
     console.log('Customer SMS Response:', custText);
 
-    // Wait 1 second
+    // Wait 1 second between messages
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Send to Admin
     console.log('Sending to admin:', ownerPhoneNormalized);
+    console.log('Admin message:', adminMessage);
+    
     const adminPayload = {
       source_addr: 'Sonko Sound',
       schedule_time: '',
