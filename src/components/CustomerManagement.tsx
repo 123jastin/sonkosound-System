@@ -11,7 +11,7 @@ import {
   Users, Search, Plus, Filter, Phone, MapPin, 
   Building, UserPlus, CreditCard, ChevronRight, FileText, 
   History, Calendar, Check, AlertCircle, Printer, X, Trash2, Edit2, 
-  ArrowLeft, Loader2, Wallet, ListChecks
+  ArrowLeft, Loader2, Wallet, ListChecks, Package
 } from 'lucide-react';
 
 interface CustomerManagementProps {
@@ -21,6 +21,14 @@ interface CustomerManagementProps {
   onUpdate: () => void;
   selectedCustomerId: string | null;
   setSelectedCustomerId: (id: string | null) => void;
+}
+
+interface ProductItem {
+  id: string;
+  product_name: string;
+  quantity: number;
+  unit_price: number | string;
+  total_price: number;
 }
 
 export default function CustomerManagement({
@@ -52,10 +60,11 @@ export default function CustomerManagement({
   const [notes, setNotes] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
 
-  // Form states - Quick Debt creation
-  const [debtAmount, setDebtAmount] = useState('');
+  // Form states - Multi-Product Debt creation
+  const [productItems, setProductItems] = useState<ProductItem[]>([
+    { id: 'item-' + Date.now(), product_name: '', quantity: 1, unit_price: '', total_price: 0 }
+  ]);
   const [debtDueDate, setDebtDueDate] = useState('');
-  const [debtDescription, setDebtDescription] = useState('');
   const [debtCategory, setDebtCategory] = useState<string>('Mizigo/Products');
   const [debtNotes, setDebtNotes] = useState('');
 
@@ -127,6 +136,15 @@ export default function CustomerManagement({
     return unpaidDebts.reduce((sum, d) => sum + d.remaining, 0);
   }, [unpaidDebts]);
 
+  // Multi-product total
+  const productsTotal = useMemo(() => {
+    return productItems.reduce((sum, item) => {
+      const qty = Number(item.quantity) || 0;
+      const price = Number(item.unit_price) || 0;
+      return sum + (qty * price);
+    }, 0);
+  }, [productItems]);
+
   // All customers with calculated stats
   const customersWithStats = useMemo(() => {
     return customers.map(c => {
@@ -167,6 +185,50 @@ export default function CustomerManagement({
       return matchesSearch && matchesStatus;
     });
   }, [customersWithStats, searchQuery, statusFilter]);
+
+  // ============================================
+  // MULTI-PRODUCT HANDLERS
+  // ============================================
+
+  const updateProductItem = (index: number, field: string, value: any) => {
+    const updated = [...productItems];
+    updated[index] = { ...updated[index], [field]: value };
+    
+    if (field === 'quantity' || field === 'unit_price') {
+      const qty = Number(updated[index].quantity) || 0;
+      const price = Number(updated[index].unit_price) || 0;
+      updated[index].total_price = qty * price;
+    }
+    
+    setProductItems(updated);
+  };
+
+  const addProductItem = () => {
+    setProductItems([
+      ...productItems,
+      { 
+        id: 'item-' + Date.now() + '-' + Math.random(), 
+        product_name: '', 
+        quantity: 1, 
+        unit_price: '',
+        total_price: 0 
+      }
+    ]);
+  };
+
+  const removeProductItem = (index: number) => {
+    if (productItems.length === 1) return;
+    setProductItems(productItems.filter((_, i) => i !== index));
+  };
+
+  const resetProductForm = () => {
+    setProductItems([
+      { id: 'item-' + Date.now(), product_name: '', quantity: 1, unit_price: '', total_price: 0 }
+    ]);
+    setDebtDueDate('');
+    setDebtCategory('Mizigo/Products');
+    setDebtNotes('');
+  };
 
   // ============================================
   // API HANDLERS
@@ -239,30 +301,52 @@ export default function CustomerManagement({
     }
   };
 
+  // ADD MULTIPLE DEBTS AT ONCE
   const handleAddDebt = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCustomerId || !debtAmount || !debtDueDate) return;
+    if (!selectedCustomerId || !debtDueDate) return;
+
+    // Validate products
+    const validProducts = productItems.filter(
+      item => item.product_name && Number(item.unit_price) > 0
+    );
+
+    if (validProducts.length === 0) {
+      setError('Ongeza bidhaa angalau moja na bei');
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
     try {
-      await api.debts.create({
-        id: 'debt-' + Date.now(),
-        customerId: selectedCustomerId,
-        amount: Number(debtAmount),
-        dateBorrowed: new Date().toISOString().split('T')[0],
-        dueDate: debtDueDate,
-        description: debtDescription || 'Deni jipya',
-        category: debtCategory,
-        notes: debtNotes,
-        status: 'Active'
-      });
+      const today = new Date().toISOString().split('T')[0];
+
+      // Create a debt for EACH product
+      for (const product of validProducts) {
+        const quantity = Number(product.quantity) || 1;
+        const unitPrice = Number(product.unit_price) || 0;
+        const totalAmount = quantity * unitPrice;
+
+        await api.debts.create({
+          id: 'debt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          customerId: selectedCustomerId,
+          amount: totalAmount,
+          dateBorrowed: today,
+          dueDate: debtDueDate,
+          description: quantity > 1 
+            ? `${product.product_name} (${quantity} x TSh ${unitPrice.toLocaleString()})`
+            : product.product_name,
+          category: debtCategory,
+          notes: debtNotes,
+          status: 'Active'
+        });
+      }
       
       onUpdate();
       setIsAddDebtOpen(false);
-      resetDebtForm();
+      resetProductForm();
     } catch (err: any) {
-      setError('Imeshindwa kuongeza deni: ' + err.message);
+      setError('Imeshindwa kuongeza madeni: ' + err.message);
     } finally {
       setIsLoading(false);
     }
@@ -280,7 +364,6 @@ export default function CustomerManagement({
       const totalPayAmount = Number(payAmount);
       
       if (payAllMode) {
-        // PAY ALL MODE - Distribute payment across all unpaid debts
         let remainingToAllocate = totalPayAmount;
         
         for (const debt of unpaidDebts) {
@@ -305,7 +388,6 @@ export default function CustomerManagement({
         setIsAddPaymentOpen(false);
         resetPaymentForm();
         
-        // SMS Notification
         if (activeCustomer) {
           const remainingAfterAll = Math.max(0, totalRemaining - totalPayAmount);
           try {
@@ -325,7 +407,6 @@ export default function CustomerManagement({
           }
         }
       } else {
-        // SINGLE DEBT MODE
         const selectedDebt = activeCustomerHistory.debts.find(d => d.id === payDebtId);
         const paymentNotes = payNotes || (selectedDebt ? `Malipo kwa: ${selectedDebt.description}` : 'Malipo ya deni');
         
@@ -347,7 +428,6 @@ export default function CustomerManagement({
         setIsAddPaymentOpen(false);
         resetPaymentForm();
         
-        // SMS Notification
         if (activeCustomer) {
           try {
             await fetch('/api/send-payment-sms', {
@@ -377,11 +457,6 @@ export default function CustomerManagement({
   const resetCustomerForm = () => {
     setFullName(''); setPhoneNumber(''); setAddress('');
     setBusinessName(''); setNotes(''); setPhotoUrl('');
-  };
-
-  const resetDebtForm = () => {
-    setDebtAmount(''); setDebtDueDate(''); setDebtDescription('');
-    setDebtCategory('Mizigo/Products'); setDebtNotes('');
   };
 
   const resetPaymentForm = () => {
@@ -487,7 +562,7 @@ export default function CustomerManagement({
                 {activeCustomer.address && <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-2"><MapPin size={11} /> Mahali: {activeCustomer.address}</p>}
               </div>
               <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate-100">
-                <button onClick={() => setIsAddDebtOpen(true)} disabled={isLoading} className="bg-slate-900 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50">
+                <button onClick={() => { resetProductForm(); setIsAddDebtOpen(true); }} disabled={isLoading} className="bg-slate-900 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50">
                   <Plus size={14} /> Deni Jipya
                 </button>
                 <button onClick={() => {
@@ -671,28 +746,180 @@ export default function CustomerManagement({
         </div>
       )}
 
-      {/* MODAL: Add Debt */}
+      {/* MODAL: Add Multi-Product Debt */}
       {isAddDebtOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
-            <button onClick={() => setIsAddDebtOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition"><X size={18} /></button>
-            <h3 className="text-md font-bold text-slate-850">Ongeza Deni Jipya kwa {activeCustomer?.fullName}</h3>
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
+            <button onClick={() => { setIsAddDebtOpen(false); resetProductForm(); }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition"><X size={18} /></button>
+            
+            <h3 className="text-md font-bold text-slate-850 flex items-center gap-1.5">
+              <Package className="text-amber-500" size={18} /> 
+              Ongeza Bidhaa kwa {activeCustomer?.fullName}
+            </h3>
+            
             <FormAIOCR label="Changanua Karatasi kwa AI Camera" onSuccess={(data) => {
-              if (data.deni) setDebtAmount(data.deni.toString());
-              if (data.maelezo_ya_bidhaa) { setDebtDescription(data.maelezo_ya_bidhaa); setDebtCategory("Mizigo/Products"); }
+              if (data.maelezo_ya_bidhaa) {
+                // Populate first empty product
+                const updated = [...productItems];
+                const emptyIdx = updated.findIndex(p => !p.product_name);
+                if (emptyIdx >= 0) {
+                  updated[emptyIdx].product_name = data.maelezo_ya_bidhaa;
+                  if (data.deni) {
+                    updated[emptyIdx].unit_price = data.deni.toString();
+                    updated[emptyIdx].total_price = Number(data.deni);
+                  }
+                  setProductItems(updated);
+                } else {
+                  // Add new product
+                  setProductItems([
+                    ...updated,
+                    {
+                      id: 'item-' + Date.now(),
+                      product_name: data.maelezo_ya_bidhaa,
+                      quantity: 1,
+                      unit_price: data.deni ? data.deni.toString() : '',
+                      total_price: data.deni ? Number(data.deni) : 0
+                    }
+                  ]);
+                }
+              }
               if (data.notes) setDebtNotes(data.notes);
             }} />
+            
             <form onSubmit={handleAddDebt} className="space-y-4 text-xs text-left">
-              <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kiasi cha deni (TSh) *</label><input type="number" required value={debtAmount} onChange={(e) => setDebtAmount(e.target.value)} placeholder="50000" className="w-full p-2.5 border border-slate-200 rounded-xl" /></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Bidhaa *</label><input type="text" required value={debtCategory} onChange={(e) => setDebtCategory(e.target.value)} placeholder="Mizigo/Products" className="w-full p-2.5 border border-slate-200 rounded-xl bg-white" /></div>
-                <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Ukomo *</label><input type="date" required value={debtDueDate} onChange={(e) => setDebtDueDate(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl" /></div>
+              
+              {/* Products Section */}
+              <div className="space-y-3">
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+                  <Package size={13} /> Bidhaa ({productItems.length})
+                </label>
+                
+                {productItems.map((item, index) => (
+                  <div key={item.id} className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">Bidhaa {index + 1}</span>
+                      {productItems.length > 1 && (
+                        <button type="button" onClick={() => removeProductItem(index)} 
+                          className="text-rose-500 hover:text-rose-700 p-1">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                    
+                    <input 
+                      type="text" 
+                      placeholder="Jina la bidhaa (mf. Generator)" 
+                      value={item.product_name}
+                      onChange={(e) => updateProductItem(index, 'product_name', e.target.value)}
+                      className="w-full p-2 border border-slate-200 rounded-lg bg-white"
+                      required
+                    />
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-400 mb-1">Idadi</label>
+                        <input 
+                          type="number" 
+                          min="1" 
+                          value={item.quantity}
+                          onChange={(e) => updateProductItem(index, 'quantity', Number(e.target.value))}
+                          className="w-full p-2 border border-slate-200 rounded-lg bg-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-400 mb-1">Bei (TSh)</label>
+                        <input 
+                          type="number" 
+                          min="0"
+                          placeholder="0"
+                          value={item.unit_price === '' ? '' : item.unit_price}
+                          onChange={(e) => updateProductItem(index, 'unit_price', e.target.value)}
+                          className="w-full p-2 border border-slate-200 rounded-lg bg-white"
+                          required
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-slate-700">
+                        Jumla: TSh {((Number(item.quantity) || 0) * (Number(item.unit_price) || 0)).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                
+                <button type="button" onClick={addProductItem} 
+                  className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 hover:text-accent hover:border-accent transition font-semibold flex items-center justify-center gap-1">
+                  <Plus size={14} /> Ongeza Bidhaa Nyingine
+                </button>
               </div>
-              <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo *</label><input type="text" required value={debtDescription} onChange={(e) => setDebtDescription(e.target.value)} placeholder="Mfano: Karatasi za Ofisi" className="w-full p-2.5 border border-slate-200 rounded-xl" /></div>
-              <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Notes</label><textarea value={debtNotes} onChange={(e) => setDebtNotes(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl h-20" /></div>
+
+              {/* Products Total */}
+              <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-bold text-slate-800">JUMLA KUU:</span>
+                  <span className="text-lg font-black text-amber-700">TSh {productsTotal.toLocaleString()}</span>
+                </div>
+              </div>
+
+              {/* Category and Due Date */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kundi *</label>
+                  <input 
+                    type="text" 
+                    required 
+                    value={debtCategory} 
+                    onChange={(e) => setDebtCategory(e.target.value)} 
+                    placeholder="Mizigo/Products" 
+                    className="w-full p-2.5 border border-slate-200 rounded-xl bg-white" 
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Ukomo *</label>
+                  <input 
+                    type="date" 
+                    required 
+                    value={debtDueDate} 
+                    onChange={(e) => setDebtDueDate(e.target.value)} 
+                    className="w-full p-2.5 border border-slate-200 rounded-xl" 
+                  />
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo ya Ziada</label>
+                <textarea 
+                  value={debtNotes} 
+                  onChange={(e) => setDebtNotes(e.target.value)} 
+                  placeholder="Maelezo yoyote ya ziada..."
+                  className="w-full p-2.5 border border-slate-200 rounded-xl h-16" 
+                />
+              </div>
+
+              {/* Action Buttons */}
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => setIsAddDebtOpen(false)} disabled={isLoading} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50">Ghairi</button>
-                <button type="submit" disabled={isLoading} className="px-5 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2">{isLoading ? <><Loader2 size={14} className="animate-spin" /> Inasajili...</> : 'Sajili Deni'}</button>
+                <button 
+                  type="button" 
+                  onClick={() => { setIsAddDebtOpen(false); resetProductForm(); }} 
+                  disabled={isLoading} 
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
+                >
+                  Ghairi
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isLoading || productItems.filter(p => p.product_name && Number(p.unit_price) > 0).length === 0} 
+                  className="px-5 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isLoading ? (
+                    <><Loader2 size={14} className="animate-spin" /> Inasajili...</>
+                  ) : (
+                    <>Sajili Bidhaa ({productItems.filter(p => p.product_name && Number(p.unit_price) > 0).length})</>
+                  )}
+                </button>
               </div>
             </form>
           </div>
@@ -744,7 +971,7 @@ export default function CustomerManagement({
                 </button>
               </div>
 
-              {/* Single Debt Selection (only when not pay-all mode) */}
+              {/* Single Debt Selection */}
               {!payAllMode && (
                 <div>
                   <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
@@ -781,7 +1008,7 @@ export default function CustomerManagement({
                 </div>
               )}
 
-              {/* Pay All Mode - Show All Debts Summary */}
+              {/* Pay All Mode Summary */}
               {payAllMode && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2">
                   <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs mb-2">
@@ -850,7 +1077,6 @@ export default function CustomerManagement({
                 />
               </div>
 
-              {/* Payment Summary */}
               {payAmount && (
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-1.5">
                   {payAllMode ? (
