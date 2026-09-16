@@ -11,7 +11,7 @@ import {
   Users, Search, Plus, Filter, Phone, MapPin, 
   Building, UserPlus, CreditCard, ChevronRight, FileText, 
   History, Calendar, Check, AlertCircle, Printer, X, Trash2, Edit2, 
-  ArrowLeft, Loader2
+  ArrowLeft, Loader2, Wallet, ListChecks
 } from 'lucide-react';
 
 interface CustomerManagementProps {
@@ -64,6 +64,7 @@ export default function CustomerManagement({
   const [payMethod, setPayMethod] = useState<string>('Cash');
   const [payNotes, setPayNotes] = useState('');
   const [payDebtId, setPayDebtId] = useState('');
+  const [payAllMode, setPayAllMode] = useState<boolean>(false);
 
   // Active customer details
   const activeCustomer = useMemo(() => {
@@ -108,6 +109,23 @@ export default function CustomerManagement({
     const custPayments = payments.filter(p => debtIds.includes(p.debtId));
     return { debts: custDebts, payments: custPayments };
   }, [selectedCustomerId, debts, payments]);
+
+  // Unpaid debts
+  const unpaidDebts = useMemo(() => {
+    return activeCustomerHistory.debts
+      .map(d => {
+        const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === d.id);
+        const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
+        const remaining = Math.max(0, d.amount - paidSum);
+        return { ...d, remaining, paidSum };
+      })
+      .filter(d => d.remaining > 0);
+  }, [activeCustomerHistory]);
+
+  // Total remaining for all debts
+  const totalRemaining = useMemo(() => {
+    return unpaidDebts.reduce((sum, d) => sum + d.remaining, 0);
+  }, [unpaidDebts]);
 
   // All customers with calculated stats
   const customersWithStats = useMemo(() => {
@@ -252,63 +270,102 @@ export default function CustomerManagement({
 
   const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!payDebtId || !payAmount) return;
+    if (!payAmount) return;
+    if (!payAllMode && !payDebtId) return;
 
     setIsLoading(true);
     setError(null);
+    
     try {
-      const selectedDebt = activeCustomerHistory.debts.find(d => d.id === payDebtId);
-      const paymentNotes = payNotes || (selectedDebt ? `Malipo kwa: ${selectedDebt.description}` : 'Malipo ya deni');
+      const totalPayAmount = Number(payAmount);
       
-      // Calculate remaining balance AFTER payment
-      const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === payDebtId);
-      const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
-      const totalDebtAmount = selectedDebt?.amount || 0;
-      const remainingAfterPayment = Math.max(0, totalDebtAmount - paidSum - Number(payAmount));
-      
-      await api.payments.create({
-        id: 'pay-' + Date.now(),
-        debtId: payDebtId,
-        amount: Number(payAmount),
-        date: new Date().toISOString().split('T')[0],
-        paymentMethod: payMethod,
-        notes: paymentNotes
-      });
-      
-      onUpdate();
-      setIsAddPaymentOpen(false);
-      resetPaymentForm();
-      
-      // ==================== SMS NOTIFICATION ====================
-      if (activeCustomer) {
-        const customerName = activeCustomer.fullName;
-        const customerPhone = activeCustomer.phoneNumber;
-        const paidAmount = Number(payAmount);
+      if (payAllMode) {
+        // PAY ALL MODE - Distribute payment across all unpaid debts
+        let remainingToAllocate = totalPayAmount;
         
-        console.log('Sending payment SMS...');
-        console.log('Customer:', customerName, customerPhone);
-        console.log('Paid:', paidAmount, 'Remaining:', remainingAfterPayment);
-        
-        try {
-          const smsResponse = await fetch('/api/send-payment-sms', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              customerName,
-              customerPhone,
-              paidAmount,
-              remainingAmount: remainingAfterPayment,
-              paymentMethod: payMethod
-            })
+        for (const debt of unpaidDebts) {
+          if (remainingToAllocate <= 0) break;
+          
+          const amountToPay = Math.min(remainingToAllocate, debt.remaining);
+          if (amountToPay <= 0) continue;
+          
+          await api.payments.create({
+            id: 'pay-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+            debtId: debt.id,
+            amount: amountToPay,
+            date: new Date().toISOString().split('T')[0],
+            paymentMethod: payMethod,
+            notes: payNotes || `Malipo ya ${debt.description} (Lipa Zote)`
           });
           
-          const smsResult = await smsResponse.json();
-          console.log('Payment SMS Result:', smsResult);
-        } catch (smsErr) {
-          console.error('Failed to send payment SMS:', smsErr);
+          remainingToAllocate -= amountToPay;
+        }
+        
+        onUpdate();
+        setIsAddPaymentOpen(false);
+        resetPaymentForm();
+        
+        // SMS Notification
+        if (activeCustomer) {
+          const remainingAfterAll = Math.max(0, totalRemaining - totalPayAmount);
+          try {
+            await fetch('/api/send-payment-sms', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                customerName: activeCustomer.fullName,
+                customerPhone: activeCustomer.phoneNumber,
+                paidAmount: totalPayAmount,
+                remainingAmount: remainingAfterAll,
+                paymentMethod: payMethod
+              })
+            });
+          } catch (smsErr) {
+            console.error('SMS error:', smsErr);
+          }
+        }
+      } else {
+        // SINGLE DEBT MODE
+        const selectedDebt = activeCustomerHistory.debts.find(d => d.id === payDebtId);
+        const paymentNotes = payNotes || (selectedDebt ? `Malipo kwa: ${selectedDebt.description}` : 'Malipo ya deni');
+        
+        const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === payDebtId);
+        const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
+        const totalDebtAmount = selectedDebt?.amount || 0;
+        const remainingAfterPayment = Math.max(0, totalDebtAmount - paidSum - totalPayAmount);
+        
+        await api.payments.create({
+          id: 'pay-' + Date.now(),
+          debtId: payDebtId,
+          amount: totalPayAmount,
+          date: new Date().toISOString().split('T')[0],
+          paymentMethod: payMethod,
+          notes: paymentNotes
+        });
+        
+        onUpdate();
+        setIsAddPaymentOpen(false);
+        resetPaymentForm();
+        
+        // SMS Notification
+        if (activeCustomer) {
+          try {
+            await fetch('/api/send-payment-sms', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                customerName: activeCustomer.fullName,
+                customerPhone: activeCustomer.phoneNumber,
+                paidAmount: totalPayAmount,
+                remainingAmount: remainingAfterPayment,
+                paymentMethod: payMethod
+              })
+            });
+          } catch (smsErr) {
+            console.error('SMS error:', smsErr);
+          }
         }
       }
-      // ==================== END SMS NOTIFICATION ====================
       
     } catch (err: any) {
       setError('Imeshindwa kurekodi malipo: ' + err.message);
@@ -329,6 +386,7 @@ export default function CustomerManagement({
 
   const resetPaymentForm = () => {
     setPayAmount(''); setPayNotes(''); setPayDebtId('');
+    setPayAllMode(false);
   };
 
   const openEditModal = () => {
@@ -641,7 +699,7 @@ export default function CustomerManagement({
         </div>
       )}
 
-      {/* MODAL: Add Payment */}
+      {/* MODAL: Add Payment - WITH PAY ALL OPTION */}
       {isAddPaymentOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -653,39 +711,96 @@ export default function CustomerManagement({
             
             <form onSubmit={handleAddPayment} className="space-y-4 text-xs text-left">
               
-              <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
-                  Deni Unalolipia *
-                </label>
-                <select
-                  required
-                  value={payDebtId}
-                  onChange={(e) => {
-                    setPayDebtId(e.target.value);
-                    const selectedDebt = activeCustomerHistory.debts.find(d => d.id === e.target.value);
-                    if (selectedDebt) {
-                      const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === selectedDebt.id);
-                      const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
-                      const remaining = Math.max(0, selectedDebt.amount - paidSum);
-                      setPayAmount(remaining.toString());
-                    }
+              {/* Payment Mode Selector */}
+              <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPayAllMode(false);
+                    setPayAmount('');
                   }}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:ring-accent"
+                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                    !payAllMode 
+                      ? 'bg-white text-slate-800 shadow-sm' 
+                      : 'text-slate-500'
+                  }`}
                 >
-                  <option value="">Chagua deni...</option>
-                  {activeCustomerHistory.debts.map(d => {
-                    const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === d.id);
-                    const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
-                    const remaining = Math.max(0, d.amount - paidSum);
-                    if (remaining <= 0) return null;
-                    return (
-                      <option key={d.id} value={d.id}>
-                        {d.description} (Kiporo: TSh {remaining.toLocaleString()})
-                      </option>
-                    );
-                  })}
-                </select>
+                  <Wallet size={14} /> Deni Moja
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPayAllMode(true);
+                    setPayDebtId('');
+                    setPayAmount(totalRemaining.toString());
+                  }}
+                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                    payAllMode 
+                      ? 'bg-emerald-600 text-white shadow-sm' 
+                      : 'text-slate-500'
+                  }`}
+                >
+                  <ListChecks size={14} /> Lipa Zote
+                </button>
               </div>
+
+              {/* Single Debt Selection (only when not pay-all mode) */}
+              {!payAllMode && (
+                <div>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                    Deni Unalolipia *
+                  </label>
+                  <select
+                    required={!payAllMode}
+                    value={payDebtId}
+                    onChange={(e) => {
+                      setPayDebtId(e.target.value);
+                      const selectedDebt = activeCustomerHistory.debts.find(d => d.id === e.target.value);
+                      if (selectedDebt) {
+                        const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === selectedDebt.id);
+                        const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
+                        const remaining = Math.max(0, selectedDebt.amount - paidSum);
+                        setPayAmount(remaining.toString());
+                      }
+                    }}
+                    className="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:ring-accent"
+                  >
+                    <option value="">Chagua deni...</option>
+                    {activeCustomerHistory.debts.map(d => {
+                      const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === d.id);
+                      const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
+                      const remaining = Math.max(0, d.amount - paidSum);
+                      if (remaining <= 0) return null;
+                      return (
+                        <option key={d.id} value={d.id}>
+                          {d.description} (Kiporo: TSh {remaining.toLocaleString()})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
+
+              {/* Pay All Mode - Show All Debts Summary */}
+              {payAllMode && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs mb-2">
+                    <ListChecks size={14} /> Malipo kwa Madeni Yote ({unpaidDebts.length})
+                  </div>
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                    {unpaidDebts.map(d => (
+                      <div key={d.id} className="flex justify-between text-[11px] bg-white rounded-lg p-2">
+                        <span className="text-slate-600 truncate">{d.description}</span>
+                        <span className="font-bold text-emerald-700">TSh {d.remaining.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between border-t border-emerald-200 pt-2 mt-2">
+                    <span className="font-bold text-emerald-800">JUMLA:</span>
+                    <span className="font-black text-emerald-800 text-sm">TSh {totalRemaining.toLocaleString()}</span>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -735,32 +850,48 @@ export default function CustomerManagement({
                 />
               </div>
 
-              {payDebtId && payAmount && (
+              {/* Payment Summary */}
+              {payAmount && (
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-1.5">
-                  {(() => {
-                    const debt = activeCustomerHistory.debts.find(d => d.id === payDebtId);
-                    if (!debt) return null;
-                    const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === debt.id);
-                    const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
-                    return (
-                      <>
-                        <div className="flex justify-between text-[11px]">
-                          <span className="text-slate-400">Deni Kamili:</span>
-                          <span className="font-bold text-slate-700">TSh {debt.amount.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between text-[11px]">
-                          <span className="text-slate-400">Tayari Kulipwa:</span>
-                          <span className="font-bold text-emerald-600">TSh {paidSum.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between text-[11px] border-t border-slate-200 pt-1.5">
-                          <span className="text-slate-400">Baki Baada ya Malipo:</span>
-                          <span className={`font-bold ${debt.amount - paidSum - Number(payAmount) <= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                            TSh {Math.max(0, debt.amount - paidSum - Number(payAmount)).toLocaleString()}
-                          </span>
-                        </div>
-                      </>
-                    );
-                  })()}
+                  {payAllMode ? (
+                    <>
+                      <div className="flex justify-between text-[11px]">
+                        <span className="text-slate-400">Jumla ya Madeni Yote:</span>
+                        <span className="font-bold text-slate-700">TSh {totalRemaining.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-[11px] border-t border-slate-200 pt-1.5">
+                        <span className="text-slate-400">Baki Baada ya Malipo:</span>
+                        <span className={`font-bold ${totalRemaining - Number(payAmount) <= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          TSh {Math.max(0, totalRemaining - Number(payAmount)).toLocaleString()}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    (() => {
+                      const debt = activeCustomerHistory.debts.find(d => d.id === payDebtId);
+                      if (!debt) return null;
+                      const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === debt.id);
+                      const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
+                      return (
+                        <>
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-slate-400">Deni Kamili:</span>
+                            <span className="font-bold text-slate-700">TSh {debt.amount.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-slate-400">Tayari Kulipwa:</span>
+                            <span className="font-bold text-emerald-600">TSh {paidSum.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between text-[11px] border-t border-slate-200 pt-1.5">
+                            <span className="text-slate-400">Baki Baada ya Malipo:</span>
+                            <span className={`font-bold ${debt.amount - paidSum - Number(payAmount) <= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              TSh {Math.max(0, debt.amount - paidSum - Number(payAmount)).toLocaleString()}
+                            </span>
+                          </div>
+                        </>
+                      );
+                    })()
+                  )}
                 </div>
               )}
 
@@ -768,8 +899,8 @@ export default function CustomerManagement({
                 <button type="button" onClick={() => { setIsAddPaymentOpen(false); resetPaymentForm(); }} disabled={isLoading} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50">
                   Ghairi
                 </button>
-                <button type="submit" disabled={isLoading || !payAmount || !payDebtId || Number(payAmount) <= 0} className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2">
-                  {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inarekodi...</> : 'Hifadhi Malipo'}
+                <button type="submit" disabled={isLoading || !payAmount || (!payAllMode && !payDebtId) || Number(payAmount) <= 0} className={`px-5 py-2 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2 ${payAllMode ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-accent hover:bg-accent/90'}`}>
+                  {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inarekodi...</> : payAllMode ? 'Lipa Zote' : 'Hifadhi Malipo'}
                 </button>
               </div>
             </form>
