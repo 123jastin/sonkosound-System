@@ -11,7 +11,7 @@ import {
   Users, Search, Plus, Filter, Phone, MapPin, 
   Building, UserPlus, CreditCard, ChevronRight, FileText, 
   History, Calendar, Check, AlertCircle, Printer, X, Trash2, Edit2, 
-  ArrowLeft, Loader2, Wallet, ListChecks, Package
+  ArrowLeft, Loader2, ListChecks, Package
 } from 'lucide-react';
 
 interface CustomerManagementProps {
@@ -68,12 +68,10 @@ export default function CustomerManagement({
   const [debtCategory, setDebtCategory] = useState<string>('Mizigo/Products');
   const [debtNotes, setDebtNotes] = useState('');
 
-  // Form states - Quick Payment recording
+  // Form states - Payment recording (PAY ALL MODE ONLY)
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState<string>('Cash');
   const [payNotes, setPayNotes] = useState('');
-  const [payDebtId, setPayDebtId] = useState('');
-  const [payAllMode, setPayAllMode] = useState<boolean>(false);
 
   // Active customer details
   const activeCustomer = useMemo(() => {
@@ -306,7 +304,6 @@ export default function CustomerManagement({
     e.preventDefault();
     if (!selectedCustomerId || !debtDueDate) return;
 
-    // Validate products
     const validProducts = productItems.filter(
       item => item.product_name && Number(item.unit_price) > 0
     );
@@ -321,7 +318,6 @@ export default function CustomerManagement({
     try {
       const today = new Date().toISOString().split('T')[0];
 
-      // Create a debt for EACH product
       for (const product of validProducts) {
         const quantity = Number(product.quantity) || 1;
         const unitPrice = Number(product.unit_price) || 0;
@@ -352,10 +348,10 @@ export default function CustomerManagement({
     }
   };
 
+  // PAY ALL DEBTS AT ONCE
   const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payAmount) return;
-    if (!payAllMode && !payDebtId) return;
 
     setIsLoading(true);
     setError(null);
@@ -363,87 +359,48 @@ export default function CustomerManagement({
     try {
       const totalPayAmount = Number(payAmount);
       
-      if (payAllMode) {
-        let remainingToAllocate = totalPayAmount;
+      // Distribute payment across all unpaid debts
+      let remainingToAllocate = totalPayAmount;
+      
+      for (const debt of unpaidDebts) {
+        if (remainingToAllocate <= 0) break;
         
-        for (const debt of unpaidDebts) {
-          if (remainingToAllocate <= 0) break;
-          
-          const amountToPay = Math.min(remainingToAllocate, debt.remaining);
-          if (amountToPay <= 0) continue;
-          
-          await api.payments.create({
-            id: 'pay-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-            debtId: debt.id,
-            amount: amountToPay,
-            date: new Date().toISOString().split('T')[0],
-            paymentMethod: payMethod,
-            notes: payNotes || `Malipo ya ${debt.description} (Lipa Zote)`
-          });
-          
-          remainingToAllocate -= amountToPay;
-        }
-        
-        onUpdate();
-        setIsAddPaymentOpen(false);
-        resetPaymentForm();
-        
-        if (activeCustomer) {
-          const remainingAfterAll = Math.max(0, totalRemaining - totalPayAmount);
-          try {
-            await fetch('/api/send-payment-sms', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                customerName: activeCustomer.fullName,
-                customerPhone: activeCustomer.phoneNumber,
-                paidAmount: totalPayAmount,
-                remainingAmount: remainingAfterAll,
-                paymentMethod: payMethod
-              })
-            });
-          } catch (smsErr) {
-            console.error('SMS error:', smsErr);
-          }
-        }
-      } else {
-        const selectedDebt = activeCustomerHistory.debts.find(d => d.id === payDebtId);
-        const paymentNotes = payNotes || (selectedDebt ? `Malipo kwa: ${selectedDebt.description}` : 'Malipo ya deni');
-        
-        const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === payDebtId);
-        const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
-        const totalDebtAmount = selectedDebt?.amount || 0;
-        const remainingAfterPayment = Math.max(0, totalDebtAmount - paidSum - totalPayAmount);
+        const amountToPay = Math.min(remainingToAllocate, debt.remaining);
+        if (amountToPay <= 0) continue;
         
         await api.payments.create({
-          id: 'pay-' + Date.now(),
-          debtId: payDebtId,
-          amount: totalPayAmount,
+          id: 'pay-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          debtId: debt.id,
+          amount: amountToPay,
           date: new Date().toISOString().split('T')[0],
           paymentMethod: payMethod,
-          notes: paymentNotes
+          notes: payNotes || `Malipo ya ${debt.description} (Lipa Zote)`
         });
         
-        onUpdate();
-        setIsAddPaymentOpen(false);
-        resetPaymentForm();
-        
-        if (activeCustomer) {
-          try {
-            await fetch('/api/send-payment-sms', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                customerName: activeCustomer.fullName,
-                customerPhone: activeCustomer.phoneNumber,
-                paidAmount: totalPayAmount,
-                remainingAmount: remainingAfterPayment,
-                paymentMethod: payMethod
-              })
-            });
-          } catch (smsErr) {
-            console.error('SMS error:', smsErr);
-          }
+        remainingToAllocate -= amountToPay;
+      }
+      
+      onUpdate();
+      setIsAddPaymentOpen(false);
+      resetPaymentForm();
+      
+      // SMS Notification
+      if (activeCustomer) {
+        const remainingAfterAll = Math.max(0, totalRemaining - totalPayAmount);
+        try {
+          await fetch('/api/send-payment-sms', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              customerName: activeCustomer.fullName,
+              customerPhone: activeCustomer.phoneNumber,
+              paidAmount: totalPayAmount,
+              remainingAmount: remainingAfterAll,
+              paymentMethod: payMethod
+            })
+          });
+        } catch (smsErr) {
+          console.error('SMS error:', smsErr);
         }
       }
       
@@ -460,8 +417,7 @@ export default function CustomerManagement({
   };
 
   const resetPaymentForm = () => {
-    setPayAmount(''); setPayNotes(''); setPayDebtId('');
-    setPayAllMode(false);
+    setPayAmount(''); setPayNotes('');
   };
 
   const openEditModal = () => {
@@ -473,6 +429,14 @@ export default function CustomerManagement({
     setNotes(activeCustomer.notes);
     setPhotoUrl(activeCustomer.photoUrl || '');
     setIsEditModalOpen(true);
+  };
+
+  // Open Payment Modal (pre-fill with total remaining)
+  const openPaymentModal = () => {
+    setPayAmount(totalRemaining.toString());
+    setPayMethod('Cash');
+    setPayNotes('');
+    setIsAddPaymentOpen(true);
   };
 
   const getInitials = (name: string) => {
@@ -565,14 +529,7 @@ export default function CustomerManagement({
                 <button onClick={() => { resetProductForm(); setIsAddDebtOpen(true); }} disabled={isLoading} className="bg-slate-900 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50">
                   <Plus size={14} /> Deni Jipya
                 </button>
-                <button onClick={() => {
-                  const openDebt = activeCustomerHistory.debts.find(d => {
-                    const pSum = payments.filter(p => p.debtId === d.id).reduce((a, x) => a + x.amount, 0);
-                    return d.amount - pSum > 0;
-                  });
-                  if (openDebt) { setPayDebtId(openDebt.id); setIsAddPaymentOpen(true); }
-                  else { alert("Mteja huyu hana deni linalohitaji malipo!"); }
-                }} disabled={isLoading} className="bg-emerald-600 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50">
+                <button onClick={openPaymentModal} disabled={isLoading || unpaidDebts.length === 0} className="bg-emerald-600 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
                   <CreditCard size={14} /> Lipisha Deni
                 </button>
                 <button onClick={() => setIsStatementOpen(true)} className="border border-slate-200 text-slate-700 font-bold py-2.5 px-3 rounded-xl hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5">
@@ -637,7 +594,6 @@ export default function CustomerManagement({
       ) : (
         /* CUSTOMERS LIST VIEW */
         <>
-          {/* Search and filtering bar */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-4 rounded-3xl border border-slate-100 shadow-sm gap-4">
             <div className="relative flex-1">
               <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400"><Search size={18} /></span>
@@ -759,7 +715,6 @@ export default function CustomerManagement({
             
             <FormAIOCR label="Changanua Karatasi kwa AI Camera" onSuccess={(data) => {
               if (data.maelezo_ya_bidhaa) {
-                // Populate first empty product
                 const updated = [...productItems];
                 const emptyIdx = updated.findIndex(p => !p.product_name);
                 if (emptyIdx >= 0) {
@@ -770,7 +725,6 @@ export default function CustomerManagement({
                   }
                   setProductItems(updated);
                 } else {
-                  // Add new product
                   setProductItems([
                     ...updated,
                     {
@@ -788,7 +742,6 @@ export default function CustomerManagement({
             
             <form onSubmit={handleAddDebt} className="space-y-4 text-xs text-left">
               
-              {/* Products Section */}
               <div className="space-y-3">
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
                   <Package size={13} /> Bidhaa ({productItems.length})
@@ -855,7 +808,6 @@ export default function CustomerManagement({
                 </button>
               </div>
 
-              {/* Products Total */}
               <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200">
                 <div className="flex justify-between items-center">
                   <span className="text-sm font-bold text-slate-800">JUMLA KUU:</span>
@@ -863,7 +815,6 @@ export default function CustomerManagement({
                 </div>
               </div>
 
-              {/* Category and Due Date */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kundi *</label>
@@ -888,7 +839,6 @@ export default function CustomerManagement({
                 </div>
               </div>
 
-              {/* Notes */}
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo ya Ziada</label>
                 <textarea 
@@ -899,7 +849,6 @@ export default function CustomerManagement({
                 />
               </div>
 
-              {/* Action Buttons */}
               <div className="pt-2 flex justify-end gap-2">
                 <button 
                   type="button" 
@@ -926,7 +875,7 @@ export default function CustomerManagement({
         </div>
       )}
 
-      {/* MODAL: Add Payment - WITH PAY ALL OPTION */}
+      {/* MODAL: Payment (LIPA ZOTE ONLY) */}
       {isAddPaymentOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -934,100 +883,31 @@ export default function CustomerManagement({
               <X size={18} />
             </button>
             
-            <h3 className="text-md font-bold text-slate-850">Rekodi Malipo kutoka kwa {activeCustomer?.fullName}</h3>
+            <h3 className="text-md font-bold text-slate-850 flex items-center gap-1.5">
+              <ListChecks className="text-emerald-600" size={18} />
+              Lipa Madeni Yote - {activeCustomer?.fullName}
+            </h3>
             
             <form onSubmit={handleAddPayment} className="space-y-4 text-xs text-left">
               
-              {/* Payment Mode Selector */}
-              <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPayAllMode(false);
-                    setPayAmount('');
-                  }}
-                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                    !payAllMode 
-                      ? 'bg-white text-slate-800 shadow-sm' 
-                      : 'text-slate-500'
-                  }`}
-                >
-                  <Wallet size={14} /> Deni Moja
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPayAllMode(true);
-                    setPayDebtId('');
-                    setPayAmount(totalRemaining.toString());
-                  }}
-                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                    payAllMode 
-                      ? 'bg-emerald-600 text-white shadow-sm' 
-                      : 'text-slate-500'
-                  }`}
-                >
-                  <ListChecks size={14} /> Lipa Zote
-                </button>
+              {/* Pay All Summary */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs mb-2">
+                  <ListChecks size={14} /> Madeni Yote ({unpaidDebts.length})
+                </div>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {unpaidDebts.map(d => (
+                    <div key={d.id} className="flex justify-between text-[11px] bg-white rounded-lg p-2">
+                      <span className="text-slate-600 truncate">{d.description}</span>
+                      <span className="font-bold text-emerald-700">TSh {d.remaining.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between border-t border-emerald-200 pt-2 mt-2">
+                  <span className="font-bold text-emerald-800">JUMLA KUU:</span>
+                  <span className="font-black text-emerald-800 text-base">TSh {totalRemaining.toLocaleString()}</span>
+                </div>
               </div>
-
-              {/* Single Debt Selection */}
-              {!payAllMode && (
-                <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
-                    Deni Unalolipia *
-                  </label>
-                  <select
-                    required={!payAllMode}
-                    value={payDebtId}
-                    onChange={(e) => {
-                      setPayDebtId(e.target.value);
-                      const selectedDebt = activeCustomerHistory.debts.find(d => d.id === e.target.value);
-                      if (selectedDebt) {
-                        const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === selectedDebt.id);
-                        const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
-                        const remaining = Math.max(0, selectedDebt.amount - paidSum);
-                        setPayAmount(remaining.toString());
-                      }
-                    }}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:ring-accent"
-                  >
-                    <option value="">Chagua deni...</option>
-                    {activeCustomerHistory.debts.map(d => {
-                      const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === d.id);
-                      const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
-                      const remaining = Math.max(0, d.amount - paidSum);
-                      if (remaining <= 0) return null;
-                      return (
-                        <option key={d.id} value={d.id}>
-                          {d.description} (Kiporo: TSh {remaining.toLocaleString()})
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-              )}
-
-              {/* Pay All Mode Summary */}
-              {payAllMode && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2">
-                  <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs mb-2">
-                    <ListChecks size={14} /> Malipo kwa Madeni Yote ({unpaidDebts.length})
-                  </div>
-                  <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                    {unpaidDebts.map(d => (
-                      <div key={d.id} className="flex justify-between text-[11px] bg-white rounded-lg p-2">
-                        <span className="text-slate-600 truncate">{d.description}</span>
-                        <span className="font-bold text-emerald-700">TSh {d.remaining.toLocaleString()}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex justify-between border-t border-emerald-200 pt-2 mt-2">
-                    <span className="font-bold text-emerald-800">JUMLA:</span>
-                    <span className="font-black text-emerald-800 text-sm">TSh {totalRemaining.toLocaleString()}</span>
-                  </div>
-                </div>
-              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1079,45 +959,20 @@ export default function CustomerManagement({
 
               {payAmount && (
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-1.5">
-                  {payAllMode ? (
-                    <>
-                      <div className="flex justify-between text-[11px]">
-                        <span className="text-slate-400">Jumla ya Madeni Yote:</span>
-                        <span className="font-bold text-slate-700">TSh {totalRemaining.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between text-[11px] border-t border-slate-200 pt-1.5">
-                        <span className="text-slate-400">Baki Baada ya Malipo:</span>
-                        <span className={`font-bold ${totalRemaining - Number(payAmount) <= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          TSh {Math.max(0, totalRemaining - Number(payAmount)).toLocaleString()}
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    (() => {
-                      const debt = activeCustomerHistory.debts.find(d => d.id === payDebtId);
-                      if (!debt) return null;
-                      const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === debt.id);
-                      const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
-                      return (
-                        <>
-                          <div className="flex justify-between text-[11px]">
-                            <span className="text-slate-400">Deni Kamili:</span>
-                            <span className="font-bold text-slate-700">TSh {debt.amount.toLocaleString()}</span>
-                          </div>
-                          <div className="flex justify-between text-[11px]">
-                            <span className="text-slate-400">Tayari Kulipwa:</span>
-                            <span className="font-bold text-emerald-600">TSh {paidSum.toLocaleString()}</span>
-                          </div>
-                          <div className="flex justify-between text-[11px] border-t border-slate-200 pt-1.5">
-                            <span className="text-slate-400">Baki Baada ya Malipo:</span>
-                            <span className={`font-bold ${debt.amount - paidSum - Number(payAmount) <= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                              TSh {Math.max(0, debt.amount - paidSum - Number(payAmount)).toLocaleString()}
-                            </span>
-                          </div>
-                        </>
-                      );
-                    })()
-                  )}
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-slate-400">Jumla ya Madeni Yote:</span>
+                    <span className="font-bold text-slate-700">TSh {totalRemaining.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-slate-400">Unalipa:</span>
+                    <span className="font-bold text-emerald-600">TSh {Number(payAmount).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px] border-t border-slate-200 pt-1.5">
+                    <span className="text-slate-400">Baki Baada ya Malipo:</span>
+                    <span className={`font-bold ${totalRemaining - Number(payAmount) <= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      TSh {Math.max(0, totalRemaining - Number(payAmount)).toLocaleString()}
+                    </span>
+                  </div>
                 </div>
               )}
 
@@ -1125,8 +980,8 @@ export default function CustomerManagement({
                 <button type="button" onClick={() => { setIsAddPaymentOpen(false); resetPaymentForm(); }} disabled={isLoading} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50">
                   Ghairi
                 </button>
-                <button type="submit" disabled={isLoading || !payAmount || (!payAllMode && !payDebtId) || Number(payAmount) <= 0} className={`px-5 py-2 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2 ${payAllMode ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-accent hover:bg-accent/90'}`}>
-                  {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inarekodi...</> : payAllMode ? 'Lipa Zote' : 'Hifadhi Malipo'}
+                <button type="submit" disabled={isLoading || !payAmount || Number(payAmount) <= 0} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2">
+                  {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inarekodi...</> : 'Lipa Zote'}
                 </button>
               </div>
             </form>
