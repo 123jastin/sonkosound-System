@@ -7,7 +7,7 @@ type Env = {
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
@@ -20,6 +20,7 @@ const json = (data: any, status = 200) =>
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
+// POST - Add new worker
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => null);
@@ -28,7 +29,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'No data provided' }, 400);
     }
 
-    const { name, phone } = body;
+    const { name, phone, photo } = body;
 
     if (!name) {
       return json({ success: false, error: 'Jina linahitajika' }, 400);
@@ -46,12 +47,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const workerId = 'worker-' + Date.now();
 
     await env.DB.prepare(`
-      INSERT INTO stock_workers (id, name, phone, created_at)
-      VALUES (?, ?, ?, datetime('now'))
-    `).bind(workerId, name.trim(), phone || '').run();
+      INSERT INTO stock_workers (id, name, phone, photo, created_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `).bind(workerId, name.trim(), phone || '', photo || '').run();
 
     const worker = await env.DB.prepare(
-      `SELECT id, name, phone, created_at FROM stock_workers WHERE id = ? LIMIT 1`
+      `SELECT id, name, phone, photo, created_at FROM stock_workers WHERE id = ? LIMIT 1`
     ).bind(workerId).first();
 
     return json({
