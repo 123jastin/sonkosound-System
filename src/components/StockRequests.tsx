@@ -7,7 +7,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   Plus, User, X, Trash2, Check, Loader2, AlertCircle,
   Package, Search, ArrowLeft, CheckCircle2, Clock,
-  ListChecks, Phone, UserPlus, ChevronRight, FileText
+  ListChecks, Phone, UserPlus, ChevronRight, LogOut
 } from 'lucide-react';
 
 // Interfaces
@@ -32,11 +32,13 @@ interface StockItem {
 
 interface StockRequestsProps {
   onUpdate?: () => void;
+  isWorkerMode?: boolean;
 }
 
 const API_BASE_URL = '/api/stock-requests';
+const WORKER_DEVICE_KEY = 'worker_device_id';
 
-export default function StockRequests({ onUpdate }: StockRequestsProps) {
+export default function StockRequests({ onUpdate, isWorkerMode = false }: StockRequestsProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -45,7 +47,8 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
-  const [isAdminView, setIsAdminView] = useState(false);
+  const [rememberedWorkerId, setRememberedWorkerId] = useState<string | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
   
   // Modals
   const [isAddWorkerModalOpen, setIsAddWorkerModalOpen] = useState(false);
@@ -65,6 +68,9 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [adminFilter, setAdminFilter] = useState<'All' | 'Pending' | 'Completed'>('Pending');
 
+  // ============================================
+  // LOAD DATA
+  // ============================================
   const loadData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -78,7 +84,6 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
       }
     } catch (err) {
       console.error('Failed to load stock requests:', err);
-      // localStorage fallback
       const savedData = localStorage.getItem('stock_requests_data');
       if (savedData) {
         try {
@@ -98,6 +103,44 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
     loadData();
   }, [loadData]);
 
+  // ============================================
+  // BROWSER MEMORY (Remember worker)
+  // ============================================
+  useEffect(() => {
+    const savedWorkerId = localStorage.getItem(WORKER_DEVICE_KEY);
+    if (savedWorkerId) {
+      setRememberedWorkerId(savedWorkerId);
+    }
+  }, []);
+
+  // Auto-select remembered worker after data loads
+  useEffect(() => {
+    if (!isInitializing && rememberedWorkerId && workers.length > 0) {
+      const exists = workers.find(w => w.id === rememberedWorkerId);
+      if (exists) {
+        console.log('🧠 Auto-selecting remembered worker:', exists.name);
+        setSelectedWorkerId(rememberedWorkerId);
+      } else {
+        // Worker no longer exists
+        console.log('⚠️ Remembered worker not found, clearing');
+        localStorage.removeItem(WORKER_DEVICE_KEY);
+        setRememberedWorkerId(null);
+      }
+    }
+  }, [rememberedWorkerId, workers, isInitializing]);
+
+  // Mark initialization complete
+  useEffect(() => {
+    if (!isLoading && workers.length >= 0) {
+      // Small delay to ensure state is settled
+      const timer = setTimeout(() => setIsInitializing(false), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading, workers]);
+
+  // ============================================
+  // COMPUTED
+  // ============================================
   const activeWorker = useMemo(() => {
     if (!selectedWorkerId) return null;
     return workers.find(w => w.id === selectedWorkerId) || null;
@@ -114,7 +157,6 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
       });
   }, [stockItems, selectedWorkerId]);
 
-  // Worker stats
   const activeWorkerStats = useMemo(() => {
     const items = activeWorkerItems;
     const pending = items.filter(i => i.status === 'Pending').length;
@@ -122,14 +164,12 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
     return { total: items.length, pending, completed };
   }, [activeWorkerItems]);
 
-  // Admin stats
   const adminStats = useMemo(() => {
     const pending = stockItems.filter(i => i.status === 'Pending').length;
     const completed = stockItems.filter(i => i.status === 'Completed').length;
     return { total: stockItems.length, pending, completed };
   }, [stockItems]);
 
-  // Admin filtered items
   const adminFilteredItems = useMemo(() => {
     let items = stockItems;
     
@@ -152,8 +192,31 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
   }, [stockItems, adminFilter, searchTerm]);
 
   // ============================================
-  // WORKER HANDLERS
+  // HANDLERS
   // ============================================
+
+  const handleSelectWorker = (workerId: string) => {
+    setSelectedWorkerId(workerId);
+    // Remember this worker on this device
+    localStorage.setItem(WORKER_DEVICE_KEY, workerId);
+    setRememberedWorkerId(workerId);
+    console.log('💾 Remembered worker on this device:', workerId);
+  };
+
+  const handleSwitchWorker = () => {
+    setSelectedWorkerId(null);
+    // Do NOT remove remembered ID - keep it so they come back to their list
+    console.log('🔄 Switching worker - keeping memory');
+  };
+
+  const handleForgetWorker = () => {
+    if (!confirm('Je, una uhakika unataka kuondoa kumbukumbu ya jina lako kwenye kifaa hiki?')) return;
+    localStorage.removeItem(WORKER_DEVICE_KEY);
+    setRememberedWorkerId(null);
+    setSelectedWorkerId(null);
+    setSuccessMessage('Kumbukumbu imeondolewa');
+    setTimeout(() => setSuccessMessage(null), 3000);
+  };
 
   const handleAddWorker = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -186,13 +249,14 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
       const result = await response.json();
       
       if (result.success) {
-        setWorkers(prev => [...prev, result.worker]);
+        const newWorker = result.worker;
+        setWorkers(prev => [...prev, newWorker]);
         setIsAddWorkerModalOpen(false);
         setWorkerName('');
         setWorkerPhone('');
         
-        // Auto-select the new worker
-        setSelectedWorkerId(result.worker.id);
+        // Auto-select AND remember the new worker
+        handleSelectWorker(newWorker.id);
         
         setSuccessMessage('Jina lako limesajiliwa!');
         setTimeout(() => setSuccessMessage(null), 3000);
@@ -212,7 +276,8 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
       setIsAddWorkerModalOpen(false);
       setWorkerName('');
       setWorkerPhone('');
-      setSelectedWorkerId(newWorker.id);
+      
+      handleSelectWorker(newWorker.id);
       
       // Save to localStorage
       const savedData = localStorage.getItem('stock_requests_data');
@@ -226,10 +291,6 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
       setIsLoading(false);
     }
   };
-
-  // ============================================
-  // PRODUCT HANDLERS
-  // ============================================
 
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -345,7 +406,6 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
           : item
       ));
       
-      // Update localStorage
       const savedData = localStorage.getItem('stock_requests_data');
       if (savedData) {
         const parsed = JSON.parse(savedData);
@@ -384,10 +444,8 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
       }
     } catch (err: any) {
       console.error('Failed to delete item:', err);
-      // Update locally
       setStockItems(prev => prev.filter(item => item.id !== itemId));
       
-      // Update localStorage
       const savedData = localStorage.getItem('stock_requests_data');
       if (savedData) {
         const parsed = JSON.parse(savedData);
@@ -420,6 +478,20 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
     });
   };
 
+  // ============================================
+  // LOADING SCREEN
+  // ============================================
+  if (isInitializing && rememberedWorkerId) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center space-y-3">
+          <Loader2 size={32} className="text-accent animate-spin mx-auto" />
+          <p className="text-xs text-slate-400">Inakukumbuka...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       
@@ -444,7 +516,7 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
         </div>
       )}
 
-      {isLoading && (
+      {isLoading && !isInitializing && (
         <div className="flex items-center justify-center gap-2 text-xs text-slate-400 py-2">
           <Loader2 size={14} className="animate-spin" />
           <span>Inasasisha...</span>
@@ -455,13 +527,15 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
       {activeWorker ? (
         /* WORKER'S PERSONAL LIST */
         <div className="space-y-6 text-xs text-left">
+          
           {/* Worker Header */}
           <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-4">
                 <button 
-                  onClick={() => setSelectedWorkerId(null)}
+                  onClick={handleSwitchWorker}
                   className="p-2.5 hover:bg-slate-50 text-slate-500 hover:text-slate-700 rounded-2xl border border-slate-100 transition-colors"
+                  title="Badilisha Jina"
                 >
                   <ArrowLeft size={16} />
                 </button>
@@ -470,15 +544,33 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-slate-800">{activeWorker.name}</h3>
-                  <p className="text-xs text-slate-400 mt-1">Orodha ya Bidhaa Zisizopo</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Orodha yako ya Bidhaa Zisizopo
+                  </p>
+                  {rememberedWorkerId === activeWorker.id && (
+                    <p className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1">
+                      <CheckCircle2 size={10} /> Imekumbukwa kwenye kifaa hiki
+                    </p>
+                  )}
                 </div>
               </div>
-              <button 
-                onClick={() => setIsAddProductModalOpen(true)}
-                className="bg-accent hover:bg-accent/90 text-white font-bold py-2.5 px-5 rounded-xl flex items-center gap-2 shadow-sm transition"
-              >
-                <Plus size={16} /> Ongeza Bidhaa
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button 
+                  onClick={() => setIsAddProductModalOpen(true)}
+                  className="bg-accent hover:bg-accent/90 text-white font-bold py-2.5 px-5 rounded-xl flex items-center justify-center gap-2 shadow-sm transition"
+                >
+                  <Plus size={16} /> Ongeza Bidhaa
+                </button>
+                {rememberedWorkerId === activeWorker.id && (
+                  <button 
+                    onClick={handleForgetWorker}
+                    className="border border-slate-200 hover:bg-slate-50 text-slate-500 font-semibold py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition text-[11px]"
+                    title="Ondoa kumbukumbu ya kifaa hiki"
+                  >
+                    <LogOut size={13} /> Ondoa Kumbukumbu
+                  </button>
+                )}
+              </div>
             </div>
             
             {/* Stats */}
@@ -555,16 +647,20 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
                 Orodha ya Bidhaa Zisizopo
               </h2>
               <p className="text-xs text-slate-400 mt-1">
-                Chagua jina lako ili kuona au kuongeza bidhaa
+                {rememberedWorkerId 
+                  ? 'Chagua jina lako au endelea na lililokumbukwa' 
+                  : 'Chagua jina lako ili kuona au kuongeza bidhaa'}
               </p>
             </div>
             <div className="flex gap-2">
-              <button 
-                onClick={() => setIsViewAllModalOpen(true)}
-                className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition"
-              >
-                <ListChecks size={15} /> Orodha Yote (Admin)
-              </button>
+              {!isWorkerMode && (
+                <button 
+                  onClick={() => setIsViewAllModalOpen(true)}
+                  className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition"
+                >
+                  <ListChecks size={15} /> Orodha Yote (Admin)
+                </button>
+              )}
               <button 
                 onClick={() => setIsAddWorkerModalOpen(true)}
                 className="bg-accent hover:bg-accent/90 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition"
@@ -580,20 +676,34 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
               const workerItems = stockItems.filter(i => i.worker_id === worker.id);
               const pendingCount = workerItems.filter(i => i.status === 'Pending').length;
               const completedCount = workerItems.filter(i => i.status === 'Completed').length;
+              const isRemembered = rememberedWorkerId === worker.id;
               
               return (
                 <div 
                   key={worker.id}
-                  onClick={() => setSelectedWorkerId(worker.id)}
-                  className="bg-white rounded-3xl border border-slate-100 p-5 shadow-sm hover:shadow-md hover:border-accent/50 cursor-pointer transition"
+                  onClick={() => handleSelectWorker(worker.id)}
+                  className={`bg-white rounded-3xl border p-5 shadow-sm hover:shadow-md cursor-pointer transition ${
+                    isRemembered 
+                      ? 'border-emerald-300 ring-2 ring-emerald-500/20 bg-emerald-50/30' 
+                      : 'border-slate-100 hover:border-accent/50'
+                  }`}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="h-12 w-12 rounded-xl bg-accent/10 text-accent font-bold flex items-center justify-center">
+                      <div className={`h-12 w-12 rounded-xl font-bold flex items-center justify-center ${
+                        isRemembered ? 'bg-emerald-100 text-emerald-700' : 'bg-accent/10 text-accent'
+                      }`}>
                         {getInitials(worker.name)}
                       </div>
                       <div>
-                        <h3 className="text-sm font-bold text-slate-800">{worker.name}</h3>
+                        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                          {worker.name}
+                          {isRemembered && (
+                            <span title="Imekumbukwa kwenye kifaa hiki">
+                              <CheckCircle2 size={12} className="text-emerald-600" />
+                            </span>
+                          )}
+                        </h3>
                         {worker.phone && (
                           <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
                             <Phone size={10} /> {worker.phone}
@@ -657,7 +767,7 @@ export default function StockRequests({ onUpdate }: StockRequestsProps) {
               Ongeza Jina Lako
             </h3>
             <p className="text-xs text-slate-400">
-              Andika jina lako ili kuweza kuweka bidhaa zisizopo
+              Andika jina lako ili kuweza kuweka bidhaa zisizopo. Kifaa hiki kitakukumbuka.
             </p>
             <form onSubmit={handleAddWorker} className="space-y-4 text-xs text-left">
               <div>
