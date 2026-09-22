@@ -20,7 +20,7 @@ const json = (data: any, status = 200) =>
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
-// PUT - Update status
+// PUT - Update status (accepts both 'Purchased' and 'Completed')
 export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
@@ -35,21 +35,28 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
 
     const { status } = body;
 
-    if (!status || !['Pending', 'Completed'].includes(status)) {
+    // ✅ Accept BOTH 'Completed' (legacy) and 'Purchased' (new)
+    if (!status || !['Pending', 'Completed', 'Purchased'].includes(status)) {
       return json({ success: false, error: 'Invalid status' }, 400);
     }
 
-    const completedAt = status === 'Completed' ? new Date().toISOString() : null;
+    // Normalize: store 'Purchased' as-is, but treat 'Completed' the same
+    const normalizedStatus = status;
+    const purchasedAt = (status === 'Completed' || status === 'Purchased') 
+      ? new Date().toISOString() 
+      : null;
 
     await env.DB.prepare(`
       UPDATE stock_items 
       SET status = ?, completed_at = ?
       WHERE id = ?
-    `).bind(status, completedAt, itemId).run();
+    `).bind(normalizedStatus, purchasedAt, itemId).run();
 
     return json({
       success: true,
-      message: status === 'Completed' ? 'Imewekwa kama imefanyika' : 'Imerejeshwa'
+      message: (status === 'Completed' || status === 'Purchased') 
+        ? 'Imewekwa kama Zimenunuliwa' 
+        : 'Imerejeshwa'
     });
   } catch (error: any) {
     console.error('Failed to update status:', error);
