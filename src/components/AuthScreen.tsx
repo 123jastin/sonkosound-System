@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { Lock, Eye, EyeOff, Shield, RefreshCw, KeyRound, Phone, MapPin, Building, Loader2, Package, ArrowRight } from 'lucide-react';
+import { Lock, Eye, EyeOff, Shield, RefreshCw, KeyRound, Phone, MapPin, Building, Loader2, ArrowRight } from 'lucide-react';
 
 interface AuthScreenProps {
   onAuthenticated: () => void;
@@ -135,25 +135,13 @@ export default function AuthScreen({ onAuthenticated, onWorkerAccess }: AuthScre
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4">
         
-        {/* WORKER ACCESS BUTTON - Prominent at top */}
+        {/* WORKER ACCESS BUTTON */}
         <div className="bg-gradient-to-br from-accent to-accent/80 rounded-3xl p-6 shadow-xl mb-4 border border-accent/20">
-          <div className="flex items-start gap-3 mb-4">
-            <div className="h-12 w-12 rounded-2xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
-              <Package size={24} className="text-white" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-white font-bold text-base">Wafanyakazi (Workers)</h3>
-              <p className="text-white/80 text-xs mt-1">
-                Ingia hapa kuweka bidhaa zisizopo - HAKUNA PIN inahitajika
-              </p>
-            </div>
-          </div>
           <button
             onClick={onWorkerAccess}
             className="w-full bg-white text-accent font-bold py-3.5 px-4 rounded-2xl hover:bg-white/95 transition flex items-center justify-center gap-2 shadow-lg"
           >
-            <Package size={18} />
-            <span>Ingia kama Mfanyakazi</span>
+            <span>Ingia Hapa</span>
             <ArrowRight size={16} />
           </button>
         </div>
@@ -165,7 +153,7 @@ export default function AuthScreen({ onAuthenticated, onWorkerAccess }: AuthScre
           <div className="flex-1 h-px bg-slate-200"></div>
         </div>
 
-        {/* ADMIN LOGIN (existing) */}
+        {/* ADMIN LOGIN */}
         <div className="bg-white py-8 px-4 shadow-xl rounded-3xl sm:px-10 border border-slate-100">
           {!isForgotMode ? (
             <div>
@@ -173,7 +161,7 @@ export default function AuthScreen({ onAuthenticated, onWorkerAccess }: AuthScre
                 <span className="inline-flex p-3 rounded-full bg-accent/10 text-accent">
                   <Lock size={20} />
                 </span>
-                <h3 className="text-lg font-medium text-slate-800 mt-2">Mmiliki / Admin</h3>
+                <h3 className="text-lg font-medium text-slate-800 mt-2">Admin</h3>
                 <p className="text-xs text-slate-400">Weka PIN ya biashara kuingia</p>
               </div>
 
