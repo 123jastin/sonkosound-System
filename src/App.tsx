@@ -160,6 +160,14 @@ function generateNotificationsFromData(
 }
 
 export default function App() {
+  // ============================================
+  // NEW: Detect worker URL parameter (?worker=1)
+  // ============================================
+  const [isWorkerUrl, setIsWorkerUrl] = useState<boolean>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('worker') === '1';
+  });
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('ledger_authenticated') === 'true';
   });
@@ -183,7 +191,6 @@ export default function App() {
 
   // Admin SMS processing state
   const [isProcessingAdminSMS, setIsProcessingAdminSMS] = useState(false);
-  const adminSMSProcessedRef = useRef(false);
 
   // Total notification count for badge
   const totalAlertCount = notifications.filter(n => n.type === 'Overdue' || n.type === 'Due Today').length + 
@@ -213,12 +220,12 @@ export default function App() {
 
   // Trigger admin SMS processing on app load and every 5 minutes
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !isWorkerUrl) {
       processAdminSMSQueue();
       const interval = setInterval(processAdminSMSQueue, 5 * 60 * 1000);
       return () => clearInterval(interval);
     }
-  }, [isAuthenticated, processAdminSMSQueue]);
+  }, [isAuthenticated, isWorkerUrl, processAdminSMSQueue]);
 
   const tryLoadFromLocalStorage = () => {
     try {
@@ -335,12 +342,12 @@ export default function App() {
   }, [cacheDataToLocalStorage]);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !isWorkerUrl) {
       tryLoadFromLocalStorage();
       syncDatabaseStates(true);
       processAdminSMSQueue();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isWorkerUrl]);
 
   const handleAuthenticated = () => {
     setIsAuthenticated(true);
@@ -384,6 +391,56 @@ export default function App() {
     { id: 'settings', label: 'Mipangilio (Settings)', icon: Settings },
   ];
 
+  // ============================================
+  // WORKER VIEW (URL-based, no login required)
+  // Access via: your-app.pages.dev/?worker=1
+  // ============================================
+  if (isWorkerUrl) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col">
+        {/* Worker Header */}
+        <header className="bg-slate-900 text-slate-300 flex items-center justify-between p-4 sticky top-0 z-40 border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-lg bg-accent flex items-center justify-center text-white font-bold shadow-md shadow-accent/20">
+              <Package size={14} />
+            </div>
+            <div>
+              <h2 className="text-xs font-bold text-white">Sonko Sound</h2>
+              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
+                Bidhaa Zisizopo
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setIsWorkerUrl(false);
+              window.history.replaceState({}, '', window.location.pathname);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 transition"
+          >
+            Rudi
+          </button>
+        </header>
+
+        {/* Worker Content */}
+        <main className="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full overflow-y-auto">
+          <StockRequests 
+            onUpdate={() => {}} 
+            isWorkerMode={true}
+          />
+        </main>
+
+        {/* Worker Footer */}
+        <footer className="bg-slate-900 text-slate-400 p-4 text-center border-t border-slate-800">
+          <p className="text-[10px]">Morogoro, Tanzania • 0688423753</p>
+        </footer>
+      </div>
+    );
+  }
+
+  // ============================================
+  // AUTH SCREEN (Admin)
+  // ============================================
   if (!isAuthenticated) {
     return <AuthScreen onAuthenticated={handleAuthenticated} />;
   }
@@ -404,6 +461,9 @@ export default function App() {
     );
   }
 
+  // ============================================
+  // ADMIN DASHBOARD
+  // ============================================
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans transition-colors duration-250">
       
