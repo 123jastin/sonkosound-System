@@ -20,7 +20,7 @@ const json = (data: any, status = 200) =>
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
-// PUT - Update status (mark as complete/pending)
+// PUT - Update status
 export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
