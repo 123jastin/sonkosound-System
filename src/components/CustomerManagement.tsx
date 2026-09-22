@@ -31,6 +31,11 @@ interface ProductItem {
   total_price: number;
 }
 
+// ============================================
+// LOGO URL (constant — easy to change)
+// ============================================
+const LOGO_URL = 'https://pics.sonkosound.store/file_0000000018a881f4bef28aaff0866bbd.png';
+
 export default function CustomerManagement({
   customers,
   debts,
@@ -68,10 +73,11 @@ export default function CustomerManagement({
   const [debtCategory, setDebtCategory] = useState<string>('Mizigo/Products');
   const [debtNotes, setDebtNotes] = useState('');
 
-  // Form states - Payment recording (PAY ALL MODE ONLY)
+  // Form states - Payment recording
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState<string>('Cash');
   const [payNotes, setPayNotes] = useState('');
+  const [payAmountError, setPayAmountError] = useState(false);
 
   // Active customer details
   const activeCustomer = useMemo(() => {
@@ -299,7 +305,6 @@ export default function CustomerManagement({
     }
   };
 
-  // ADD MULTIPLE DEBTS AT ONCE
   const handleAddDebt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomerId || !debtDueDate) return;
@@ -348,11 +353,18 @@ export default function CustomerManagement({
     }
   };
 
-  // PAY ALL DEBTS AT ONCE
   const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!payAmount) return;
+    
+    // ✅ VALIDATION: Amount is required
+    if (!payAmount || Number(payAmount) <= 0) {
+      setPayAmountError(true);
+      setError('Tafadhali jaza kiasi cha malipo');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
 
+    setPayAmountError(false);
     setIsLoading(true);
     setError(null);
     
@@ -374,7 +386,7 @@ export default function CustomerManagement({
           amount: amountToPay,
           date: new Date().toISOString().split('T')[0],
           paymentMethod: payMethod,
-          notes: payNotes || `Malipo ya ${debt.description} (Lipa Zote)`
+          notes: payNotes || `Malipo ya ${debt.description}`
         });
         
         remainingToAllocate -= amountToPay;
@@ -417,7 +429,7 @@ export default function CustomerManagement({
   };
 
   const resetPaymentForm = () => {
-    setPayAmount(''); setPayNotes('');
+    setPayAmount(''); setPayNotes(''); setPayAmountError(false);
   };
 
   const openEditModal = () => {
@@ -431,11 +443,12 @@ export default function CustomerManagement({
     setIsEditModalOpen(true);
   };
 
-  // Open Payment Modal (pre-fill with total remaining)
+  // Open Payment Modal — starts EMPTY now (no auto-fill)
   const openPaymentModal = () => {
-    setPayAmount(totalRemaining.toString());
+    setPayAmount('');            // ✅ EMPTY instead of auto-filled
     setPayMethod('Cash');
     setPayNotes('');
+    setPayAmountError(false);
     setIsAddPaymentOpen(true);
   };
 
@@ -447,6 +460,469 @@ export default function CustomerManagement({
     businessName: 'Sonko Sound',
     businessAddress: 'Morogoro, Tanzania',
     businessPhone: '0688423753'
+  };
+
+  // ============================================
+  // PRINT STATEMENT (with logo)
+  // ============================================
+  const handlePrintStatement = () => {
+    if (!activeCustomer || !activeCustomerStats) return;
+
+    const now = new Date();
+    const statementId = `STM-${Date.now().toString(36).toUpperCase()}`;
+
+    const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Taarifa - ${activeCustomer.fullName}</title>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    @page { size: A4; margin: 12mm; }
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; background: white; color: #1e293b; padding: 20px; }
+    .container { max-width: 190mm; margin: 0 auto; }
+    
+    /* ============ HEADER WITH LOGO ============ */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 24px;
+      background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 50%, #22c55e 100%);
+      color: white;
+      border-radius: 12px;
+      margin-bottom: 24px;
+      gap: 20px;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .logo-box {
+      width: 70px;
+      height: 70px;
+      border-radius: 14px;
+      background: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .logo-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .business-info {
+      display: flex;
+      flex-direction: column;
+    }
+    .business-name {
+      font-size: 22px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      line-height: 1.1;
+    }
+    .business-slogan {
+      font-size: 11px;
+      opacity: 0.9;
+      margin-top: 4px;
+    }
+    .business-contact {
+      font-size: 10px;
+      opacity: 0.85;
+      margin-top: 3px;
+    }
+    .header-right {
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .statement-badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.2);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .statement-id {
+      font-size: 10px;
+      opacity: 0.8;
+      margin-top: 8px;
+      font-family: monospace;
+    }
+    
+    /* ============ BODY SECTIONS ============ */
+    .section {
+      margin-bottom: 24px;
+    }
+    .section-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: #1e3a5f;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #e2e8f0;
+    }
+    
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      padding: 16px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+    }
+    .info-card {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .info-label {
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #64748b;
+      letter-spacing: 0.5px;
+    }
+    .info-value {
+      font-size: 13px;
+      font-weight: bold;
+      color: #1e293b;
+    }
+    .info-value.highlight {
+      color: #dc2626;
+      font-size: 16px;
+    }
+    
+    /* ============ TABLES ============ */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    thead th {
+      background: #1e3a5f;
+      color: white;
+      padding: 10px 12px;
+      text-align: left;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 800;
+    }
+    thead th:last-child {
+      text-align: right;
+    }
+    tbody td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: 11px;
+      color: #334155;
+    }
+    tbody td:last-child {
+      text-align: right;
+      font-weight: bold;
+    }
+    tbody tr:nth-child(even) {
+      background: #f8fafc;
+    }
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+    .empty-row {
+      text-align: center !important;
+      padding: 20px !important;
+      color: #94a3b8;
+      font-style: italic;
+    }
+    .payment-amount {
+      color: #059669;
+      font-weight: bold;
+    }
+    
+    /* ============ SUMMARY ============ */
+    .summary-box {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .summary-item {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 12px;
+      text-align: center;
+    }
+    .summary-item.total {
+      background: #fef2f2;
+      border-color: #fecaca;
+    }
+    .summary-item.paid {
+      background: #f0fdf4;
+      border-color: #bbf7d0;
+    }
+    .summary-item.balance {
+      background: #fff7ed;
+      border-color: #fed7aa;
+    }
+    .summary-label {
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #64748b;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .summary-value {
+      font-size: 18px;
+      font-weight: 900;
+      color: #1e293b;
+    }
+    .summary-item.total .summary-value { color: #1e293b; }
+    .summary-item.paid .summary-value { color: #059669; }
+    .summary-item.balance .summary-value { color: #dc2626; }
+    
+    /* ============ SIGNATURES ============ */
+    .signatures {
+      display: flex;
+      justify-content: space-between;
+      gap: 40px;
+      margin-top: 50px;
+      padding: 0 20px;
+    }
+    .signature-box {
+      flex: 1;
+      text-align: center;
+    }
+    .signature-line {
+      border-top: 1.5px solid #1e3a5f;
+      padding-top: 8px;
+      font-size: 11px;
+      font-weight: bold;
+      color: #1e3a5f;
+    }
+    .signature-sub {
+      font-size: 9px;
+      color: #94a3b8;
+      margin-top: 3px;
+    }
+    
+    /* ============ FOOTER ============ */
+    .footer {
+      margin-top: 30px;
+      padding: 14px;
+      background: #f8fafc;
+      border-radius: 10px;
+      text-align: center;
+      font-size: 10px;
+      color: #64748b;
+      border: 1px solid #e2e8f0;
+    }
+    .footer strong {
+      color: #1e3a5f;
+    }
+    
+    /* ============ PRINT BUTTONS ============ */
+    .no-print {
+      text-align: center;
+      padding: 20px;
+      margin-top: 10px;
+    }
+    .no-print button {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 12px 28px;
+      border-radius: 22px;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      margin: 0 5px;
+      transition: all 0.2s;
+    }
+    .no-print button:hover { background: #2563eb; }
+    .no-print button.close {
+      background: #64748b;
+    }
+    .no-print button.close:hover { background: #475569; }
+    
+    @media print {
+      .no-print { display: none !important; }
+      body { padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    
+    <!-- HEADER WITH LOGO -->
+    <div class="header">
+      <div class="header-left">
+        <div class="logo-box">
+          <img src="${LOGO_URL}" alt="Sonko Sound Logo" />
+        </div>
+        <div class="business-info">
+          <div class="business-name">SONKO SOUND</div>
+          <div class="business-slogan">Electronics & Appliances</div>
+          <div class="business-contact">${settings.businessAddress} • ${settings.businessPhone}</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="statement-badge">Taarifa ya Mteja</div>
+        <div class="statement-id">${statementId}</div>
+      </div>
+    </div>
+
+    <!-- CUSTOMER INFO -->
+    <div class="section">
+      <div class="section-title">Taarifa za Mteja</div>
+      <div class="info-grid">
+        <div class="info-card">
+          <span class="info-label">Jina la Mteja</span>
+          <span class="info-value">${activeCustomer.fullName}</span>
+        </div>
+        <div class="info-card">
+          <span class="info-label">Namba ya Simu</span>
+          <span class="info-value">${activeCustomer.phoneNumber}</span>
+        </div>
+        <div class="info-card">
+          <span class="info-label">Tarehe ya Taarifa</span>
+          <span class="info-value">${now.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+        </div>
+        <div class="info-card">
+          <span class="info-label">Salio la Sasa</span>
+          <span class="info-value highlight">TSh ${activeCustomerStats.remainingBalance.toLocaleString()}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- DEBTS HISTORY -->
+    <div class="section">
+      <div class="section-title">Historia ya Madeni (${activeCustomerHistory.debts.length})</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Maelezo</th>
+            <th>Tarehe</th>
+            <th>Ukomo</th>
+            <th>Kiasi (TSh)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${activeCustomerHistory.debts.length > 0 
+            ? activeCustomerHistory.debts.map(debt => `
+              <tr>
+                <td>${debt.description}</td>
+                <td>${debt.dateBorrowed}</td>
+                <td>${debt.dueDate}</td>
+                <td>TSh ${debt.amount.toLocaleString()}</td>
+              </tr>
+            `).join('')
+            : '<tr><td colspan="4" class="empty-row">Hakuna madeni bado</td></tr>'
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- PAYMENTS HISTORY -->
+    <div class="section">
+      <div class="section-title">Historia ya Malipo (${activeCustomerHistory.payments.length})</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Maelezo</th>
+            <th>Tarehe</th>
+            <th>Njia</th>
+            <th>Kiasi (TSh)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${activeCustomerHistory.payments.length > 0
+            ? activeCustomerHistory.payments.map(pay => `
+              <tr>
+                <td>${pay.notes || 'Malipo'}</td>
+                <td>${pay.date}</td>
+                <td>${pay.paymentMethod}</td>
+                <td class="payment-amount">TSh ${pay.amount.toLocaleString()}</td>
+              </tr>
+            `).join('')
+            : '<tr><td colspan="4" class="empty-row">Hakuna malipo bado</td></tr>'
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- SUMMARY -->
+    <div class="summary-box">
+      <div class="summary-item total">
+        <div class="summary-label">Jumla ya Madeni</div>
+        <div class="summary-value">TSh ${activeCustomerStats.totalDebt.toLocaleString()}</div>
+      </div>
+      <div class="summary-item paid">
+        <div class="summary-label">Jumla Iliyolipwa</div>
+        <div class="summary-value">TSh ${activeCustomerStats.totalPaid.toLocaleString()}</div>
+      </div>
+      <div class="summary-item balance">
+        <div class="summary-label">Salio la Sasa</div>
+        <div class="summary-value">TSh ${activeCustomerStats.remainingBalance.toLocaleString()}</div>
+      </div>
+    </div>
+
+    <!-- SIGNATURES -->
+    <div class="signatures">
+      <div class="signature-box">
+        <div class="signature-line">Sahihi ya Mmiliki</div>
+        <div class="signature-sub">${settings.businessName}</div>
+      </div>
+      <div class="signature-box">
+        <div class="signature-line">Sahihi ya Mteja</div>
+        <div class="signature-sub">${activeCustomer.fullName}</div>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="footer">
+      <strong>${settings.businessName}</strong> • ${settings.businessAddress} • ${settings.businessPhone}<br>
+      Taarifa hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })} saa ${now.toLocaleTimeString('sw-TZ', { hour: '2-digit', minute: '2-digit' })}
+    </div>
+
+    <!-- PRINT BUTTONS -->
+    <div class="no-print">
+      <button onclick="window.print()">🖨️ Chapisha / Save as PDF</button>
+      <button class="close" onclick="window.close()">Funga</button>
+    </div>
+  </div>
+
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.print(); }, 400);
+    };
+  </script>
+</body>
+</html>`;
+
+    const printWindow = window.open('', '_blank', 'width=900,height=800');
+    if (printWindow) {
+      printWindow.document.open();
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+    } else {
+      alert('Tafadhali ruhusu pop-ups kwa ajili ya kuchapisha');
+    }
   };
 
   return (
@@ -532,7 +1008,7 @@ export default function CustomerManagement({
                 <button onClick={openPaymentModal} disabled={isLoading || unpaidDebts.length === 0} className="bg-emerald-600 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
                   <CreditCard size={14} /> Lipisha Deni
                 </button>
-                <button onClick={() => setIsStatementOpen(true)} className="border border-slate-200 text-slate-700 font-bold py-2.5 px-3 rounded-xl hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5">
+                <button onClick={handlePrintStatement} className="border border-slate-200 text-slate-700 font-bold py-2.5 px-3 rounded-xl hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5">
                   <Printer size={14} /> Taarifa
                 </button>
               </div>
@@ -875,7 +1351,7 @@ export default function CustomerManagement({
         </div>
       )}
 
-      {/* MODAL: Payment (LIPA ZOTE ONLY) */}
+      {/* MODAL: Payment (EMPTY AMOUNT + RED VALIDATION) */}
       {isAddPaymentOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -885,12 +1361,12 @@ export default function CustomerManagement({
             
             <h3 className="text-md font-bold text-slate-850 flex items-center gap-1.5">
               <ListChecks className="text-emerald-600" size={18} />
-              Lipa Madeni Yote - {activeCustomer?.fullName}
+              Lipa Madeni - {activeCustomer?.fullName}
             </h3>
             
             <form onSubmit={handleAddPayment} className="space-y-4 text-xs text-left">
               
-              {/* Pay All Summary */}
+              {/* Debts Summary */}
               <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2">
                 <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs mb-2">
                   <ListChecks size={14} /> Madeni Yote ({unpaidDebts.length})
@@ -911,18 +1387,32 @@ export default function CustomerManagement({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                  <label className={`block font-semibold uppercase tracking-wide mb-1 ${payAmountError ? 'text-rose-600' : 'text-slate-500'}`}>
                     Kiasi (TSh) *
                   </label>
                   <input 
                     type="number" 
                     required 
                     value={payAmount} 
-                    onChange={(e) => setPayAmount(e.target.value)}
-                    placeholder="Mfano: 30000"
+                    onChange={(e) => {
+                      setPayAmount(e.target.value);
+                      if (payAmountError && e.target.value && Number(e.target.value) > 0) {
+                        setPayAmountError(false);
+                      }
+                    }}
+                    placeholder="Andika kiasi..."
                     min="1"
-                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-accent" 
+                    className={`w-full p-2.5 border rounded-xl focus:ring-accent transition ${
+                      payAmountError 
+                        ? 'border-rose-400 bg-rose-50 animate-pulse' 
+                        : 'border-slate-200'
+                    }`} 
                   />
+                  {payAmountError && (
+                    <p className="mt-1 text-[10px] text-rose-600 font-bold flex items-center gap-1">
+                      <AlertCircle size={10} /> Lazima ujaze kiasi
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
@@ -957,7 +1447,7 @@ export default function CustomerManagement({
                 />
               </div>
 
-              {payAmount && (
+              {payAmount && Number(payAmount) > 0 && (
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-1.5">
                   <div className="flex justify-between text-[11px]">
                     <span className="text-slate-400">Jumla ya Madeni Yote:</span>
@@ -980,45 +1470,23 @@ export default function CustomerManagement({
                 <button type="button" onClick={() => { setIsAddPaymentOpen(false); resetPaymentForm(); }} disabled={isLoading} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50">
                   Ghairi
                 </button>
-                <button type="submit" disabled={isLoading || !payAmount || Number(payAmount) <= 0} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2">
-                  {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inarekodi...</> : 'Lipa Zote'}
+                <button 
+                  type="submit" 
+                  disabled={isLoading} 
+                  onClick={(e) => {
+                    if (!payAmount || Number(payAmount) <= 0) {
+                      e.preventDefault();
+                      setPayAmountError(true);
+                      setError('Tafadhali jaza kiasi cha malipo');
+                      setTimeout(() => setError(null), 3000);
+                    }
+                  }}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inarekodi...</> : 'Lipa'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* PRINT STATEMENT MODAL */}
-      {isStatementOpen && activeCustomer && activeCustomerStats && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-3xl w-full p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in" id="printable-statement-container">
-            <div className="absolute top-6 right-6 flex items-center gap-2 print:hidden">
-              <button onClick={() => window.print()} className="bg-slate-900 text-white flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold hover:bg-slate-800 transition"><Printer size={14} /> Chapisha / PDF</button>
-              <button onClick={() => setIsStatementOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition"><X size={16} /></button>
-            </div>
-            <div className="space-y-6 pt-4 text-slate-700">
-              <div className="flex justify-between items-start border-b border-slate-200 pb-6">
-                <div><h2 className="text-xl font-extrabold text-slate-800 uppercase">{settings.businessName}</h2><p className="text-xs text-slate-500 mt-1">Anuani: {settings.businessAddress}</p><p className="text-xs text-slate-500 mt-0.5">Simu: {settings.businessPhone}</p></div>
-                <div className="text-right"><span className="inline-block text-[10px] uppercase tracking-wider font-extrabold px-3 py-1 bg-slate-100 text-slate-600 rounded-full">Mizania ya Mteja</span><p className="text-[11px] text-slate-400 mt-2">Muda: {new Date().toLocaleDateString('sw-TZ')}</p></div>
-              </div>
-              <div className="grid grid-cols-2 gap-8 py-4 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
-                <div><h4 className="text-[10px] font-bold text-slate-400 uppercase">MTEJA:</h4><h3 className="text-sm font-bold text-slate-800 mt-1">{activeCustomer.fullName}</h3><p className="text-xs text-slate-500 mt-0.5">Simu: {activeCustomer.phoneNumber}</p></div>
-                <div className="text-right"><h4 className="text-[10px] font-bold text-slate-400 uppercase">SALIO (TSh):</h4><h3 className="text-lg font-black text-rose-600 mt-1">TSh {activeCustomerStats.remainingBalance.toLocaleString()}</h3></div>
-              </div>
-              <div className="space-y-2"><h4 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-1.5 uppercase">Historia ya Madeni</h4>
-                <table className="w-full text-left text-xs text-slate-600"><thead><tr className="bg-slate-50 text-slate-500 font-bold"><th className="py-2.5 px-3 rounded-l-lg">Maelezo</th><th className="py-2.5 px-3">Tarehe</th><th className="py-2.5 px-3">Ukomo</th><th className="py-2.5 px-3 text-right rounded-r-lg">Kiasi (TSh)</th></tr></thead>
-                  <tbody>{activeCustomerHistory.debts.map(debt => (<tr key={debt.id} className="border-b border-slate-100/50"><td className="py-2 px-3 font-semibold">{debt.description}</td><td className="py-2 px-3 font-mono text-slate-400">{debt.dateBorrowed}</td><td className="py-2 px-3 font-mono text-slate-400">{debt.dueDate}</td><td className="py-2 px-3 text-right font-bold">TSh {debt.amount.toLocaleString()}</td></tr>))}</tbody></table>
-              </div>
-              <div className="space-y-2 pt-2"><h4 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-1.5 uppercase">Historia ya Malipo</h4>
-                <table className="w-full text-left text-xs text-slate-600"><thead><tr className="bg-slate-50 text-slate-500 font-bold"><th className="py-2.5 px-3 rounded-l-lg">Maelezo</th><th className="py-2.5 px-3">Tarehe</th><th className="py-2.5 px-3">Njia</th><th className="py-2.5 px-3 text-right rounded-r-lg">Kiasi (TSh)</th></tr></thead>
-                  <tbody>{activeCustomerHistory.payments.length > 0 ? activeCustomerHistory.payments.map(pay => (<tr key={pay.id} className="border-b border-slate-100/50"><td className="py-2 px-3">{pay.notes || 'Malipo'}</td><td className="py-2 px-3 font-mono text-slate-400">{pay.date}</td><td className="py-2 px-3 font-bold text-slate-600">{pay.paymentMethod}</td><td className="py-2 px-3 text-right font-bold text-success">TSh {pay.amount.toLocaleString()}</td></tr>)) : (<tr><td colSpan={4} className="py-4 text-center text-slate-400">Hakuna malipo bado.</td></tr>)}</tbody></table>
-              </div>
-              <div className="pt-12 grid grid-cols-2 gap-12 text-xs">
-                <div className="border-t border-slate-200 pt-3 text-center"><p className="font-bold text-slate-800">Sahihi ya Mmiliki</p><p className="text-slate-400 mt-1">{settings.businessName}</p></div>
-                <div className="border-t border-slate-200 pt-3 text-center"><p className="font-bold text-slate-800">Sahihi ya Mteja</p><p className="text-slate-400 mt-1">{activeCustomer.fullName}</p></div>
-              </div>
-            </div>
           </div>
         </div>
       )}
