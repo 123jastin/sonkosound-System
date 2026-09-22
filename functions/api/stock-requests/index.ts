@@ -7,7 +7,7 @@ type Env = {
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
@@ -24,13 +24,14 @@ export const onRequestOptions: PagesFunction = async () =>
 export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
   try {
     const workersResult = await env.DB.prepare(`
-      SELECT id, name, phone, created_at
+      SELECT id, name, phone, photo, created_at
       FROM stock_workers
       ORDER BY datetime(created_at) DESC, rowid DESC
     `).all();
 
     const itemsResult = await env.DB.prepare(`
-      SELECT id, worker_id, worker_name, product_name, quantity, notes, status, created_at, completed_at
+      SELECT id, worker_id, worker_name, product_name, quantity, notes, 
+             image1, image2, status, created_at, completed_at
       FROM stock_items
       ORDER BY datetime(created_at) DESC, rowid DESC
     `).all();
@@ -46,7 +47,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
   }
 };
 
-// POST - Add new stock item
+// POST - Add new stock item (with images)
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => null);
@@ -55,7 +56,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'No data provided' }, 400);
     }
 
-    const { workerId, workerName, productName, quantity, notes } = body;
+    const { 
+      workerId, 
+      workerName, 
+      productName, 
+      quantity, 
+      notes,
+      image1,  // Base64 data URL (compressed)
+      image2   // Base64 data URL (compressed)
+    } = body;
 
     if (!workerId || !productName) {
       return json({ success: false, error: 'Missing required fields' }, 400);
@@ -64,19 +73,25 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const itemId = 'item-' + Date.now();
 
     await env.DB.prepare(`
-      INSERT INTO stock_items (id, worker_id, worker_name, product_name, quantity, notes, status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'Pending', datetime('now'))
+      INSERT INTO stock_items (
+        id, worker_id, worker_name, product_name, quantity, notes, 
+        image1, image2, status, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending', datetime('now'))
     `).bind(
       itemId,
       workerId,
       workerName || '',
       productName,
       quantity || '',
-      notes || ''
+      notes || '',
+      image1 || '',
+      image2 || ''
     ).run();
 
     const item = await env.DB.prepare(
-      `SELECT id, worker_id, worker_name, product_name, quantity, notes, status, created_at
+      `SELECT id, worker_id, worker_name, product_name, quantity, notes, 
+              image1, image2, status, created_at
        FROM stock_items WHERE id = ? LIMIT 1`
     ).bind(itemId).first();
 
