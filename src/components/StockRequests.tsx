@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { 
   Plus, User, X, Trash2, Check, Loader2, AlertCircle,
   Package, Search, ArrowLeft, CheckCircle2, Clock,
   ListChecks, Phone, UserPlus, ChevronRight, LogOut,
   TrendingUp, Calendar, Users, ShoppingBag, RefreshCw,
-  CheckSquare, Square, CalendarDays, Filter
+  CheckSquare, Square, CalendarDays, Filter, MoreVertical,
+  Download, FileText, FileDown
 } from 'lucide-react';
 
 // Interfaces
@@ -55,7 +56,13 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   // Modals
   const [isAddWorkerModalOpen, setIsAddWorkerModalOpen] = useState(false);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
+  const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
+  const [downloadWorkerId, setDownloadWorkerId] = useState<string | null>(null);
   
+  // Three-dot menu
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
   // Worker form
   const [workerName, setWorkerName] = useState('');
   const [workerPhone, setWorkerPhone] = useState('');
@@ -75,6 +82,19 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   const [dateFilter, setDateFilter] = useState<'All' | 'Today' | 'Yesterday' | 'Week' | 'Month' | 'Custom'>('All');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
+
+  // ============================================
+  // CLOSE MENU ON OUTSIDE CLICK
+  // ============================================
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpenMenuId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // ============================================
   // LOAD DATA
@@ -152,13 +172,13 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   }, [isLoading]);
 
   // ============================================
-  // DATE FILTER HELPER
+  // DATE FILTER
   // ============================================
-  const getDateRange = useCallback(() => {
+  const getDateRange = useCallback((filterType = dateFilter) => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
-    switch (dateFilter) {
+    switch (filterType) {
       case 'Today':
         return { start: today, end: new Date(today.getTime() + 24 * 60 * 60 * 1000) };
       case 'Yesterday': {
@@ -185,11 +205,10 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     }
   }, [dateFilter, customStartDate, customEndDate]);
 
-  const isItemInDateRange = useCallback((item: StockItem) => {
-    const range = getDateRange();
+  const isItemInDateRange = useCallback((item: StockItem, filterType?: typeof dateFilter) => {
+    const range = getDateRange(filterType);
     if (!range) return true;
     
-    // Use purchased_at if purchased, else created_at
     const dateToCheck = item.status === 'Purchased' && item.purchased_at 
       ? new Date(item.purchased_at) 
       : new Date(item.created_at);
@@ -224,7 +243,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   }, [activeWorkerItems]);
 
   const adminStats = useMemo(() => {
-    const dateFiltered = stockItems.filter(isItemInDateRange);
+    const dateFiltered = stockItems.filter(i => isItemInDateRange(i));
     const pending = dateFiltered.filter(i => i.status === 'Pending').length;
     const purchased = dateFiltered.filter(i => i.status === 'Purchased').length;
     return { 
@@ -238,22 +257,17 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     };
   }, [stockItems, workers, isItemInDateRange]);
 
-  // Group items by worker with all filters
   const itemsByWorker = useMemo(() => {
     const grouped: Record<string, { worker: Worker; items: StockItem[]; pending: number; purchased: number }> = {};
     
     workers.forEach(worker => {
       const workerItems = stockItems.filter(i => i.worker_id === worker.id);
+      let filteredItems = workerItems.filter(i => isItemInDateRange(i));
       
-      // Apply date filter
-      let filteredItems = workerItems.filter(isItemInDateRange);
-      
-      // Apply status filter
       if (adminFilter !== 'All') {
         filteredItems = filteredItems.filter(i => i.status === adminFilter);
       }
       
-      // Apply search
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
         filteredItems = filteredItems.filter(i => 
@@ -284,7 +298,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   }, [workers, stockItems, adminFilter, searchTerm, workerFilter, isItemInDateRange]);
 
   // ============================================
-  // HANDLERS
+  // WORKER HANDLERS
   // ============================================
   const handleSelectWorker = (workerId: string) => {
     setSelectedWorkerId(workerId);
@@ -301,6 +315,66 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     setSelectedWorkerId(null);
     setSuccessMessage('Kumbukumbu imeondolewa');
     setTimeout(() => setSuccessMessage(null), 3000);
+  };
+
+  const handleDeleteWorker = async (workerId: string) => {
+    const worker = workers.find(w => w.id === workerId);
+    const workerItems = stockItems.filter(i => i.worker_id === workerId);
+    
+    const confirmMsg = `Je, una uhakika unataka kumfuta "${worker?.name}" pamoja na bidhaa zake ${workerItems.length}?`;
+    if (!confirm(confirmMsg)) return;
+    
+    setOpenMenuId(null);
+    setIsLoading(true);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/workers/${workerId}`, {
+        method: 'DELETE'
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setWorkers(prev => prev.filter(w => w.id !== workerId));
+        setStockItems(prev => prev.filter(i => i.worker_id !== workerId));
+        
+        if (selectedWorkerId === workerId) setSelectedWorkerId(null);
+        if (rememberedWorkerId === workerId) {
+          localStorage.removeItem(WORKER_DEVICE_KEY);
+          setRememberedWorkerId(null);
+        }
+        
+        setSuccessMessage('Mfanyakazi amefutwa');
+        setTimeout(() => setSuccessMessage(null), 3000);
+        if (onUpdate) onUpdate();
+      } else {
+        setError(result.error || 'Imeshindwa kumfuta mfanyakazi');
+        setTimeout(() => setError(null), 5000);
+      }
+    } catch (err: any) {
+      // Fallback - delete locally
+      setWorkers(prev => prev.filter(w => w.id !== workerId));
+      setStockItems(prev => prev.filter(i => i.worker_id !== workerId));
+      
+      if (selectedWorkerId === workerId) setSelectedWorkerId(null);
+      if (rememberedWorkerId === workerId) {
+        localStorage.removeItem(WORKER_DEVICE_KEY);
+        setRememberedWorkerId(null);
+      }
+      
+      const savedData = localStorage.getItem('stock_requests_data');
+      if (savedData) {
+        const parsed = JSON.parse(savedData);
+        parsed.workers = (parsed.workers || []).filter((w: Worker) => w.id !== workerId);
+        parsed.items = (parsed.items || []).filter((i: StockItem) => i.worker_id !== workerId);
+        localStorage.setItem('stock_requests_data', JSON.stringify(parsed));
+      }
+      
+      setSuccessMessage('Mfanyakazi amefutwa');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const toggleWorkerExpanded = (workerId: string) => {
@@ -450,13 +524,12 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   };
 
   // ============================================
-  // TOGGLE ITEM STATUS (PERSIST TO BACKEND)
+  // TOGGLE STATUS
   // ============================================
   const handleToggleStatus = async (itemId: string, currentStatus: 'Pending' | 'Purchased') => {
     const newStatus = currentStatus === 'Pending' ? 'Purchased' : 'Pending';
     const previousStatus = currentStatus;
     
-    // Optimistic update
     setStockItems(prev => prev.map(item => 
       item.id === itemId 
         ? { 
@@ -479,15 +552,12 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
       if (result.success) {
         setSuccessMessage(newStatus === 'Purchased' ? '✅ Imewekwa kama Zimenunuliwa!' : 'Imerejeshwa kwenye Bado');
         setTimeout(() => setSuccessMessage(null), 1500);
-        
-        // Notify parent to sync
         if (onUpdate) onUpdate();
       } else {
         throw new Error(result.error || 'Failed');
       }
     } catch (err: any) {
       console.error('Failed to toggle status:', err);
-      // Revert
       setStockItems(prev => prev.map(item => 
         item.id === itemId 
           ? { 
@@ -502,13 +572,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     }
   };
 
-  // ============================================
-  // BULK: TICK ALL PENDING (PER WORKER OR ALL)
-  // ============================================
-  const handleBulkTick = async (
-    itemIds: string[], 
-    targetStatus: 'Purchased' | 'Pending'
-  ) => {
+  const handleBulkTick = async (itemIds: string[], targetStatus: 'Purchased' | 'Pending') => {
     if (itemIds.length === 0) return;
     
     const confirmMsg = targetStatus === 'Purchased'
@@ -517,7 +581,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     
     if (!confirm(confirmMsg)) return;
     
-    // Optimistic update
     const previousItems = [...stockItems];
     setStockItems(prev => prev.map(item => 
       itemIds.includes(item.id)
@@ -529,7 +592,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
         : item
     ));
     
-    // Save to backend in parallel
     try {
       const promises = itemIds.map(itemId =>
         fetch(`${API_BASE_URL}/${itemId}`, {
@@ -549,7 +611,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
             : `Bidhaa ${itemIds.length} zimerejeshwa`
         );
         setTimeout(() => setSuccessMessage(null), 3000);
-        
         if (onUpdate) onUpdate();
       } else {
         throw new Error('Some updates failed');
@@ -579,17 +640,481 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     }
   };
 
+  // ============================================
+  // PDF GENERATION
+  // ============================================
+  const generatePDF = (
+    workerId: string | null, 
+    filterType: 'All' | 'Today' | 'Week' | 'Month'
+  ) => {
+    // Get items to include
+    let itemsToReport: StockItem[] = [];
+    let workerName = 'All Workers';
+    
+    if (workerId) {
+      const worker = workers.find(w => w.id === workerId);
+      workerName = worker?.name || 'Worker';
+      itemsToReport = stockItems.filter(i => i.worker_id === workerId);
+    } else {
+      itemsToReport = [...stockItems];
+    }
+    
+    // Apply date filter
+    const range = getDateRange(filterType);
+    if (range) {
+      itemsToReport = itemsToReport.filter(item => {
+        const dateToCheck = item.status === 'Purchased' && item.purchased_at 
+          ? new Date(item.purchased_at) 
+          : new Date(item.created_at);
+        return dateToCheck >= range.start && dateToCheck < range.end;
+      });
+    }
+    
+    // Separate purchased vs pending
+    const purchased = itemsToReport
+      .filter(i => i.status === 'Purchased')
+      .sort((a, b) => new Date(b.purchased_at || b.created_at).getTime() - new Date(a.purchased_at || a.created_at).getTime());
+    
+    const pending = itemsToReport
+      .filter(i => i.status === 'Pending')
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    
+    // Date labels
+    const filterLabels: Record<string, string> = {
+      'All': 'Zote (All Time)',
+      'Today': 'Leo (Today)',
+      'Week': 'Wiki Hii (This Week)',
+      'Month': 'Mwezi Huu (This Month)'
+    };
+    
+    // Date range text
+    const getDateRangeText = () => {
+      if (filterType === 'All') return 'Muda wote';
+      if (filterType === 'Today') {
+        return new Date().toLocaleDateString('sw-TZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      }
+      if (filterType === 'Week') {
+        const now = new Date();
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        return `${weekAgo.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short' })} - ${now.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+      }
+      if (filterType === 'Month') {
+        const now = new Date();
+        const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        return `${monthAgo.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short' })} - ${now.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+      }
+      return '';
+    };
+
+    const now = new Date();
+    const reportId = `STK-${Date.now().toString(36).toUpperCase()}`;
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Ripoti ya Bidhaa - ${filterLabels[filterType]}</title>
+          <meta charset="UTF-8">
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            @page { size: A4; margin: 12mm; }
+            body { 
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+              background: white; 
+              color: #1e293b;
+              padding: 20px;
+            }
+            .container {
+              max-width: 190mm;
+              margin: 0 auto;
+              background: white;
+            }
+            .header {
+              background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 50%, #22c55e 100%);
+              color: white;
+              padding: 24px 28px;
+              border-radius: 12px;
+              margin-bottom: 20px;
+            }
+            .header-top {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              margin-bottom: 12px;
+            }
+            .business-name {
+              font-size: 22px;
+              font-weight: 900;
+              letter-spacing: 1px;
+            }
+            .business-slogan {
+              font-size: 11px;
+              opacity: 0.9;
+              margin-top: 3px;
+            }
+            .report-badge {
+              background: rgba(255,255,255,0.2);
+              padding: 5px 14px;
+              border-radius: 20px;
+              font-size: 10px;
+              font-weight: bold;
+              letter-spacing: 1px;
+            }
+            .report-title {
+              font-size: 15px;
+              font-weight: bold;
+              margin-bottom: 5px;
+            }
+            .report-meta {
+              font-size: 11px;
+              opacity: 0.9;
+              display: flex;
+              gap: 20px;
+              flex-wrap: wrap;
+            }
+            .summary-grid {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 12px;
+              margin-bottom: 24px;
+            }
+            .summary-card {
+              background: #f8fafc;
+              border: 1px solid #e2e8f0;
+              border-radius: 10px;
+              padding: 14px;
+              text-align: center;
+            }
+            .summary-card.purchased {
+              background: #f0fdf4;
+              border-color: #bbf7d0;
+            }
+            .summary-card.pending {
+              background: #fef3c7;
+              border-color: #fde68a;
+            }
+            .summary-label {
+              font-size: 9px;
+              font-weight: 800;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              color: #64748b;
+              margin-bottom: 6px;
+            }
+            .summary-value {
+              font-size: 26px;
+              font-weight: 900;
+              color: #1e293b;
+            }
+            .summary-card.purchased .summary-value { color: #059669; }
+            .summary-card.pending .summary-value { color: #d97706; }
+            .section {
+              margin-bottom: 24px;
+              page-break-inside: avoid;
+            }
+            .section-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              padding: 10px 16px;
+              background: #1e3a5f;
+              color: white;
+              border-radius: 8px 8px 0 0;
+              font-size: 13px;
+              font-weight: bold;
+            }
+            .section-header.purchased {
+              background: #059669;
+            }
+            .section-header.pending {
+              background: #d97706;
+            }
+            .section-count {
+              background: rgba(255,255,255,0.25);
+              padding: 3px 10px;
+              border-radius: 12px;
+              font-size: 11px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              background: white;
+              border: 1px solid #e2e8f0;
+              border-top: none;
+            }
+            thead th {
+              background: #f1f5f9;
+              color: #475569;
+              padding: 10px 12px;
+              text-align: left;
+              font-size: 10px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-weight: 800;
+              border-bottom: 1px solid #e2e8f0;
+            }
+            thead th:first-child { text-align: center; width: 40px; }
+            thead th:last-child { text-align: center; width: 90px; }
+            tbody td {
+              padding: 11px 12px;
+              border-bottom: 1px solid #f1f5f9;
+              font-size: 12px;
+              color: #334155;
+            }
+            tbody td:first-child { 
+              text-align: center; 
+              font-weight: bold; 
+              color: #94a3b8;
+              font-size: 11px;
+            }
+            tbody td:last-child { 
+              text-align: center; 
+              font-weight: bold; 
+              color: #059669;
+              font-size: 11px;
+            }
+            tbody tr:nth-child(even) {
+              background: #f8fafc;
+            }
+            tbody tr:last-child td {
+              border-bottom: none;
+            }
+            .product-name {
+              font-weight: 600;
+              color: #1e293b;
+            }
+            .product-notes {
+              font-size: 10px;
+              color: #94a3b8;
+              font-style: italic;
+              margin-top: 2px;
+            }
+            .badge {
+              display: inline-block;
+              padding: 3px 10px;
+              border-radius: 10px;
+              font-size: 9px;
+              font-weight: 800;
+              letter-spacing: 0.3px;
+              text-transform: uppercase;
+            }
+            .badge-purchased {
+              background: #d1fae5;
+              color: #059669;
+            }
+            .badge-pending {
+              background: #fef3c7;
+              color: #d97706;
+            }
+            .empty-state {
+              padding: 30px;
+              text-align: center;
+              color: #94a3b8;
+              font-size: 12px;
+              font-style: italic;
+              background: white;
+              border: 1px solid #e2e8f0;
+              border-top: none;
+              border-radius: 0 0 8px 8px;
+            }
+            .footer {
+              margin-top: 30px;
+              padding: 16px;
+              background: #f8fafc;
+              border-radius: 10px;
+              text-align: center;
+              font-size: 10px;
+              color: #64748b;
+              border: 1px solid #e2e8f0;
+            }
+            .footer-line {
+              margin-bottom: 6px;
+            }
+            .page-break {
+              page-break-before: always;
+            }
+            @media print {
+              body { padding: 0; }
+              .no-print { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            
+            <!-- Header -->
+            <div class="header">
+              <div class="header-top">
+                <div>
+                  <div class="business-name">SONKO SOUND</div>
+                  <div class="business-slogan">Electronics & Appliances • Morogoro, Tanzania</div>
+                </div>
+                <div class="report-badge">RIPOTI YA BIDHAA</div>
+              </div>
+              <div class="report-title">Bidhaa Zisizokuepo - ${filterLabels[filterType]}</div>
+              <div class="report-meta">
+                <span><strong>Kipindi:</strong> ${getDateRangeText()}</span>
+                <span><strong>Tarehe:</strong> ${now.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                <span><strong>Ripoti ID:</strong> ${reportId}</span>
+              </div>
+            </div>
+
+            <!-- Summary -->
+            <div class="summary-grid">
+              <div class="summary-card">
+                <div class="summary-label">Jumla ya Bidhaa</div>
+                <div class="summary-value">${itemsToReport.length}</div>
+              </div>
+              <div class="summary-card purchased">
+                <div class="summary-label">Zimenunuliwa</div>
+                <div class="summary-value">${purchased.length}</div>
+              </div>
+              <div class="summary-card pending">
+                <div class="summary-label">Bado</div>
+                <div class="summary-value">${pending.length}</div>
+              </div>
+            </div>
+
+            <!-- Purchased Section -->
+            ${purchased.length > 0 ? `
+              <div class="section">
+                <div class="section-header purchased">
+                  <span>✓ BIDHAA ZIMENUNULIWA</span>
+                  <span class="section-count">${purchased.length}</span>
+                </div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Jina la Bidhaa</th>
+                      <th>Idadi</th>
+                      <th>Tarehe</th>
+                      <th>Hali</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${purchased.map((item, idx) => `
+                      <tr>
+                        <td>${idx + 1}</td>
+                        <td>
+                          <div class="product-name">${item.product_name}</div>
+                          ${item.notes ? `<div class="product-notes">${item.notes}</div>` : ''}
+                        </td>
+                        <td>${item.quantity || '-'}</td>
+                        <td>${item.purchased_at ? new Date(item.purchased_at).toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}</td>
+                        <td><span class="badge badge-purchased">✓ Imenunuliwa</span></td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            ` : ''}
+
+            <!-- Pending Section -->
+            ${pending.length > 0 ? `
+              <div class="section">
+                <div class="section-header pending">
+                  <span>⏳ BIDHAA BADO</span>
+                  <span class="section-count">${pending.length}</span>
+                </div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Jina la Bidhaa</th>
+                      <th>Idadi</th>
+                      <th>Tarehe</th>
+                      <th>Hali</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${pending.map((item, idx) => `
+                      <tr>
+                        <td>${idx + 1}</td>
+                        <td>
+                          <div class="product-name">${item.product_name}</div>
+                          ${item.notes ? `<div class="product-notes">${item.notes}</div>` : ''}
+                        </td>
+                        <td>${item.quantity || '-'}</td>
+                        <td>${new Date(item.created_at).toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                        <td><span class="badge badge-pending">⏳ Bado</span></td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            ` : ''}
+
+            ${itemsToReport.length === 0 ? `
+              <div class="section">
+                <div class="section-header">
+                  <span>HAKUNA BIDHAA</span>
+                  <span class="section-count">0</span>
+                </div>
+                <div class="empty-state">
+                  Hakuna bidhaa zilizopatikana kwa kipindi hiki.
+                </div>
+              </div>
+            ` : ''}
+
+            <!-- Footer -->
+            <div class="footer">
+              <div class="footer-line">
+                <strong>Sonko Sound</strong> • Morogoro, Tanzania • 0688423753
+              </div>
+              <div class="footer-line">
+                Ripoti hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })} saa ${now.toLocaleTimeString('sw-TZ', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+              <div class="footer-line" style="margin-top: 8px; font-size: 9px; color: #94a3b8;">
+                Ripoti hii ni ya siri na inaonyesha muhtasari wa bidhaa zisizokuepo.
+              </div>
+            </div>
+
+            <!-- Print Buttons -->
+            <div class="no-print" style="text-align: center; padding: 20px 0; margin-top: 20px;">
+              <button onclick="window.print()" style="background: #3b82f6; color: white; border: none; padding: 12px 28px; border-radius: 22px; font-size: 13px; font-weight: bold; cursor: pointer; margin-right: 10px;">
+                🖨️ Chapisha / Save as PDF
+              </button>
+              <button onclick="window.close()" style="background: #64748b; color: white; border: none; padding: 12px 28px; border-radius: 22px; font-size: 13px; font-weight: bold; cursor: pointer;">
+                Funga
+              </button>
+            </div>
+          </div>
+          
+          <script>
+            window.onload = function() {
+              setTimeout(function() { window.print(); }, 300);
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    const printWindow = window.open('', '_blank', 'width=900,height=800');
+    if (printWindow) {
+      printWindow.document.open();
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+    } else {
+      alert('Tafadhali ruhusu pop-ups kwa ajili ya kuchapisha ripoti');
+    }
+    
+    setIsDownloadModalOpen(false);
+    setDownloadWorkerId(null);
+  };
+
+  const openDownloadModal = (workerId: string | null = null) => {
+    setDownloadWorkerId(workerId);
+    setIsDownloadModalOpen(true);
+  };
+
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    return date.toLocaleDateString('sw-TZ', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric'
-    });
+    return date.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
   const formatTime = (dateStr: string) => {
@@ -694,7 +1219,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
               </div>
             </div>
 
-            {/* Worker's product list (no tick - workers can't tick) */}
             <div className="space-y-3">
               {activeWorkerItems.length > 0 ? activeWorkerItems.map(item => (
                 <div key={item.id} className={`bg-white rounded-2xl border p-4 shadow-sm transition ${
@@ -772,54 +1296,93 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                 return (
                   <div 
                     key={worker.id}
-                    onClick={() => handleSelectWorker(worker.id)}
-                    className={`bg-white rounded-3xl border p-5 shadow-sm hover:shadow-md cursor-pointer transition ${
+                    className={`bg-white rounded-3xl border p-5 shadow-sm hover:shadow-md transition relative ${
                       isRemembered ? 'border-emerald-300 ring-2 ring-emerald-500/20 bg-emerald-50/30' : 'border-slate-100 hover:border-accent/50'
                     }`}
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`h-12 w-12 rounded-xl font-bold flex items-center justify-center ${
-                          isRemembered ? 'bg-emerald-100 text-emerald-700' : 'bg-accent/10 text-accent'
-                        }`}>
-                          {getInitials(worker.name)}
+                    {/* Three-dot menu */}
+                    <div className="absolute top-3 right-3" ref={openMenuId === worker.id ? menuRef : null}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenMenuId(openMenuId === worker.id ? null : worker.id);
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition"
+                        title="Chaguo"
+                      >
+                        <MoreVertical size={16} />
+                      </button>
+                      
+                      {openMenuId === worker.id && (
+                        <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-100 py-1 min-w-[200px] z-20">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuId(null);
+                              openDownloadModal(worker.id);
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+                          >
+                            <FileDown size={14} className="text-blue-500" />
+                            Pakua Ripoti ya {worker.name}
+                          </button>
+                          <div className="border-t border-slate-100 my-1"></div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteWorker(worker.id);
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition"
+                          >
+                            <Trash2 size={14} />
+                            Futa {worker.name}
+                          </button>
                         </div>
-                        <div>
-                          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-                            {worker.name}
-                            {isRemembered && <CheckCircle2 size={12} className="text-emerald-600" />}
-                          </h3>
-                          {worker.phone && (
-                            <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                              <Phone size={10} /> {worker.phone}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        pendingCount > 0 ? 'bg-amber-100 text-amber-700' : 
-                        workerItems.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                      }`}>
-                        {pendingCount > 0 ? `${pendingCount} Bado` : workerItems.length > 0 ? 'Zote' : 'Hakuna'}
-                      </span>
+                      )}
                     </div>
-                    
-                    <div className="mt-4 pt-3 border-t border-slate-50 flex justify-between items-center">
-                      <div className="flex gap-4">
-                        <div>
-                          <p className="text-[10px] text-slate-400 uppercase font-bold">Jumla</p>
-                          <p className="text-sm font-bold text-slate-800">{workerItems.length}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 uppercase font-bold">Bado</p>
-                          <p className="text-sm font-bold text-amber-600">{pendingCount}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 uppercase font-bold">Zimenunuliwa</p>
-                          <p className="text-sm font-bold text-emerald-600">{purchasedCount}</p>
+
+                    <div 
+                      onClick={() => handleSelectWorker(worker.id)}
+                      className="cursor-pointer"
+                    >
+                      <div className="flex items-start justify-between pr-8">
+                        <div className="flex items-center gap-3">
+                          <div className={`h-12 w-12 rounded-xl font-bold flex items-center justify-center ${
+                            isRemembered ? 'bg-emerald-100 text-emerald-700' : 'bg-accent/10 text-accent'
+                          }`}>
+                            {getInitials(worker.name)}
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                              {worker.name}
+                              {isRemembered && <CheckCircle2 size={12} className="text-emerald-600" />}
+                            </h3>
+                            {worker.phone && (
+                              <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                                <Phone size={10} /> {worker.phone}
+                              </p>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <ChevronRight size={16} className="text-slate-400" />
+                      
+                      <div className="mt-4 pt-3 border-t border-slate-50 flex justify-between items-center">
+                        <div className="flex gap-4">
+                          <div>
+                            <p className="text-[10px] text-slate-400 uppercase font-bold">Jumla</p>
+                            <p className="text-sm font-bold text-slate-800">{workerItems.length}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-400 uppercase font-bold">Bado</p>
+                            <p className="text-sm font-bold text-amber-600">{pendingCount}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-400 uppercase font-bold">Zimenunuliwa</p>
+                            <p className="text-sm font-bold text-emerald-600">{purchasedCount}</p>
+                          </div>
+                        </div>
+                        <ChevronRight size={16} className="text-slate-400" />
+                      </div>
                     </div>
                   </div>
                 );
@@ -835,11 +1398,11 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
         )
       ) : (
         /* ============================================
-            ADMIN MODE - PRODUCTS FOCUSED
+            ADMIN MODE
             ============================================ */
         <div className="space-y-4">
           
-          {/* Admin Header - Compact */}
+          {/* Admin Header */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div className="flex items-center gap-3">
@@ -853,6 +1416,13 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
               </div>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={() => openDownloadModal(null)}
+                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-2 shadow-sm"
+                >
+                  <Download size={14} />
+                  Pakua Ripoti Yote
+                </button>
+                <button
                   onClick={loadData}
                   disabled={isLoading}
                   className="p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 transition disabled:opacity-50"
@@ -864,7 +1434,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
             </div>
           </div>
 
-          {/* Stats - Clean horizontal layout */}
+          {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="bg-white rounded-2xl border border-slate-100 p-4">
               <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
@@ -895,10 +1465,8 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
             </div>
           </div>
 
-          {/* Filters Bar */}
+          {/* Filters */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
-            
-            {/* Row 1: Search + Status filter */}
             <div className="flex flex-col lg:flex-row gap-3">
               <div className="relative flex-1">
                 <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
@@ -932,7 +1500,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
               </div>
             </div>
 
-            {/* Row 2: Date filters */}
             <div className="flex flex-col lg:flex-row gap-3 pt-2 border-t border-slate-100">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
@@ -983,7 +1550,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
               </div>
             </div>
 
-            {/* Custom date range inputs */}
             {dateFilter === 'Custom' && (
               <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
                 <div className="flex items-center gap-2">
@@ -1017,7 +1583,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
               </div>
             )}
 
-            {/* Quick actions row */}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
               <div className="flex items-center gap-2">
                 {workerFilter === 'All' && Object.keys(itemsByWorker).length > 0 && (
@@ -1038,7 +1603,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                 )}
               </div>
 
-              {/* BULK TICK ALL PENDING */}
               {(() => {
                 const allPendingIds = Object.values(itemsByWorker)
                   .flatMap(({ items }) => items.filter(i => i.status === 'Pending').map(i => i.id));
@@ -1058,7 +1622,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
             </div>
           </div>
 
-          {/* Items List - Products Focused */}
+          {/* Items */}
           {Object.keys(itemsByWorker).length > 0 ? (
             <div className="space-y-3">
               {Object.values(itemsByWorker).map(({ worker, items, pending, purchased }) => {
@@ -1068,7 +1632,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                 
                 return (
                   <div key={worker.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                    {/* Worker Header Row */}
                     <div className="flex items-center justify-between p-3 hover:bg-slate-50/70 transition">
                       <button
                         onClick={() => toggleWorkerExpanded(worker.id)}
@@ -1096,14 +1659,54 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                         />
                       </button>
                       
-                      {/* Per-worker bulk tick button */}
+                      {/* Three-dot menu for admin */}
+                      <div className="relative ml-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenMenuId(openMenuId === `admin-${worker.id}` ? null : `admin-${worker.id}`);
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition"
+                          title="Chaguo"
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+                        
+                        {openMenuId === `admin-${worker.id}` && (
+                          <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-100 py-1 min-w-[200px] z-20">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuId(null);
+                                openDownloadModal(worker.id);
+                              }}
+                              className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+                            >
+                              <FileDown size={14} className="text-blue-500" />
+                              Pakua Ripoti ya {worker.name}
+                            </button>
+                            <div className="border-t border-slate-100 my-1"></div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteWorker(worker.id);
+                              }}
+                              className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition"
+                            >
+                              <Trash2 size={14} />
+                              Futa {worker.name}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      
                       {workerPendingIds.length > 0 && isExpanded && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handleBulkTick(workerPendingIds, 'Purchased');
                           }}
-                          className="ml-3 px-3 py-1.5 text-[10px] font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap"
+                          className="ml-2 px-3 py-1.5 text-[10px] font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap"
                         >
                           <CheckSquare size={11} />
                           Weka Zote ({workerPendingIds.length})
@@ -1111,7 +1714,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                       )}
                     </div>
                     
-                    {/* Items */}
                     {isExpanded && (
                       <div className="border-t border-slate-100 bg-slate-50/40">
                         {hasItems ? (
@@ -1125,7 +1727,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                                     : 'bg-white hover:bg-slate-50/70'
                                 }`}
                               >
-                                {/* Tick Button - Prominent */}
                                 <button
                                   onClick={() => handleToggleStatus(item.id, item.status)}
                                   className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 transition-all shadow-sm ${
@@ -1142,7 +1743,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                                   )}
                                 </button>
                                 
-                                {/* Product Info */}
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-start justify-between gap-2">
                                     <div className="flex-1 min-w-0">
@@ -1175,7 +1775,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                                       )}
                                     </div>
                                     
-                                    {/* Delete Button */}
                                     <button 
                                       onClick={() => handleDeleteItem(item.id)}
                                       className="p-1.5 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition shrink-0"
@@ -1215,7 +1814,94 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
         </div>
       )}
 
-      {/* MODALS */}
+      {/* ============================================
+          DOWNLOAD MODAL
+          ============================================ */}
+      {isDownloadModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl relative">
+            <button 
+              onClick={() => { setIsDownloadModalOpen(false); setDownloadWorkerId(null); }} 
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition"
+            >
+              <X size={18} />
+            </button>
+            
+            <div className="flex items-center gap-3">
+              <div className="h-12 w-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center">
+                <FileText size={22} />
+              </div>
+              <div>
+                <h3 className="text-md font-bold text-slate-800">Pakua Ripoti ya Bidhaa</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {downloadWorkerId 
+                    ? `Ripoti ya ${workers.find(w => w.id === downloadWorkerId)?.name || 'Mfanyakazi'}`
+                    : 'Ripoti ya Wote'}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
+              <p className="text-xs text-blue-800 leading-relaxed">
+                <strong>Kumbuka:</strong> Ripoti hii itaonyesha bidhaa tu (majina ya wafanyakazi hayataonekana).
+                Itakuwa na sehemu mbili: Zimenunuliwa na Bado.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Chagua Kipindi:</p>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => generatePDF(downloadWorkerId, 'Today')}
+                  className="p-4 rounded-2xl border-2 border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition group"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <Calendar size={16} className="text-blue-600" />
+                    <span className="text-sm font-bold text-slate-800">Leo</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 text-left">Bidhaa za leo tu</p>
+                </button>
+                
+                <button
+                  onClick={() => generatePDF(downloadWorkerId, 'Week')}
+                  className="p-4 rounded-2xl border-2 border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition group"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <CalendarDays size={16} className="text-emerald-600" />
+                    <span className="text-sm font-bold text-slate-800">Wiki Hii</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 text-left">Siku 7 zilizopita</p>
+                </button>
+                
+                <button
+                  onClick={() => generatePDF(downloadWorkerId, 'Month')}
+                  className="p-4 rounded-2xl border-2 border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition group"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <TrendingUp size={16} className="text-purple-600" />
+                    <span className="text-sm font-bold text-slate-800">Mwezi Huu</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 text-left">Siku 30 zilizopita</p>
+                </button>
+                
+                <button
+                  onClick={() => generatePDF(downloadWorkerId, 'All')}
+                  className="p-4 rounded-2xl border-2 border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition group"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <ListChecks size={16} className="text-slate-700" />
+                    <span className="text-sm font-bold text-slate-800">Zote</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 text-left">Muda wote</p>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD WORKER MODAL */}
       {isAddWorkerModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
@@ -1270,6 +1956,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
         </div>
       )}
 
+      {/* ADD PRODUCT MODAL */}
       {isAddProductModalOpen && activeWorker && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
