@@ -8,7 +8,7 @@ import {
   Plus, User, X, Trash2, Check, Loader2, AlertCircle,
   Package, Search, ArrowLeft, CheckCircle2, Clock,
   ListChecks, Phone, UserPlus, ChevronRight, LogOut,
-  Filter, TrendingUp, Calendar, Users, Award
+  TrendingUp, Calendar, Users, Award, ShoppingBag, RefreshCw
 } from 'lucide-react';
 
 // Interfaces
@@ -26,9 +26,9 @@ interface StockItem {
   product_name: string;
   quantity?: string;
   notes: string;
-  status: 'Pending' | 'Completed';
+  status: 'Pending' | 'Purchased';   // ← Changed from 'Completed' to 'Purchased'
   created_at: string;
-  completed_at?: string;
+  purchased_at?: string;              // ← Changed from completed_at
 }
 
 interface StockRequestsProps {
@@ -66,7 +66,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   
   // Admin panel filters
   const [searchTerm, setSearchTerm] = useState('');
-  const [adminFilter, setAdminFilter] = useState<'All' | 'Pending' | 'Completed'>('Pending');
+  const [adminFilter, setAdminFilter] = useState<'All' | 'Pending' | 'Purchased'>('Pending');
   const [workerFilter, setWorkerFilter] = useState<string>('All');
   const [expandedWorkers, setExpandedWorkers] = useState<Set<string>>(new Set());
 
@@ -81,8 +81,15 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
       const data = await response.json();
       
       if (data.success) {
+        // Normalize items: convert any legacy 'Completed' status to 'Purchased'
+        const normalizedItems = (Array.isArray(data.items) ? data.items : []).map((item: any) => ({
+          ...item,
+          status: item.status === 'Completed' ? 'Purchased' : item.status,
+          purchased_at: item.purchased_at || item.completed_at
+        }));
+        
         setWorkers(Array.isArray(data.workers) ? data.workers : []);
-        setStockItems(Array.isArray(data.items) ? data.items : []);
+        setStockItems(normalizedItems);
       }
     } catch (err) {
       console.error('Failed to load stock requests:', err);
@@ -90,8 +97,13 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
       if (savedData) {
         try {
           const parsed = JSON.parse(savedData);
+          const normalizedItems = (parsed.items || []).map((item: any) => ({
+            ...item,
+            status: item.status === 'Completed' ? 'Purchased' : item.status,
+            purchased_at: item.purchased_at || item.completed_at
+          }));
           setWorkers(parsed.workers || []);
-          setStockItems(parsed.items || []);
+          setStockItems(normalizedItems);
         } catch (e) {
           console.error('Failed to parse saved data:', e);
         }
@@ -149,8 +161,8 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     return stockItems
       .filter(item => item.worker_id === selectedWorkerId)
       .sort((a, b) => {
-        if (a.status === 'Pending' && b.status === 'Completed') return -1;
-        if (a.status === 'Completed' && b.status === 'Pending') return 1;
+        if (a.status === 'Pending' && b.status === 'Purchased') return -1;
+        if (a.status === 'Purchased' && b.status === 'Pending') return 1;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
   }, [stockItems, selectedWorkerId]);
@@ -158,32 +170,31 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   const activeWorkerStats = useMemo(() => {
     const items = activeWorkerItems;
     const pending = items.filter(i => i.status === 'Pending').length;
-    const completed = items.filter(i => i.status === 'Completed').length;
-    return { total: items.length, pending, completed };
+    const purchased = items.filter(i => i.status === 'Purchased').length;
+    return { total: items.length, pending, purchased };
   }, [activeWorkerItems]);
 
   const adminStats = useMemo(() => {
     const pending = stockItems.filter(i => i.status === 'Pending').length;
-    const completed = stockItems.filter(i => i.status === 'Completed').length;
+    const purchased = stockItems.filter(i => i.status === 'Purchased').length;
     return { 
       total: stockItems.length, 
       pending, 
-      completed, 
+      purchased, 
       workers: workers.length,
-      completionRate: stockItems.length > 0 
-        ? Math.round((completed / stockItems.length) * 100) 
+      purchaseRate: stockItems.length > 0 
+        ? Math.round((purchased / stockItems.length) * 100) 
         : 0
     };
   }, [stockItems, workers]);
 
   // Group items by worker
   const itemsByWorker = useMemo(() => {
-    const grouped: Record<string, { worker: Worker; items: StockItem[]; pending: number; completed: number }> = {};
+    const grouped: Record<string, { worker: Worker; items: StockItem[]; pending: number; purchased: number }> = {};
     
     workers.forEach(worker => {
       const workerItems = stockItems.filter(i => i.worker_id === worker.id);
       
-      // Apply filters
       let filteredItems = workerItems;
       
       if (adminFilter !== 'All') {
@@ -205,12 +216,11 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           ),
           pending: workerItems.filter(i => i.status === 'Pending').length,
-          completed: workerItems.filter(i => i.status === 'Completed').length
+          purchased: workerItems.filter(i => i.status === 'Purchased').length
         };
       }
     });
     
-    // Filter by worker if needed
     if (workerFilter !== 'All') {
       const filtered: typeof grouped = {};
       if (grouped[workerFilter]) {
@@ -221,32 +231,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     
     return grouped;
   }, [workers, stockItems, adminFilter, searchTerm, workerFilter]);
-
-  // Flattened list for simple view
-  const allFilteredItems = useMemo(() => {
-    let items = stockItems;
-    
-    if (adminFilter !== 'All') {
-      items = items.filter(i => i.status === adminFilter);
-    }
-    
-    if (workerFilter !== 'All') {
-      items = items.filter(i => i.worker_id === workerFilter);
-    }
-    
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      items = items.filter(i => 
-        i.product_name.toLowerCase().includes(term) ||
-        i.worker_name.toLowerCase().includes(term) ||
-        (i.notes && i.notes.toLowerCase().includes(term))
-      );
-    }
-    
-    return items.sort((a, b) => 
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-  }, [stockItems, adminFilter, workerFilter, searchTerm]);
 
   // ============================================
   // HANDLERS
@@ -432,8 +416,8 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     }
   };
 
-  const handleToggleStatus = async (itemId: string, currentStatus: 'Pending' | 'Completed') => {
-    const newStatus = currentStatus === 'Pending' ? 'Completed' : 'Pending';
+  const handleToggleStatus = async (itemId: string, currentStatus: 'Pending' | 'Purchased') => {
+    const newStatus = currentStatus === 'Pending' ? 'Purchased' : 'Pending';
     
     // Optimistic update
     setStockItems(prev => prev.map(item => 
@@ -441,7 +425,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
         ? { 
             ...item, 
             status: newStatus,
-            completed_at: newStatus === 'Completed' ? new Date().toISOString() : undefined
+            purchased_at: newStatus === 'Purchased' ? new Date().toISOString() : undefined
           } 
         : item
     ));
@@ -456,12 +440,11 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
       const result = await response.json();
       
       if (result.success) {
-        setSuccessMessage(newStatus === 'Completed' ? '✅ Imewekwa kama imefanyika!' : 'Imerejeshwa');
+        setSuccessMessage(newStatus === 'Purchased' ? '✅ Imewekwa kama Zimenunuliwa!' : 'Imerejeshwa');
         setTimeout(() => setSuccessMessage(null), 1500);
       }
     } catch (err: any) {
       console.error('Failed to toggle status:', err);
-      // Revert on error
       setStockItems(prev => prev.map(item => 
         item.id === itemId 
           ? { ...item, status: currentStatus } 
@@ -473,7 +456,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
         const parsed = JSON.parse(savedData);
         parsed.items = (parsed.items || []).map((item: StockItem) => 
           item.id === itemId 
-            ? { ...item, status: newStatus, completed_at: newStatus === 'Completed' ? new Date().toISOString() : undefined } 
+            ? { ...item, status: newStatus, purchased_at: newStatus === 'Purchased' ? new Date().toISOString() : undefined } 
             : item
         );
         localStorage.setItem('stock_requests_data', JSON.stringify(parsed));
@@ -562,7 +545,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
       )}
 
       {/* ============================================
-          WORKER MODE - PERSONAL LIST VIEW
+          WORKER MODE
           ============================================ */}
       {isWorkerMode ? (
         activeWorker ? (
@@ -583,7 +566,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                   </div>
                   <div>
                     <h3 className="text-base font-extrabold text-slate-800">{activeWorker.name}</h3>
-                    <p className="text-xs text-slate-400 mt-1">Orodha yako ya Bidhaa Zisizopo</p>
+                    <p className="text-xs text-slate-400 mt-1">Orodha yako ya Bidhaa Zisizokuepo</p>
                     {rememberedWorkerId === activeWorker.id && (
                       <p className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1">
                         <CheckCircle2 size={10} /> Imekumbukwa kwenye kifaa hiki
@@ -598,14 +581,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                   >
                     <Plus size={16} /> Ongeza Bidhaa
                   </button>
-                  {rememberedWorkerId === activeWorker.id && (
-                    <button 
-                      onClick={handleForgetWorker}
-                      className="border border-slate-200 hover:bg-slate-50 text-slate-500 font-semibold py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition text-[11px]"
-                    >
-                      <LogOut size={13} /> Ondoa Kumbukumbu
-                    </button>
-                  )}
                 </div>
               </div>
               
@@ -619,8 +594,8 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                   <p className="text-lg font-bold text-amber-600">{activeWorkerStats.pending}</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-xs text-slate-400">Zimefanyika</p>
-                  <p className="text-lg font-bold text-emerald-600">{activeWorkerStats.completed}</p>
+                  <p className="text-xs text-slate-400">Zimenunuliwa</p>
+                  <p className="text-lg font-bold text-emerald-600">{activeWorkerStats.purchased}</p>
                 </div>
               </div>
             </div>
@@ -628,17 +603,17 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
             <div className="space-y-4">
               {activeWorkerItems.length > 0 ? activeWorkerItems.map(item => (
                 <div key={item.id} className={`bg-white rounded-3xl border p-5 shadow-sm transition ${
-                  item.status === 'Completed' ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'
+                  item.status === 'Purchased' ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'
                 }`}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3 flex-1">
                       <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${
-                        item.status === 'Completed' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
+                        item.status === 'Purchased' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
                       }`}>
-                        {item.status === 'Completed' ? <CheckCircle2 size={18} /> : <Clock size={18} />}
+                        {item.status === 'Purchased' ? <ShoppingBag size={18} /> : <Clock size={18} />}
                       </div>
                       <div className="flex-1">
-                        <h4 className={`text-sm font-bold ${item.status === 'Completed' ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
+                        <h4 className={`text-sm font-bold ${item.status === 'Purchased' ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
                           {item.product_name}
                         </h4>
                         {item.quantity && (
@@ -650,6 +625,11 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                         <p className="text-[10px] text-slate-400 mt-2">
                           {formatDate(item.created_at)} • {formatTime(item.created_at)}
                         </p>
+                        {item.status === 'Purchased' && item.purchased_at && (
+                          <p className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1">
+                            <ShoppingBag size={10} /> Ilinunuliwa: {formatDate(item.purchased_at)} • {formatTime(item.purchased_at)}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <button 
@@ -677,12 +657,10 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
               <div>
                 <h2 className="text-md font-bold text-slate-800 flex items-center gap-2">
                   <Package className="text-accent" size={20} />
-                  Orodha ya Bidhaa Zisizopo
+                  Orodha ya Bidhaa Zisizokuepo
                 </h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  {rememberedWorkerId 
-                    ? 'Chagua jina lako au endelea na lililokumbukwa' 
-                    : 'Chagua jina lako ili kuona au kuongeza bidhaa'}
+                  Chagua jina lako ili kuona au kuongeza bidhaa
                 </p>
               </div>
               <button 
@@ -697,7 +675,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
               {workers.length > 0 ? workers.map(worker => {
                 const workerItems = stockItems.filter(i => i.worker_id === worker.id);
                 const pendingCount = workerItems.filter(i => i.status === 'Pending').length;
-                const completedCount = workerItems.filter(i => i.status === 'Completed').length;
+                const purchasedCount = workerItems.filter(i => i.status === 'Purchased').length;
                 const isRemembered = rememberedWorkerId === worker.id;
                 
                 return (
@@ -751,8 +729,8 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                           <p className="text-sm font-bold text-amber-600">{pendingCount}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] text-slate-400 uppercase font-bold">Zimefanyika</p>
-                          <p className="text-sm font-bold text-emerald-600">{completedCount}</p>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Zimenunuliwa</p>
+                          <p className="text-sm font-bold text-emerald-600">{purchasedCount}</p>
                         </div>
                       </div>
                       <ChevronRight size={16} className="text-slate-400" />
@@ -775,17 +753,26 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
             ============================================ */
         <div className="space-y-6">
           
-          {/* Header with Stats */}
+          {/* Admin Header */}
           <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-3xl p-6 md:p-8 shadow-xl text-white">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-              <div>
-                <h1 className="text-xl md:text-2xl font-extrabold flex items-center gap-2">
-                  <Award className="text-accent" size={24} />
-                  Paneli ya Bidhaa Zisizopo
-                </h1>
-                <p className="text-slate-300 text-xs mt-1">
-                  Fuatilia na thibitisha bidhaa zilizofanyiwa kazi na wafanyakazi
-                </p>
+              <div className="flex items-center gap-4">
+                <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/30">
+                  <Award size={26} className="text-white" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-500/20 text-amber-300 rounded-full border border-amber-500/30 uppercase tracking-wider">
+                      👑 Admin Panel
+                    </span>
+                  </div>
+                  <h1 className="text-xl md:text-2xl font-extrabold mt-1">
+                    Paneli ya Bidhaa
+                  </h1>
+                  <p className="text-slate-300 text-xs mt-1">
+                    Fuatilia na thibitisha bidhaa zisizokuepo
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-bold px-3 py-1.5 bg-white/10 backdrop-blur-sm rounded-full flex items-center gap-1.5 border border-white/20">
@@ -793,10 +780,17 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                   {new Date().toLocaleDateString('sw-TZ', { 
                     weekday: 'long', 
                     day: 'numeric', 
-                    month: 'long', 
-                    year: 'numeric' 
+                    month: 'long'
                   })}
                 </span>
+                <button
+                  onClick={loadData}
+                  disabled={isLoading}
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition disabled:opacity-50"
+                  title="Sasisha"
+                >
+                  <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+                </button>
               </div>
             </div>
             
@@ -817,16 +811,16 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                   <span className="text-[9px] uppercase font-bold text-amber-200 tracking-wider">Bado</span>
                 </div>
                 <p className="text-2xl md:text-3xl font-black text-amber-100">{adminStats.pending}</p>
-                <p className="text-[10px] text-amber-200/80 mt-1">Hazijafanyika</p>
+                <p className="text-[10px] text-amber-200/80 mt-1">Zisizonunuliwa</p>
               </div>
               
               <div className="bg-emerald-500/20 backdrop-blur-sm rounded-2xl p-4 border border-emerald-400/30">
                 <div className="flex items-center justify-between mb-2">
-                  <CheckCircle2 size={16} className="text-emerald-300" />
-                  <span className="text-[9px] uppercase font-bold text-emerald-200 tracking-wider">Zimefanyika</span>
+                  <ShoppingBag size={16} className="text-emerald-300" />
+                  <span className="text-[9px] uppercase font-bold text-emerald-200 tracking-wider">Zimenunuliwa</span>
                 </div>
-                <p className="text-2xl md:text-3xl font-black text-emerald-100">{adminStats.completed}</p>
-                <p className="text-[10px] text-emerald-200/80 mt-1">Zilizothibitishwa</p>
+                <p className="text-2xl md:text-3xl font-black text-emerald-100">{adminStats.purchased}</p>
+                <p className="text-[10px] text-emerald-200/80 mt-1">Zilizonunuliwa</p>
               </div>
               
               <div className="bg-blue-500/20 backdrop-blur-sm rounded-2xl p-4 border border-blue-400/30">
@@ -834,16 +828,15 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                   <TrendingUp size={16} className="text-blue-300" />
                   <span className="text-[9px] uppercase font-bold text-blue-200 tracking-wider">Kiwango</span>
                 </div>
-                <p className="text-2xl md:text-3xl font-black text-blue-100">{adminStats.completionRate}%</p>
+                <p className="text-2xl md:text-3xl font-black text-blue-100">{adminStats.purchaseRate}%</p>
                 <p className="text-[10px] text-blue-200/80 mt-1">Ufanisi</p>
               </div>
             </div>
           </div>
 
-          {/* Filters & Search Bar */}
+          {/* Filters */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
             <div className="flex flex-col lg:flex-row gap-3">
-              {/* Search */}
               <div className="relative flex-1">
                 <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
                 <input
@@ -855,9 +848,8 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                 />
               </div>
               
-              {/* Status Filter */}
               <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
-                {(['Pending', 'Completed', 'All'] as const).map(tab => (
+                {(['Pending', 'Purchased', 'All'] as const).map(tab => (
                   <button
                     key={tab}
                     onClick={() => setAdminFilter(tab)}
@@ -865,7 +857,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                       adminFilter === tab 
                         ? tab === 'Pending'
                           ? 'bg-amber-500 text-white shadow-sm'
-                          : tab === 'Completed'
+                          : tab === 'Purchased'
                             ? 'bg-emerald-500 text-white shadow-sm'
                             : 'bg-slate-900 text-white shadow-sm'
                         : 'text-slate-500 hover:bg-white/50'
@@ -873,8 +865,8 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                   >
                     {tab === 'Pending' ? (
                       <><Clock size={12} /> Bado ({adminStats.pending})</>
-                    ) : tab === 'Completed' ? (
-                      <><CheckCircle2 size={12} /> Zimefanyika ({adminStats.completed})</>
+                    ) : tab === 'Purchased' ? (
+                      <><ShoppingBag size={12} /> Zimenunuliwa ({adminStats.purchased})</>
                     ) : (
                       <><ListChecks size={12} /> Zote ({adminStats.total})</>
                     )}
@@ -882,7 +874,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                 ))}
               </div>
               
-              {/* Worker Filter Dropdown */}
               <div className="flex items-center gap-2">
                 <Users size={14} className="text-slate-400" />
                 <select
@@ -902,7 +893,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                 </select>
               </div>
               
-              {/* Expand/Collapse */}
               {workerFilter === 'All' && (
                 <div className="flex gap-1">
                   <button
@@ -922,16 +912,15 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
             </div>
           </div>
 
-          {/* Items List - Grouped by Worker OR Flat view */}
+          {/* Items List */}
           {Object.keys(itemsByWorker).length > 0 ? (
             <div className="space-y-4">
-              {Object.values(itemsByWorker).map(({ worker, items, pending, completed }) => {
+              {Object.values(itemsByWorker).map(({ worker, items, pending, purchased }) => {
                 const isExpanded = expandedWorkers.has(worker.id) || workerFilter !== 'All' || searchTerm.length > 0;
                 const hasItems = items.length > 0;
                 
                 return (
                   <div key={worker.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                    {/* Worker Header */}
                     <button
                       onClick={() => toggleWorkerExpanded(worker.id)}
                       className="w-full flex items-center justify-between p-4 hover:bg-slate-50 transition"
@@ -956,7 +945,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                               <Clock size={10} /> {pending} Bado
                             </span>
                             <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1">
-                              <CheckCircle2 size={10} /> {completed} Zimefanyika
+                              <ShoppingBag size={10} /> {purchased} Zimenunuliwa
                             </span>
                           </div>
                         </div>
@@ -967,36 +956,33 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                       />
                     </button>
                     
-                    {/* Worker Items */}
                     {isExpanded && (
                       <div className="border-t border-slate-100 p-4 space-y-2 bg-slate-50/50">
                         {hasItems ? items.map(item => (
                           <div 
                             key={item.id} 
                             className={`rounded-xl border p-3 transition-all ${
-                              item.status === 'Completed' 
+                              item.status === 'Purchased' 
                                 ? 'bg-emerald-50/50 border-emerald-200' 
                                 : 'bg-white border-slate-200 hover:border-accent/50 hover:shadow-sm'
                             }`}
                           >
                             <div className="flex items-start gap-3">
-                              {/* Tick Button */}
                               <button
                                 onClick={() => handleToggleStatus(item.id, item.status)}
                                 className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 transition-all ${
-                                  item.status === 'Completed'
+                                  item.status === 'Purchased'
                                     ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30 hover:bg-emerald-600'
                                     : 'border-2 border-slate-300 text-transparent hover:border-emerald-500 hover:text-emerald-500 hover:bg-emerald-50 bg-white'
                                 }`}
-                                title={item.status === 'Completed' ? 'Rejesha' : 'Weka kama imefanyika'}
+                                title={item.status === 'Purchased' ? 'Rejesha' : 'Weka kama amenunua'}
                               >
                                 <Check size={18} strokeWidth={3.5} />
                               </button>
                               
-                              {/* Item Details */}
                               <div className="flex-1 min-w-0">
                                 <h4 className={`text-sm font-bold ${
-                                  item.status === 'Completed' ? 'text-slate-500 line-through' : 'text-slate-800'
+                                  item.status === 'Purchased' ? 'text-slate-500 line-through' : 'text-slate-800'
                                 }`}>
                                   {item.product_name}
                                 </h4>
@@ -1018,14 +1004,13 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                                   </p>
                                 )}
                                 
-                                {item.status === 'Completed' && item.completed_at && (
+                                {item.status === 'Purchased' && item.purchased_at && (
                                   <p className="text-[10px] text-emerald-700 mt-1.5 flex items-center gap-1 font-semibold">
-                                    <CheckCircle2 size={10} /> Ilifanyika: {formatDate(item.completed_at)} • {formatTime(item.completed_at)}
+                                    <ShoppingBag size={10} /> Ilinunuliwa: {formatDate(item.purchased_at)} • {formatTime(item.purchased_at)}
                                   </p>
                                 )}
                               </div>
                               
-                              {/* Delete Button */}
                               <button 
                                 onClick={() => handleDeleteItem(item.id)}
                                 className="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition shrink-0"
@@ -1055,12 +1040,12 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
               <p className="text-xs text-slate-400 mt-1">
                 {searchTerm || adminFilter !== 'All' || workerFilter !== 'All'
                   ? 'Jaribu kubadilisha vichujio au tafuta kwa maneno mengine'
-                  : 'Wafanyakazi hawajaongeza bidhaa zisizopo bado'}
+                  : 'Wafanyakazi hawajaongeza bidhaa zisizokuepo bado'}
               </p>
             </div>
           )}
 
-          {/* Quick Summary Footer */}
+          {/* Progress Summary */}
           {adminStats.total > 0 && (
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
               <div className="flex flex-wrap items-center justify-between gap-4">
@@ -1071,31 +1056,25 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                   </div>
                   <div className="h-8 w-px bg-slate-200"></div>
                   <div>
-                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Jumla ya Bidhaa</p>
-                    <p className="text-lg font-black text-slate-800">{adminStats.total}</p>
-                  </div>
-                  <div className="h-8 w-px bg-slate-200"></div>
-                  <div>
-                    <p className="text-[10px] text-amber-500 uppercase font-bold tracking-wider">Zinazosubiri</p>
+                    <p className="text-[10px] text-amber-500 uppercase font-bold tracking-wider">Zinasubiri</p>
                     <p className="text-lg font-black text-amber-600">{adminStats.pending}</p>
                   </div>
                   <div className="h-8 w-px bg-slate-200"></div>
                   <div>
-                    <p className="text-[10px] text-emerald-500 uppercase font-bold tracking-wider">Zimefanyika</p>
-                    <p className="text-lg font-black text-emerald-600">{adminStats.completed}</p>
+                    <p className="text-[10px] text-emerald-500 uppercase font-bold tracking-wider">Zimenunuliwa</p>
+                    <p className="text-lg font-black text-emerald-600">{adminStats.purchased}</p>
                   </div>
                 </div>
                 
-                {/* Progress bar */}
                 <div className="flex-1 min-w-[200px] max-w-md">
                   <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 mb-1.5">
-                    <span>Maendeleo ya Kazi</span>
-                    <span className="text-emerald-600">{adminStats.completionRate}%</span>
+                    <span>Maendeleo ya Ununuzi</span>
+                    <span className="text-emerald-600">{adminStats.purchaseRate}%</span>
                   </div>
                   <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
                     <div 
                       className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full transition-all duration-500"
-                      style={{ width: `${adminStats.completionRate}%` }}
+                      style={{ width: `${adminStats.purchaseRate}%` }}
                     ></div>
                   </div>
                 </div>
@@ -1124,7 +1103,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
               Ongeza Jina Lako
             </h3>
             <p className="text-xs text-slate-400">
-              Andika jina lako ili kuweza kuweka bidhaa zisizopo. Kifaa hiki kitakukumbuka.
+              Andika jina lako ili kuweza kuweka bidhaa zisizokuepo. Kifaa hiki kitakukumbuka.
             </p>
             <form onSubmit={handleAddWorker} className="space-y-4 text-xs text-left">
               <div>
@@ -1167,11 +1146,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                   disabled={isLoading || !workerName.trim()}
                   className="px-5 py-2.5 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
                 >
-                  {isLoading ? (
-                    <><Loader2 size={14} className="animate-spin" /> Inasajili...</>
-                  ) : (
-                    <>Endelea</>
-                  )}
+                  {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inasajili...</> : <>Endelea</>}
                 </button>
               </div>
             </form>
@@ -1248,11 +1223,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                   disabled={isLoading || !productName.trim()}
                   className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
                 >
-                  {isLoading ? (
-                    <><Loader2 size={14} className="animate-spin" /> Inaongeza...</>
-                  ) : (
-                    <><Plus size={14} /> Ongeza</>
-                  )}
+                  {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inaongeza...</> : <><Plus size={14} /> Ongeza</>}
                 </button>
               </div>
             </form>
