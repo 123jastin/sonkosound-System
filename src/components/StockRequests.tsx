@@ -5,13 +5,13 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { 
-  Plus, User, X, Trash2, Check, Loader2, AlertCircle,
-  Package, Search, ArrowLeft, CheckCircle2, Clock,
+  Plus, X, Trash2, Check, Loader2, AlertCircle,
+  Package, Search, CheckCircle2, Clock,
   ListChecks, Phone, UserPlus, ChevronRight, LogOut,
   TrendingUp, Calendar, Users, ShoppingBag, RefreshCw,
   CheckSquare, Square, CalendarDays, Filter, MoreVertical,
   Download, FileText, FileDown, Edit2, Camera, Image as ImageIcon,
-  UserCog, Save
+  UserCog, Save, ChevronLeft
 } from 'lucide-react';
 import { compressProfilePicture, compressProductImage } from '../utils/imageCompression';
 
@@ -63,8 +63,14 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   const [isEditWorkerModalOpen, setIsEditWorkerModalOpen] = useState(false);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
-  const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
-  const [previewImage, setPreviewImage] = useState<string>('');
+  
+  // ============================================
+  // IMAGE GALLERY STATE (NEW)
+  // ============================================
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [galleryImages, setGalleryImages] = useState<string[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const [galleryTitle, setGalleryTitle] = useState('');
   
   const [downloadWorkerId, setDownloadWorkerId] = useState<string | null>(null);
   
@@ -93,6 +99,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   const file1Ref = useRef<HTMLInputElement>(null);
   const file2Ref = useRef<HTMLInputElement>(null);
   const profileFileRef = useRef<HTMLInputElement>(null);
+  const editProfileFileRef = useRef<HTMLInputElement>(null);
   
   // Admin filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -115,6 +122,22 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // ============================================
+  // KEYBOARD NAVIGATION FOR GALLERY
+  // ============================================
+  useEffect(() => {
+    if (!isGalleryOpen) return;
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsGalleryOpen(false);
+      if (e.key === 'ArrowLeft') setGalleryIndex(i => i > 0 ? i - 1 : galleryImages.length - 1);
+      if (e.key === 'ArrowRight') setGalleryIndex(i => i < galleryImages.length - 1 ? i + 1 : 0);
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isGalleryOpen, galleryImages.length]);
 
   // ============================================
   // LOAD DATA
@@ -154,7 +177,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   useEffect(() => { loadData(); }, [loadData]);
 
   // ============================================
-  // BROWSER MEMORY
+  // BROWSER MEMORY (NO BACK ARROW - LOCKED)
   // ============================================
   useEffect(() => {
     if (isWorkerMode) {
@@ -166,13 +189,22 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   useEffect(() => {
     if (isWorkerMode && !isInitializing && rememberedWorkerId && workers.length > 0) {
       const exists = workers.find(w => w.id === rememberedWorkerId);
-      if (exists) setSelectedWorkerId(rememberedWorkerId);
-      else {
+      if (exists) {
+        setSelectedWorkerId(rememberedWorkerId);
+      } else {
         localStorage.removeItem(WORKER_DEVICE_KEY);
         setRememberedWorkerId(null);
       }
     }
   }, [rememberedWorkerId, workers, isInitializing, isWorkerMode]);
+
+  // If worker selects a name (first time), remember it
+  useEffect(() => {
+    if (isWorkerMode && selectedWorkerId && !rememberedWorkerId) {
+      localStorage.setItem(WORKER_DEVICE_KEY, selectedWorkerId);
+      setRememberedWorkerId(selectedWorkerId);
+    }
+  }, [isWorkerMode, selectedWorkerId, rememberedWorkerId]);
 
   useEffect(() => {
     if (!isLoading) {
@@ -187,18 +219,15 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   const handleProfileImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
     if (!file.type.startsWith('image/')) {
       setError('Chagua picha tu');
       setTimeout(() => setError(null), 3000);
       return;
     }
-    
     setIsCompressing(true);
     try {
       const compressed = await compressProfilePicture(file);
       setWorkerPhoto(compressed);
-      if (isEditWorkerModalOpen) setEditWorkerPhoto(compressed);
     } catch (err) {
       setError('Imeshindwa kusindika picha');
     } finally {
@@ -209,13 +238,11 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   const handleEditProfileImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
     if (!file.type.startsWith('image/')) {
       setError('Chagua picha tu');
       setTimeout(() => setError(null), 3000);
       return;
     }
-    
     setIsCompressing(true);
     try {
       const compressed = await compressProfilePicture(file);
@@ -230,13 +257,11 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   const handleProductImageChange = async (e: React.ChangeEvent<HTMLInputElement>, slot: 1 | 2) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
     if (!file.type.startsWith('image/')) {
       setError('Chagua picha tu');
       setTimeout(() => setError(null), 3000);
       return;
     }
-    
     setIsCompressing(true);
     try {
       const compressed = await compressProductImage(file);
@@ -248,6 +273,25 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
       setIsCompressing(false);
     }
   };
+
+  // ============================================
+  // GALLERY OPENER (NEW)
+  // ============================================
+  const openGallery = (item: StockItem, startIndex: number = 0) => {
+    const images: string[] = [];
+    if (item.image1) images.push(item.image1);
+    if (item.image2) images.push(item.image2);
+    
+    if (images.length === 0) return;
+    
+    setGalleryImages(images);
+    setGalleryIndex(Math.min(startIndex, images.length - 1));
+    setGalleryTitle(item.product_name);
+    setIsGalleryOpen(true);
+  };
+
+  const nextImage = () => setGalleryIndex(i => i < galleryImages.length - 1 ? i + 1 : 0);
+  const prevImage = () => setGalleryIndex(i => i > 0 ? i - 1 : galleryImages.length - 1);
 
   // ============================================
   // DATE FILTER
@@ -379,16 +423,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     setRememberedWorkerId(workerId);
   };
 
-  const handleSwitchWorker = () => setSelectedWorkerId(null);
-
-  const handleForgetWorker = () => {
-    if (!confirm('Je, una uhakika unataka kuondoa kumbukumbu ya jina lako kwenye kifaa hiki?')) return;
-    localStorage.removeItem(WORKER_DEVICE_KEY);
-    setRememberedWorkerId(null);
-    setSelectedWorkerId(null);
-    setSuccessMessage('Kumbukumbu imeondolewa');
-    setTimeout(() => setSuccessMessage(null), 3000);
-  };
+  // NO handleSwitchWorker — removed back arrow function
 
   const openEditWorkerModal = () => {
     if (!activeWorker) return;
@@ -419,20 +454,17 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
       const result = await response.json();
       
       if (result.success) {
-        // Update local state
         setWorkers(prev => prev.map(w => 
           w.id === activeWorker.id 
             ? { ...w, name: result.worker.name, phone: result.worker.phone, photo: result.worker.photo }
             : w
         ));
         setStockItems(prev => prev.map(i => 
-          i.worker_id === activeWorker.id 
-            ? { ...i, worker_name: result.worker.name }
-            : i
+          i.worker_id === activeWorker.id ? { ...i, worker_name: result.worker.name } : i
         ));
         
         setIsEditWorkerModalOpen(false);
-        setSuccessMessage('Wasifu umehifadhiwa kikamilifu!');
+        setSuccessMessage('Wasifu umehifadhiwa!');
         setTimeout(() => setSuccessMessage(null), 3000);
         if (onUpdate) onUpdate();
       } else {
@@ -440,32 +472,14 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
         setTimeout(() => setError(null), 5000);
       }
     } catch (err: any) {
-      // Fallback - local update
       setWorkers(prev => prev.map(w => 
         w.id === activeWorker.id 
           ? { ...w, name: editWorkerName.trim(), phone: editWorkerPhone.trim(), photo: editWorkerPhoto }
           : w
       ));
       setStockItems(prev => prev.map(i => 
-        i.worker_id === activeWorker.id 
-          ? { ...i, worker_name: editWorkerName.trim() }
-          : i
+        i.worker_id === activeWorker.id ? { ...i, worker_name: editWorkerName.trim() } : i
       ));
-      
-      const savedData = localStorage.getItem('stock_requests_data');
-      if (savedData) {
-        const parsed = JSON.parse(savedData);
-        parsed.workers = (parsed.workers || []).map((w: Worker) => 
-          w.id === activeWorker.id 
-            ? { ...w, name: editWorkerName.trim(), phone: editWorkerPhone.trim(), photo: editWorkerPhoto }
-            : w
-        );
-        parsed.items = (parsed.items || []).map((i: StockItem) => 
-          i.worker_id === activeWorker.id ? { ...i, worker_name: editWorkerName.trim() } : i
-        );
-        localStorage.setItem('stock_requests_data', JSON.stringify(parsed));
-      }
-      
       setIsEditWorkerModalOpen(false);
       setSuccessMessage('Wasifu umehifadhiwa!');
       setTimeout(() => setSuccessMessage(null), 3000);
@@ -537,7 +551,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     
     const existing = workers.find(w => w.name.toLowerCase() === workerName.trim().toLowerCase());
     if (existing) {
-      setError('Jina hili tayari lipo. Chagua jina lingine.');
+      setError('Jina hili tayari lipo.');
       setTimeout(() => setError(null), 5000);
       return;
     }
@@ -694,16 +708,13 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
       });
-      
       const result = await response.json();
       
       if (result.success) {
         setSuccessMessage(newStatus === 'Purchased' ? '✅ Imewekwa kama Zimenunuliwa!' : 'Imerejeshwa');
         setTimeout(() => setSuccessMessage(null), 1500);
         if (onUpdate) onUpdate();
-      } else {
-        throw new Error(result.error);
-      }
+      } else throw new Error(result.error);
     } catch (err) {
       setStockItems(prev => prev.map(item => 
         item.id === itemId ? { ...item, status: previousStatus } : item
@@ -758,16 +769,12 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   };
 
   // ============================================
-  // PDF GENERATION (same as before)
+  // PDF (same as before, with images)
   // ============================================
   const generatePDF = (workerId: string | null, filterType: 'All' | 'Today' | 'Week' | 'Month') => {
     let itemsToReport: StockItem[] = [];
-    
-    if (workerId) {
-      itemsToReport = stockItems.filter(i => i.worker_id === workerId);
-    } else {
-      itemsToReport = [...stockItems];
-    }
+    if (workerId) itemsToReport = stockItems.filter(i => i.worker_id === workerId);
+    else itemsToReport = [...stockItems];
     
     const range = getDateRange(filterType);
     if (range) {
@@ -781,14 +788,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     
     const purchased = itemsToReport.filter(i => i.status === 'Purchased');
     const pending = itemsToReport.filter(i => i.status === 'Pending');
-    
-    const filterLabels: Record<string, string> = {
-      'All': 'Zote',
-      'Today': 'Leo',
-      'Week': 'Wiki Hii',
-      'Month': 'Mwezi Huu'
-    };
-
+    const filterLabels: Record<string, string> = { 'All': 'Zote', 'Today': 'Leo', 'Week': 'Wiki Hii', 'Month': 'Mwezi Huu' };
     const now = new Date();
     const reportId = `STK-${Date.now().toString(36).toUpperCase()}`;
 
@@ -797,10 +797,10 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 @page { size: A4; margin: 12mm; }
-body { font-family: 'Segoe UI', Tahoma, sans-serif; background: white; color: #1e293b; padding: 20px; }
+body { font-family: 'Segoe UI', sans-serif; background: white; color: #1e293b; padding: 20px; }
 .container { max-width: 190mm; margin: 0 auto; }
-.header { background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 50%, #22c55e 100%); color: white; padding: 24px 28px; border-radius: 12px; margin-bottom: 20px; }
-.business-name { font-size: 22px; font-weight: 900; letter-spacing: 1px; }
+.header { background: linear-gradient(135deg, #1e3a5f, #3b82f6, #22c55e); color: white; padding: 24px; border-radius: 12px; margin-bottom: 20px; }
+.business-name { font-size: 22px; font-weight: 900; }
 .business-slogan { font-size: 11px; opacity: 0.9; margin-top: 3px; }
 .report-title { font-size: 15px; font-weight: bold; margin: 12px 0 5px; }
 .report-meta { font-size: 11px; opacity: 0.9; display: flex; gap: 20px; flex-wrap: wrap; }
@@ -821,8 +821,7 @@ thead th { background: #f1f5f9; color: #475569; padding: 10px 12px; text-align: 
 thead th:first-child { text-align: center; width: 40px; }
 tbody td { padding: 11px 12px; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
 tbody td:first-child { text-align: center; font-weight: bold; color: #94a3b8; }
-tbody tr:nth-child(even) { background: #f8fafc; }
-.product-img-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e8f0; }
+.product-img-thumb { width: 60px; height: 60px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e8f0; margin-right: 5px; }
 .badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 9px; font-weight: 800; text-transform: uppercase; }
 .badge-purchased { background: #d1fae5; color: #059669; }
 .badge-pending { background: #fef3c7; color: #d97706; }
@@ -842,54 +841,40 @@ tbody tr:nth-child(even) { background: #f8fafc; }
 <span><strong>Ripoti ID:</strong> ${reportId}</span>
 </div>
 </div>
-
 <div class="summary-grid">
 <div class="summary-card"><div class="summary-label">Jumla</div><div class="summary-value">${itemsToReport.length}</div></div>
 <div class="summary-card purchased"><div class="summary-label">Zimenunuliwa</div><div class="summary-value">${purchased.length}</div></div>
 <div class="summary-card pending"><div class="summary-label">Bado</div><div class="summary-value">${pending.length}</div></div>
 </div>
-
 ${purchased.length > 0 ? `
 <div class="section">
 <div class="section-header purchased"><span>✓ BIDHAA ZIMENUNULIWA</span><span>${purchased.length}</span></div>
-<table><thead><tr><th>#</th><th>Picha</th><th>Jina la Bidhaa</th><th>Idadi</th><th>Tarehe</th><th>Hali</th></tr></thead>
+<table><thead><tr><th>#</th><th>Picha</th><th>Jina la Bidhaa</th><th>Idadi</th><th>Tarehe</th></tr></thead>
 <tbody>${purchased.map((item, idx) => `
 <tr>
 <td>${idx + 1}</td>
-<td>${item.image1 ? `<img src="${item.image1}" class="product-img-thumb" />` : '-'}</td>
+<td>${item.image1 ? `<img src="${item.image1}" class="product-img-thumb" />` : ''}${item.image2 ? `<img src="${item.image2}" class="product-img-thumb" />` : ''}</td>
 <td><strong>${item.product_name}</strong>${item.notes ? `<br><em style="color:#94a3b8;font-size:10px">${item.notes}</em>` : ''}</td>
 <td>${item.quantity || '-'}</td>
 <td>${item.purchased_at ? new Date(item.purchased_at).toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short' }) : '-'}</td>
-<td><span class="badge badge-purchased">✓</span></td>
 </tr>`).join('')}</tbody></table>
 </div>` : ''}
-
 ${pending.length > 0 ? `
 <div class="section">
 <div class="section-header pending"><span>⏳ BIDHAA BADO</span><span>${pending.length}</span></div>
-<table><thead><tr><th>#</th><th>Picha</th><th>Jina la Bidhaa</th><th>Idadi</th><th>Tarehe</th><th>Hali</th></tr></thead>
+<table><thead><tr><th>#</th><th>Picha</th><th>Jina la Bidhaa</th><th>Idadi</th><th>Tarehe</th></tr></thead>
 <tbody>${pending.map((item, idx) => `
 <tr>
 <td>${idx + 1}</td>
-<td>${item.image1 ? `<img src="${item.image1}" class="product-img-thumb" />` : '-'}</td>
+<td>${item.image1 ? `<img src="${item.image1}" class="product-img-thumb" />` : ''}${item.image2 ? `<img src="${item.image2}" class="product-img-thumb" />` : ''}</td>
 <td><strong>${item.product_name}</strong>${item.notes ? `<br><em style="color:#94a3b8;font-size:10px">${item.notes}</em>` : ''}</td>
 <td>${item.quantity || '-'}</td>
 <td>${new Date(item.created_at).toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short' })}</td>
-<td><span class="badge badge-pending">⏳</span></td>
 </tr>`).join('')}</tbody></table>
 </div>` : ''}
-
-${itemsToReport.length === 0 ? '<div class="section"><div class="section-header">HAKUNA BIDHAA</div><table><tbody><tr><td colspan="6" style="text-align:center;padding:30px;color:#94a3b8;font-style:italic">Hakuna bidhaa kwa kipindi hiki.</td></tr></tbody></table></div>' : ''}
-
-<div class="footer">
-<strong>Sonko Sound</strong> • Morogoro, Tanzania • 0688423753<br>
-Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ', { hour: '2-digit', minute: '2-digit' })}
-</div>
-
-<div class="no-print">
-<button onclick="window.print()">🖨️ Chapisha / Save as PDF</button>
-<button class="close" onclick="window.close()">Funga</button>
-</div>
+${itemsToReport.length === 0 ? '<div class="section"><div class="section-header">HAKUNA BIDHAA</div></div>' : ''}
+<div class="footer"><strong>Sonko Sound</strong> • Morogoro, Tanzania • 0688423753</div>
+<div class="no-print"><button onclick="window.print()">🖨️ Chapisha / Save as PDF</button><button class="close" onclick="window.close()">Funga</button></div>
 </div>
 <script>window.onload = function() { setTimeout(function() { window.print(); }, 300); };</script>
 </body></html>`;
@@ -913,7 +898,6 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
   };
 
   const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-
   const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short', year: 'numeric' });
   const formatTime = (dateStr: string) => new Date(dateStr).toLocaleTimeString('sw-TZ', { hour: '2-digit', minute: '2-digit' });
 
@@ -931,7 +915,6 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
   return (
     <div className="space-y-6">
       
-      {/* Alerts */}
       {error && (
         <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-rose-700 text-xs">
@@ -950,26 +933,27 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
       )}
 
       {/* ============================================
-          WORKER MODE
+          WORKER MODE (NO BACK ARROW)
           ============================================ */}
       {isWorkerMode ? (
         activeWorker ? (
           <div className="space-y-6 text-xs text-left">
-            {/* Worker Header with Photo */}
+            {/* Worker Header (NO BACK BUTTON) */}
             <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex items-center gap-4">
-                  <button onClick={handleSwitchWorker} className="p-2.5 hover:bg-slate-50 text-slate-500 rounded-2xl border border-slate-100 transition">
-                    <ArrowLeft size={16} />
-                  </button>
-                  
                   {/* Profile Photo */}
                   {activeWorker.photo ? (
                     <img 
                       src={activeWorker.photo} 
                       alt={activeWorker.name}
                       className="h-16 w-16 rounded-2xl object-cover border-2 border-accent/20 shadow-sm cursor-pointer"
-                      onClick={() => { setPreviewImage(activeWorker.photo || ''); setIsImagePreviewOpen(true); }}
+                      onClick={() => {
+                        setGalleryImages([activeWorker.photo!]);
+                        setGalleryIndex(0);
+                        setGalleryTitle(activeWorker.name);
+                        setIsGalleryOpen(true);
+                      }}
                     />
                   ) : (
                     <div className="h-16 w-16 rounded-2xl bg-accent/10 text-accent font-extrabold text-xl flex items-center justify-center shadow-sm">
@@ -1019,66 +1003,74 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
               </div>
             </div>
 
-            {/* Product List with Images */}
+            {/* Product List with BOTH Images */}
             <div className="space-y-3">
-              {activeWorkerItems.length > 0 ? activeWorkerItems.map(item => (
-                <div key={item.id} className={`bg-white rounded-2xl border p-4 shadow-sm transition ${
-                  item.status === 'Purchased' ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'
-                }`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3 flex-1">
-                      {/* Product Image Thumbnail */}
-                      {item.image1 ? (
-                        <img 
-                          src={item.image1} 
-                          alt={item.product_name}
-                          className="h-14 w-14 rounded-xl object-cover border border-slate-200 cursor-pointer shrink-0"
-                          onClick={() => { setPreviewImage(item.image1 || ''); setIsImagePreviewOpen(true); }}
-                        />
-                      ) : (
-                        <div className={`h-14 w-14 rounded-xl flex items-center justify-center shrink-0 ${
-                          item.status === 'Purchased' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
-                        }`}>
-                          {item.status === 'Purchased' ? <ShoppingBag size={20} /> : <Clock size={20} />}
-                        </div>
-                      )}
-                      
-                      <div className="flex-1">
-                        <h4 className={`text-sm font-bold ${item.status === 'Purchased' ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
-                          {item.product_name}
-                        </h4>
-                        {item.quantity && <p className="text-xs text-slate-500 mt-1">Idadi: {item.quantity}</p>}
-                        {item.notes && <p className="text-xs text-slate-400 mt-1 italic">{item.notes}</p>}
-                        
-                        {/* Second Image */}
-                        {item.image2 && (
-                          <img 
-                            src={item.image2} 
-                            alt={`${item.product_name} 2`}
-                            className="h-12 w-12 rounded-lg object-cover border border-slate-200 mt-2 cursor-pointer"
-                            onClick={() => { setPreviewImage(item.image2 || ''); setIsImagePreviewOpen(true); }}
-                          />
+              {activeWorkerItems.length > 0 ? activeWorkerItems.map(item => {
+                const imageCount = (item.image1 ? 1 : 0) + (item.image2 ? 1 : 0);
+                
+                return (
+                  <div key={item.id} className={`bg-white rounded-2xl border p-4 shadow-sm transition ${
+                    item.status === 'Purchased' ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'
+                  }`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 flex-1">
+                        {/* BOTH Images side by side */}
+                        {imageCount > 0 ? (
+                          <div className="flex gap-2 shrink-0">
+                            {item.image1 && (
+                              <img 
+                                src={item.image1} 
+                                alt={item.product_name}
+                                className="h-16 w-16 rounded-xl object-cover border border-slate-200 cursor-pointer hover:scale-105 transition"
+                                onClick={() => openGallery(item, 0)}
+                              />
+                            )}
+                            {item.image2 && (
+                              <img 
+                                src={item.image2} 
+                                alt={`${item.product_name} 2`}
+                                className="h-16 w-16 rounded-xl object-cover border border-slate-200 cursor-pointer hover:scale-105 transition"
+                                onClick={() => openGallery(item, 1)}
+                              />
+                            )}
+                          </div>
+                        ) : (
+                          <div className={`h-16 w-16 rounded-xl flex items-center justify-center shrink-0 ${
+                            item.status === 'Purchased' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
+                          }`}>
+                            {item.status === 'Purchased' ? <ShoppingBag size={22} /> : <Clock size={22} />}
+                          </div>
                         )}
                         
-                        <p className="text-[10px] text-slate-400 mt-2">
-                          {formatDate(item.created_at)} • {formatTime(item.created_at)}
-                        </p>
-                        {item.status === 'Purchased' && item.purchased_at && (
-                          <p className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1 font-semibold">
-                            <ShoppingBag size={10} /> Ilinunuliwa: {formatDate(item.purchased_at)}
+                        <div className="flex-1">
+                          <h4 className={`text-sm font-bold ${item.status === 'Purchased' ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
+                            {item.product_name}
+                          </h4>
+                          {item.quantity && <p className="text-xs text-slate-500 mt-1">Idadi: {item.quantity}</p>}
+                          {item.notes && <p className="text-xs text-slate-400 mt-1 italic">{item.notes}</p>}
+                          
+                          {/* Image count indicator */}
+                          {imageCount > 1 && (
+                            <p className="text-[10px] text-blue-600 mt-1 flex items-center gap-1 font-semibold">
+                              <ImageIcon size={10} /> Picha {imageCount} - bonyeza kuona zote
+                            </p>
+                          )}
+                          
+                          <p className="text-[10px] text-slate-400 mt-2">
+                            {formatDate(item.created_at)} • {formatTime(item.created_at)}
                           </p>
-                        )}
+                        </div>
                       </div>
+                      <button 
+                        onClick={() => handleDeleteItem(item.id)}
+                        className="p-2 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition shrink-0"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
-                    <button 
-                      onClick={() => handleDeleteItem(item.id)}
-                      className="p-2 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition shrink-0"
-                    >
-                      <Trash2 size={14} />
-                    </button>
                   </div>
-                </div>
-              )) : (
+                );
+              }) : (
                 <div className="bg-white p-12 text-center rounded-3xl border border-slate-100 shadow-sm text-slate-400">
                   <Package size={40} className="mx-auto text-slate-300 mb-3" />
                   <p className="text-sm font-semibold">Hakuna bidhaa bado.</p>
@@ -1088,7 +1080,7 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
             </div>
           </div>
         ) : (
-          /* Worker Selection with Photos */
+          /* Worker Selection */
           <>
             <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-5 rounded-3xl border border-slate-100 shadow-sm gap-4">
               <div>
@@ -1097,7 +1089,7 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
                   Orodha ya Bidhaa Zisizokuepo
                 </h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  Chagua jina lako ili kuona au kuongeza bidhaa
+                  Chagua jina lako ili kuanza
                 </p>
               </div>
               <button 
@@ -1118,96 +1110,50 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
                 return (
                   <div 
                     key={worker.id}
-                    className={`bg-white rounded-3xl border p-5 shadow-sm hover:shadow-md transition relative ${
+                    onClick={() => handleSelectWorker(worker.id)}
+                    className={`bg-white rounded-3xl border p-5 shadow-sm hover:shadow-md cursor-pointer transition ${
                       isRemembered ? 'border-emerald-300 ring-2 ring-emerald-500/20 bg-emerald-50/30' : 'border-slate-100 hover:border-accent/50'
                     }`}
                   >
-                    <div className="absolute top-3 right-3">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenMenuId(openMenuId === worker.id ? null : worker.id);
-                        }}
-                        className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition"
-                      >
-                        <MoreVertical size={16} />
-                      </button>
-                      
-                      {openMenuId === worker.id && (
-                        <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-100 py-1 min-w-[220px] z-20">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleSelectWorker(worker.id); }}
-                            className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
-                          >
-                            <Edit2 size={14} className="text-blue-500" />
-                            Hariri Wasifu
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); openDownloadModal(worker.id); }}
-                            className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
-                          >
-                            <FileDown size={14} className="text-blue-500" />
-                            Pakua Ripoti
-                          </button>
-                          <div className="border-t border-slate-100 my-1"></div>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteWorker(worker.id); }}
-                            className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition"
-                          >
-                            <Trash2 size={14} />
-                            Futa {worker.name}
-                          </button>
+                    <div className="flex items-center gap-3">
+                      {worker.photo ? (
+                        <img src={worker.photo} alt={worker.name} className="h-12 w-12 rounded-xl object-cover border-2 border-accent/20" />
+                      ) : (
+                        <div className={`h-12 w-12 rounded-xl font-bold flex items-center justify-center ${
+                          isRemembered ? 'bg-emerald-100 text-emerald-700' : 'bg-accent/10 text-accent'
+                        }`}>
+                          {getInitials(worker.name)}
                         </div>
                       )}
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                          {worker.name}
+                          {isRemembered && <CheckCircle2 size={12} className="text-emerald-600" />}
+                        </h3>
+                        {worker.phone && (
+                          <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                            <Phone size={10} /> {worker.phone}
+                          </p>
+                        )}
+                      </div>
                     </div>
-
-                    <div onClick={() => handleSelectWorker(worker.id)} className="cursor-pointer">
-                      <div className="flex items-start justify-between pr-8">
-                        <div className="flex items-center gap-3">
-                          {worker.photo ? (
-                            <img 
-                              src={worker.photo} 
-                              alt={worker.name}
-                              className="h-12 w-12 rounded-xl object-cover border-2 border-accent/20"
-                            />
-                          ) : (
-                            <div className={`h-12 w-12 rounded-xl font-bold flex items-center justify-center ${
-                              isRemembered ? 'bg-emerald-100 text-emerald-700' : 'bg-accent/10 text-accent'
-                            }`}>
-                              {getInitials(worker.name)}
-                            </div>
-                          )}
-                          <div>
-                            <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-                              {worker.name}
-                              {isRemembered && <CheckCircle2 size={12} className="text-emerald-600" />}
-                            </h3>
-                            {worker.phone && (
-                              <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                                <Phone size={10} /> {worker.phone}
-                              </p>
-                            )}
-                          </div>
+                    
+                    <div className="mt-4 pt-3 border-t border-slate-50 flex justify-between items-center">
+                      <div className="flex gap-4">
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Jumla</p>
+                          <p className="text-sm font-bold text-slate-800">{workerItems.length}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Bado</p>
+                          <p className="text-sm font-bold text-amber-600">{pendingCount}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Zimenunuliwa</p>
+                          <p className="text-sm font-bold text-emerald-600">{purchasedCount}</p>
                         </div>
                       </div>
-                      
-                      <div className="mt-4 pt-3 border-t border-slate-50 flex justify-between items-center">
-                        <div className="flex gap-4">
-                          <div>
-                            <p className="text-[10px] text-slate-400 uppercase font-bold">Jumla</p>
-                            <p className="text-sm font-bold text-slate-800">{workerItems.length}</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-slate-400 uppercase font-bold">Bado</p>
-                            <p className="text-sm font-bold text-amber-600">{pendingCount}</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-slate-400 uppercase font-bold">Zimenunuliwa</p>
-                            <p className="text-sm font-bold text-emerald-600">{purchasedCount}</p>
-                          </div>
-                        </div>
-                        <ChevronRight size={16} className="text-slate-400" />
-                      </div>
+                      <ChevronRight size={16} className="text-slate-400" />
                     </div>
                   </div>
                 );
@@ -1285,7 +1231,7 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
             </div>
           </div>
 
-          {/* Filters (same as before) */}
+          {/* Filters */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
             <div className="flex flex-col lg:flex-row gap-3">
               <div className="relative flex-1">
@@ -1316,7 +1262,7 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
             </div>
           </div>
 
-          {/* Items List */}
+          {/* Items List - Admin sees BOTH images */}
           {Object.keys(itemsByWorker).length > 0 ? (
             <div className="space-y-3">
               {Object.values(itemsByWorker).map(({ worker, items, pending, purchased }) => {
@@ -1390,54 +1336,75 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
                       <div className="border-t border-slate-100 bg-slate-50/40">
                         {items.length > 0 ? (
                           <div className="divide-y divide-slate-100">
-                            {items.map(item => (
-                              <div key={item.id} className={`flex items-center gap-3 p-3 ${item.status === 'Purchased' ? 'bg-emerald-50/40' : 'bg-white'}`}>
-                                <button
-                                  onClick={() => handleToggleStatus(item.id, item.status)}
-                                  className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 transition-all ${
-                                    item.status === 'Purchased'
-                                      ? 'bg-emerald-500 text-white shadow-md'
-                                      : 'border-2 border-slate-300 text-slate-300 hover:border-emerald-500 hover:text-emerald-500 bg-white'
-                                  }`}
-                                >
-                                  {item.status === 'Purchased' ? <CheckSquare size={20} strokeWidth={3} /> : <Square size={20} />}
-                                </button>
-                                
-                                {/* Product Image */}
-                                {item.image1 && (
-                                  <img 
-                                    src={item.image1} 
-                                    alt={item.product_name}
-                                    className="h-12 w-12 rounded-lg object-cover border border-slate-200 cursor-pointer shrink-0"
-                                    onClick={() => { setPreviewImage(item.image1 || ''); setIsImagePreviewOpen(true); }}
-                                  />
-                                )}
-                                
-                                <div className="flex-1 min-w-0">
-                                  <h4 className={`text-sm font-bold ${item.status === 'Purchased' ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
-                                    {item.product_name}
-                                  </h4>
-                                  <div className="flex flex-wrap items-center gap-2 mt-1">
-                                    {item.quantity && (
-                                      <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
-                                        Idadi: {item.quantity}
+                            {items.map(item => {
+                              const imageCount = (item.image1 ? 1 : 0) + (item.image2 ? 1 : 0);
+                              
+                              return (
+                                <div key={item.id} className={`flex items-center gap-3 p-3 ${item.status === 'Purchased' ? 'bg-emerald-50/40' : 'bg-white'}`}>
+                                  <button
+                                    onClick={() => handleToggleStatus(item.id, item.status)}
+                                    className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 transition-all ${
+                                      item.status === 'Purchased'
+                                        ? 'bg-emerald-500 text-white shadow-md'
+                                        : 'border-2 border-slate-300 text-slate-300 hover:border-emerald-500 hover:text-emerald-500 bg-white'
+                                    }`}
+                                  >
+                                    {item.status === 'Purchased' ? <CheckSquare size={20} strokeWidth={3} /> : <Square size={20} />}
+                                  </button>
+                                  
+                                  {/* BOTH Images - admin sees side by side */}
+                                  {imageCount > 0 && (
+                                    <div className="flex gap-1.5 shrink-0">
+                                      {item.image1 && (
+                                        <img 
+                                          src={item.image1} 
+                                          alt={item.product_name}
+                                          className="h-14 w-14 rounded-lg object-cover border border-slate-200 cursor-pointer hover:scale-110 hover:shadow-md transition"
+                                          onClick={() => openGallery(item, 0)}
+                                        />
+                                      )}
+                                      {item.image2 && (
+                                        <img 
+                                          src={item.image2} 
+                                          alt={`${item.product_name} 2`}
+                                          className="h-14 w-14 rounded-lg object-cover border border-slate-200 cursor-pointer hover:scale-110 hover:shadow-md transition"
+                                          onClick={() => openGallery(item, 1)}
+                                        />
+                                      )}
+                                    </div>
+                                  )}
+                                  
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className={`text-sm font-bold ${item.status === 'Purchased' ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
+                                      {item.product_name}
+                                    </h4>
+                                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                                      {item.quantity && (
+                                        <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+                                          Idadi: {item.quantity}
+                                        </span>
+                                      )}
+                                      <span className="text-[10px] text-slate-400">
+                                        {formatDate(item.created_at)} • {formatTime(item.created_at)}
                                       </span>
-                                    )}
-                                    <span className="text-[10px] text-slate-400">
-                                      {formatDate(item.created_at)} • {formatTime(item.created_at)}
-                                    </span>
+                                      {imageCount > 1 && (
+                                        <span className="text-[10px] text-blue-600 font-semibold flex items-center gap-1">
+                                          <ImageIcon size={9} /> Picha {imageCount}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {item.notes && <p className="text-[11px] text-slate-500 mt-1 italic">{item.notes}</p>}
                                   </div>
-                                  {item.notes && <p className="text-[11px] text-slate-500 mt-1 italic">{item.notes}</p>}
+                                  
+                                  <button 
+                                    onClick={() => handleDeleteItem(item.id)}
+                                    className="p-1.5 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 shrink-0"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
                                 </div>
-                                
-                                <button 
-                                  onClick={() => handleDeleteItem(item.id)}
-                                  className="p-1.5 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 shrink-0"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ) : (
                           <div className="text-center py-8 text-slate-400">
@@ -1460,7 +1427,7 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
       )}
 
       {/* ============================================
-          ADD WORKER MODAL (with photo)
+          ADD WORKER MODAL
           ============================================ */}
       {isAddWorkerModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1474,15 +1441,10 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
             </h3>
             
             <form onSubmit={handleAddWorker} className="space-y-4 text-xs text-left">
-              {/* Profile Photo Upload */}
               <div className="flex flex-col items-center gap-3">
                 <div className="relative">
                   {workerPhoto ? (
-                    <img 
-                      src={workerPhoto} 
-                      alt="Profile" 
-                      className="h-24 w-24 rounded-2xl object-cover border-4 border-accent/20 shadow-md" 
-                    />
+                    <img src={workerPhoto} alt="Profile" className="h-24 w-24 rounded-2xl object-cover border-4 border-accent/20 shadow-md" />
                   ) : (
                     <div className="h-24 w-24 rounded-2xl bg-slate-100 border-4 border-slate-200 flex items-center justify-center">
                       <Camera size={28} className="text-slate-400" />
@@ -1496,24 +1458,9 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
                   >
                     {isCompressing ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
                   </button>
-                  {workerPhoto && (
-                    <button
-                      type="button"
-                      onClick={() => setWorkerPhoto('')}
-                      className="absolute -top-2 -right-2 h-7 w-7 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md"
-                    >
-                      <X size={12} />
-                    </button>
-                  )}
                 </div>
                 <p className="text-[10px] text-slate-400">Picha ya wasifu (hiari)</p>
-                <input
-                  ref={profileFileRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleProfileImageChange}
-                  className="hidden"
-                />
+                <input ref={profileFileRef} type="file" accept="image/*" onChange={handleProfileImageChange} className="hidden" />
               </div>
               
               <div>
@@ -1555,7 +1502,7 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
       )}
 
       {/* ============================================
-          EDIT WORKER MODAL (with photo)
+          EDIT WORKER MODAL
           ============================================ */}
       {isEditWorkerModalOpen && activeWorker && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1569,7 +1516,6 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
             </h3>
             
             <form onSubmit={handleUpdateWorker} className="space-y-4 text-xs text-left">
-              {/* Profile Photo */}
               <div className="flex flex-col items-center gap-3">
                 <div className="relative">
                   {editWorkerPhoto ? (
@@ -1581,15 +1527,14 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
                   )}
                   <button
                     type="button"
-                    onClick={() => file2Ref.current?.click()}
+                    onClick={() => editProfileFileRef.current?.click()}
                     disabled={isCompressing}
                     className="absolute -bottom-2 -right-2 h-9 w-9 rounded-full bg-accent hover:bg-accent/90 text-white flex items-center justify-center shadow-lg disabled:opacity-50"
                   >
                     {isCompressing ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
                   </button>
                 </div>
-                <p className="text-[10px] text-slate-400">Bonyeza ili kubadilisha picha</p>
-                <input ref={file2Ref} type="file" accept="image/*" onChange={handleEditProfileImageChange} className="hidden" />
+                <input ref={editProfileFileRef} type="file" accept="image/*" onChange={handleEditProfileImageChange} className="hidden" />
               </div>
               
               <div>
@@ -1629,7 +1574,7 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
       )}
 
       {/* ============================================
-          ADD PRODUCT MODAL (with 2 images)
+          ADD PRODUCT MODAL
           ============================================ */}
       {isAddProductModalOpen && activeWorker && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1675,14 +1620,12 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
                 />
               </div>
               
-              {/* Product Images - 2 slots */}
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1">
                   <ImageIcon size={12} /> Picha za Bidhaa (Hiari - 2 Max)
                 </label>
                 <div className="grid grid-cols-2 gap-3">
-                  {/* Image 1 */}
-                  <div className="relative">
+                  <div>
                     {productImage1 ? (
                       <div className="relative">
                         <img src={productImage1} alt="Product 1" className="w-full h-28 rounded-xl object-cover border-2 border-emerald-300" />
@@ -1708,8 +1651,7 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
                     <input ref={file1Ref} type="file" accept="image/*" onChange={(e) => handleProductImageChange(e, 1)} className="hidden" />
                   </div>
                   
-                  {/* Image 2 */}
-                  <div className="relative">
+                  <div>
                     {productImage2 ? (
                       <div className="relative">
                         <img src={productImage2} alt="Product 2" className="w-full h-28 rounded-xl object-cover border-2 border-emerald-300" />
@@ -1797,19 +1739,87 @@ Ripoti: ${now.toLocaleDateString('sw-TZ')} • ${now.toLocaleTimeString('sw-TZ',
         </div>
       )}
 
-      {/* IMAGE PREVIEW */}
-      {isImagePreviewOpen && (
+      {/* ============================================
+          FULL-SCREEN IMAGE GALLERY
+          ============================================ */}
+      {isGalleryOpen && galleryImages.length > 0 && (
         <div 
-          className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4"
-          onClick={() => setIsImagePreviewOpen(false)}
+          className="fixed inset-0 z-[70] bg-black/95 flex flex-col"
+          onClick={() => setIsGalleryOpen(false)}
         >
-          <button 
-            onClick={() => setIsImagePreviewOpen(false)}
-            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20"
+          {/* Gallery Header */}
+          <div 
+            className="flex items-center justify-between p-4 border-b border-white/10"
+            onClick={(e) => e.stopPropagation()}
           >
-            <X size={20} />
-          </button>
-          <img src={previewImage} alt="Preview" className="max-w-full max-h-full object-contain rounded-xl" />
+            <div className="text-white">
+              <h3 className="text-sm font-bold">{galleryTitle}</h3>
+              <p className="text-[11px] text-white/60 mt-0.5">
+                Picha {galleryIndex + 1} ya {galleryImages.length}
+              </p>
+            </div>
+            <button 
+              onClick={() => setIsGalleryOpen(false)}
+              className="p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          
+          {/* Gallery Main Image */}
+          <div 
+            className="flex-1 flex items-center justify-center p-4 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {galleryImages.length > 1 && (
+              <>
+                <button
+                  onClick={prevImage}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition z-10"
+                >
+                  <ChevronLeft size={24} />
+                </button>
+                <button
+                  onClick={nextImage}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition z-10"
+                >
+                  <ChevronRight size={24} />
+                </button>
+              </>
+            )}
+            
+            <img 
+              src={galleryImages[galleryIndex]} 
+              alt={`${galleryTitle} ${galleryIndex + 1}`} 
+              className="max-w-full max-h-full object-contain rounded-xl"
+            />
+          </div>
+          
+          {/* Thumbnail Strip */}
+          {galleryImages.length > 1 && (
+            <div 
+              className="p-4 flex items-center justify-center gap-3 border-t border-white/10"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {galleryImages.map((img, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setGalleryIndex(idx)}
+                  className={`h-16 w-16 rounded-lg overflow-hidden border-2 transition ${
+                    idx === galleryIndex 
+                      ? 'border-white scale-110' 
+                      : 'border-white/20 opacity-60 hover:opacity-100'
+                  }`}
+                >
+                  <img 
+                    src={img} 
+                    alt={`Thumbnail ${idx + 1}`} 
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
