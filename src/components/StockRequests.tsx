@@ -7,7 +7,8 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   Plus, User, X, Trash2, Check, Loader2, AlertCircle,
   Package, Search, ArrowLeft, CheckCircle2, Clock,
-  ListChecks, Phone, UserPlus, ChevronRight, LogOut
+  ListChecks, Phone, UserPlus, ChevronRight, LogOut,
+  Filter, TrendingUp, Calendar, Users, Award
 } from 'lucide-react';
 
 // Interfaces
@@ -53,7 +54,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   // Modals
   const [isAddWorkerModalOpen, setIsAddWorkerModalOpen] = useState(false);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
-  const [isViewAllModalOpen, setIsViewAllModalOpen] = useState(false);
   
   // Worker form
   const [workerName, setWorkerName] = useState('');
@@ -64,9 +64,11 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   const [productQuantity, setProductQuantity] = useState('');
   const [productNotes, setProductNotes] = useState('');
   
-  // Filter
+  // Admin panel filters
   const [searchTerm, setSearchTerm] = useState('');
   const [adminFilter, setAdminFilter] = useState<'All' | 'Pending' | 'Completed'>('Pending');
+  const [workerFilter, setWorkerFilter] = useState<string>('All');
+  const [expandedWorkers, setExpandedWorkers] = useState<Set<string>>(new Set());
 
   // ============================================
   // LOAD DATA
@@ -107,36 +109,32 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   // BROWSER MEMORY (Remember worker)
   // ============================================
   useEffect(() => {
-    const savedWorkerId = localStorage.getItem(WORKER_DEVICE_KEY);
-    if (savedWorkerId) {
-      setRememberedWorkerId(savedWorkerId);
+    if (isWorkerMode) {
+      const savedWorkerId = localStorage.getItem(WORKER_DEVICE_KEY);
+      if (savedWorkerId) {
+        setRememberedWorkerId(savedWorkerId);
+      }
     }
-  }, []);
+  }, [isWorkerMode]);
 
-  // Auto-select remembered worker after data loads
   useEffect(() => {
-    if (!isInitializing && rememberedWorkerId && workers.length > 0) {
+    if (isWorkerMode && !isInitializing && rememberedWorkerId && workers.length > 0) {
       const exists = workers.find(w => w.id === rememberedWorkerId);
       if (exists) {
-        console.log('🧠 Auto-selecting remembered worker:', exists.name);
         setSelectedWorkerId(rememberedWorkerId);
       } else {
-        // Worker no longer exists
-        console.log('⚠️ Remembered worker not found, clearing');
         localStorage.removeItem(WORKER_DEVICE_KEY);
         setRememberedWorkerId(null);
       }
     }
-  }, [rememberedWorkerId, workers, isInitializing]);
+  }, [rememberedWorkerId, workers, isInitializing, isWorkerMode]);
 
-  // Mark initialization complete
   useEffect(() => {
-    if (!isLoading && workers.length >= 0) {
-      // Small delay to ensure state is settled
+    if (!isLoading) {
       const timer = setTimeout(() => setIsInitializing(false), 300);
       return () => clearTimeout(timer);
     }
-  }, [isLoading, workers]);
+  }, [isLoading]);
 
   // ============================================
   // COMPUTED
@@ -167,14 +165,73 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   const adminStats = useMemo(() => {
     const pending = stockItems.filter(i => i.status === 'Pending').length;
     const completed = stockItems.filter(i => i.status === 'Completed').length;
-    return { total: stockItems.length, pending, completed };
-  }, [stockItems]);
+    return { 
+      total: stockItems.length, 
+      pending, 
+      completed, 
+      workers: workers.length,
+      completionRate: stockItems.length > 0 
+        ? Math.round((completed / stockItems.length) * 100) 
+        : 0
+    };
+  }, [stockItems, workers]);
 
-  const adminFilteredItems = useMemo(() => {
+  // Group items by worker
+  const itemsByWorker = useMemo(() => {
+    const grouped: Record<string, { worker: Worker; items: StockItem[]; pending: number; completed: number }> = {};
+    
+    workers.forEach(worker => {
+      const workerItems = stockItems.filter(i => i.worker_id === worker.id);
+      
+      // Apply filters
+      let filteredItems = workerItems;
+      
+      if (adminFilter !== 'All') {
+        filteredItems = filteredItems.filter(i => i.status === adminFilter);
+      }
+      
+      if (searchTerm) {
+        const term = searchTerm.toLowerCase();
+        filteredItems = filteredItems.filter(i => 
+          i.product_name.toLowerCase().includes(term) ||
+          (i.notes && i.notes.toLowerCase().includes(term))
+        );
+      }
+      
+      if (filteredItems.length > 0 || workerItems.length === 0) {
+        grouped[worker.id] = {
+          worker,
+          items: filteredItems.sort((a, b) => 
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          ),
+          pending: workerItems.filter(i => i.status === 'Pending').length,
+          completed: workerItems.filter(i => i.status === 'Completed').length
+        };
+      }
+    });
+    
+    // Filter by worker if needed
+    if (workerFilter !== 'All') {
+      const filtered: typeof grouped = {};
+      if (grouped[workerFilter]) {
+        filtered[workerFilter] = grouped[workerFilter];
+      }
+      return filtered;
+    }
+    
+    return grouped;
+  }, [workers, stockItems, adminFilter, searchTerm, workerFilter]);
+
+  // Flattened list for simple view
+  const allFilteredItems = useMemo(() => {
     let items = stockItems;
     
     if (adminFilter !== 'All') {
       items = items.filter(i => i.status === adminFilter);
+    }
+    
+    if (workerFilter !== 'All') {
+      items = items.filter(i => i.worker_id === workerFilter);
     }
     
     if (searchTerm) {
@@ -189,7 +246,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     return items.sort((a, b) => 
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
-  }, [stockItems, adminFilter, searchTerm]);
+  }, [stockItems, adminFilter, workerFilter, searchTerm]);
 
   // ============================================
   // HANDLERS
@@ -197,16 +254,12 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
 
   const handleSelectWorker = (workerId: string) => {
     setSelectedWorkerId(workerId);
-    // Remember this worker on this device
     localStorage.setItem(WORKER_DEVICE_KEY, workerId);
     setRememberedWorkerId(workerId);
-    console.log('💾 Remembered worker on this device:', workerId);
   };
 
   const handleSwitchWorker = () => {
     setSelectedWorkerId(null);
-    // Do NOT remove remembered ID - keep it so they come back to their list
-    console.log('🔄 Switching worker - keeping memory');
   };
 
   const handleForgetWorker = () => {
@@ -218,11 +271,30 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     setTimeout(() => setSuccessMessage(null), 3000);
   };
 
+  const toggleWorkerExpanded = (workerId: string) => {
+    setExpandedWorkers(prev => {
+      const next = new Set(prev);
+      if (next.has(workerId)) {
+        next.delete(workerId);
+      } else {
+        next.add(workerId);
+      }
+      return next;
+    });
+  };
+
+  const expandAllWorkers = () => {
+    setExpandedWorkers(new Set(Object.keys(itemsByWorker)));
+  };
+
+  const collapseAllWorkers = () => {
+    setExpandedWorkers(new Set());
+  };
+
   const handleAddWorker = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!workerName.trim()) return;
     
-    // Check if worker already exists
     const existing = workers.find(w => 
       w.name.toLowerCase() === workerName.trim().toLowerCase()
     );
@@ -255,7 +327,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
         setWorkerName('');
         setWorkerPhone('');
         
-        // Auto-select AND remember the new worker
         handleSelectWorker(newWorker.id);
         
         setSuccessMessage('Jina lako limesajiliwa!');
@@ -265,7 +336,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
       }
     } catch (err: any) {
       console.error('Failed to add worker:', err);
-      // Fallback - save locally
       const newWorker: Worker = {
         id: 'worker-' + Date.now(),
         name: workerName.trim(),
@@ -279,7 +349,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
       
       handleSelectWorker(newWorker.id);
       
-      // Save to localStorage
       const savedData = localStorage.getItem('stock_requests_data');
       const parsed = savedData ? JSON.parse(savedData) : { workers: [], items: [] };
       parsed.workers = [...(parsed.workers || []), newWorker];
@@ -335,7 +404,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
       }
     } catch (err: any) {
       console.error('Failed to add product:', err);
-      // Fallback - save locally
       const newItem: StockItem = {
         id: 'item-' + Date.now(),
         worker_id: selectedWorkerId,
@@ -352,7 +420,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
       setProductQuantity('');
       setProductNotes('');
       
-      // Save to localStorage
       const savedData = localStorage.getItem('stock_requests_data');
       const parsed = savedData ? JSON.parse(savedData) : { workers: [], items: [] };
       parsed.items = [newItem, ...(parsed.items || [])];
@@ -368,7 +435,16 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   const handleToggleStatus = async (itemId: string, currentStatus: 'Pending' | 'Completed') => {
     const newStatus = currentStatus === 'Pending' ? 'Completed' : 'Pending';
     
-    setIsLoading(true);
+    // Optimistic update
+    setStockItems(prev => prev.map(item => 
+      item.id === itemId 
+        ? { 
+            ...item, 
+            status: newStatus,
+            completed_at: newStatus === 'Completed' ? new Date().toISOString() : undefined
+          } 
+        : item
+    ));
     
     try {
       const response = await fetch(`${API_BASE_URL}/${itemId}`, {
@@ -380,29 +456,15 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
       const result = await response.json();
       
       if (result.success) {
-        setStockItems(prev => prev.map(item => 
-          item.id === itemId 
-            ? { 
-                ...item, 
-                status: newStatus,
-                completed_at: newStatus === 'Completed' ? new Date().toISOString() : undefined
-              } 
-            : item
-        ));
-        
-        setSuccessMessage(newStatus === 'Completed' ? 'Imewekwa kama imefanyika!' : 'Imerejeshwa kwenye pending');
-        setTimeout(() => setSuccessMessage(null), 2000);
+        setSuccessMessage(newStatus === 'Completed' ? '✅ Imewekwa kama imefanyika!' : 'Imerejeshwa');
+        setTimeout(() => setSuccessMessage(null), 1500);
       }
     } catch (err: any) {
       console.error('Failed to toggle status:', err);
-      // Update locally
+      // Revert on error
       setStockItems(prev => prev.map(item => 
         item.id === itemId 
-          ? { 
-              ...item, 
-              status: newStatus,
-              completed_at: newStatus === 'Completed' ? new Date().toISOString() : undefined
-            } 
+          ? { ...item, status: currentStatus } 
           : item
       ));
       
@@ -411,49 +473,33 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
         const parsed = JSON.parse(savedData);
         parsed.items = (parsed.items || []).map((item: StockItem) => 
           item.id === itemId 
-            ? { 
-                ...item, 
-                status: newStatus,
-                completed_at: newStatus === 'Completed' ? new Date().toISOString() : undefined
-              } 
+            ? { ...item, status: newStatus, completed_at: newStatus === 'Completed' ? new Date().toISOString() : undefined } 
             : item
         );
         localStorage.setItem('stock_requests_data', JSON.stringify(parsed));
       }
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const handleDeleteItem = async (itemId: string) => {
     if (!confirm('Je, una uhakika unataka kufuta bidhaa hii?')) return;
     
-    setIsLoading(true);
+    setStockItems(prev => prev.filter(item => item.id !== itemId));
     
     try {
-      const response = await fetch(`${API_BASE_URL}/${itemId}`, {
+      await fetch(`${API_BASE_URL}/${itemId}`, {
         method: 'DELETE'
       });
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        setStockItems(prev => prev.filter(item => item.id !== itemId));
-        setSuccessMessage('Bidhaa imefutwa');
-        setTimeout(() => setSuccessMessage(null), 2000);
-      }
+      setSuccessMessage('Bidhaa imefutwa');
+      setTimeout(() => setSuccessMessage(null), 2000);
     } catch (err: any) {
       console.error('Failed to delete item:', err);
-      setStockItems(prev => prev.filter(item => item.id !== itemId));
-      
       const savedData = localStorage.getItem('stock_requests_data');
       if (savedData) {
         const parsed = JSON.parse(savedData);
         parsed.items = (parsed.items || []).filter((item: StockItem) => item.id !== itemId);
         localStorage.setItem('stock_requests_data', JSON.stringify(parsed));
       }
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -465,8 +511,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     const date = new Date(dateStr);
     return date.toLocaleDateString('sw-TZ', {
       day: 'numeric',
-      month: 'short',
-      year: 'numeric'
+      month: 'short'
     });
   };
 
@@ -481,7 +526,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   // ============================================
   // LOADING SCREEN
   // ============================================
-  if (isInitializing && rememberedWorkerId) {
+  if (isInitializing && rememberedWorkerId && isWorkerMode) {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="text-center space-y-3">
@@ -516,151 +561,130 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
         </div>
       )}
 
-      {isLoading && !isInitializing && (
-        <div className="flex items-center justify-center gap-2 text-xs text-slate-400 py-2">
-          <Loader2 size={14} className="animate-spin" />
-          <span>Inasasisha...</span>
-        </div>
-      )}
-
-      {/* MAIN VIEW */}
-      {activeWorker ? (
-        /* WORKER'S PERSONAL LIST */
-        <div className="space-y-6 text-xs text-left">
-          
-          {/* Worker Header */}
-          <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <button 
-                  onClick={handleSwitchWorker}
-                  className="p-2.5 hover:bg-slate-50 text-slate-500 hover:text-slate-700 rounded-2xl border border-slate-100 transition-colors"
-                  title="Badilisha Jina"
-                >
-                  <ArrowLeft size={16} />
-                </button>
-                <div className="h-16 w-16 rounded-2xl bg-accent/10 text-accent font-extrabold text-xl flex items-center justify-center shadow-sm">
-                  {getInitials(activeWorker.name)}
+      {/* ============================================
+          WORKER MODE - PERSONAL LIST VIEW
+          ============================================ */}
+      {isWorkerMode ? (
+        activeWorker ? (
+          /* Worker's Personal List */
+          <div className="space-y-6 text-xs text-left">
+            <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={handleSwitchWorker}
+                    className="p-2.5 hover:bg-slate-50 text-slate-500 hover:text-slate-700 rounded-2xl border border-slate-100 transition-colors"
+                    title="Badilisha Jina"
+                  >
+                    <ArrowLeft size={16} />
+                  </button>
+                  <div className="h-16 w-16 rounded-2xl bg-accent/10 text-accent font-extrabold text-xl flex items-center justify-center shadow-sm">
+                    {getInitials(activeWorker.name)}
+                  </div>
+                  <div>
+                    <h3 className="text-base font-extrabold text-slate-800">{activeWorker.name}</h3>
+                    <p className="text-xs text-slate-400 mt-1">Orodha yako ya Bidhaa Zisizopo</p>
+                    {rememberedWorkerId === activeWorker.id && (
+                      <p className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1">
+                        <CheckCircle2 size={10} /> Imekumbukwa kwenye kifaa hiki
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-slate-800">{activeWorker.name}</h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Orodha yako ya Bidhaa Zisizopo
-                  </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button 
+                    onClick={() => setIsAddProductModalOpen(true)}
+                    className="bg-accent hover:bg-accent/90 text-white font-bold py-2.5 px-5 rounded-xl flex items-center justify-center gap-2 shadow-sm transition"
+                  >
+                    <Plus size={16} /> Ongeza Bidhaa
+                  </button>
                   {rememberedWorkerId === activeWorker.id && (
-                    <p className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1">
-                      <CheckCircle2 size={10} /> Imekumbukwa kwenye kifaa hiki
-                    </p>
+                    <button 
+                      onClick={handleForgetWorker}
+                      className="border border-slate-200 hover:bg-slate-50 text-slate-500 font-semibold py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition text-[11px]"
+                    >
+                      <LogOut size={13} /> Ondoa Kumbukumbu
+                    </button>
                   )}
                 </div>
               </div>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <button 
-                  onClick={() => setIsAddProductModalOpen(true)}
-                  className="bg-accent hover:bg-accent/90 text-white font-bold py-2.5 px-5 rounded-xl flex items-center justify-center gap-2 shadow-sm transition"
-                >
-                  <Plus size={16} /> Ongeza Bidhaa
-                </button>
-                {rememberedWorkerId === activeWorker.id && (
-                  <button 
-                    onClick={handleForgetWorker}
-                    className="border border-slate-200 hover:bg-slate-50 text-slate-500 font-semibold py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition text-[11px]"
-                    title="Ondoa kumbukumbu ya kifaa hiki"
-                  >
-                    <LogOut size={13} /> Ondoa Kumbukumbu
-                  </button>
-                )}
-              </div>
-            </div>
-            
-            {/* Stats */}
-            <div className="grid grid-cols-3 gap-4 pt-4 mt-4 border-t border-slate-100">
-              <div className="text-center">
-                <p className="text-xs text-slate-400">Jumla</p>
-                <p className="text-lg font-bold text-slate-800">{activeWorkerStats.total}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-xs text-slate-400">Bado</p>
-                <p className="text-lg font-bold text-amber-600">{activeWorkerStats.pending}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-xs text-slate-400">Zimefanyika</p>
-                <p className="text-lg font-bold text-emerald-600">{activeWorkerStats.completed}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Product List */}
-          <div className="space-y-4">
-            {activeWorkerItems.length > 0 ? activeWorkerItems.map(item => (
-              <div key={item.id} className={`bg-white rounded-3xl border p-5 shadow-sm transition ${
-                item.status === 'Completed' ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'
-              }`}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3 flex-1">
-                    <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${
-                      item.status === 'Completed' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
-                    }`}>
-                      {item.status === 'Completed' ? <CheckCircle2 size={18} /> : <Clock size={18} />}
-                    </div>
-                    <div className="flex-1">
-                      <h4 className={`text-sm font-bold ${item.status === 'Completed' ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
-                        {item.product_name}
-                      </h4>
-                      {item.quantity && (
-                        <p className="text-xs text-slate-500 mt-1">Idadi: {item.quantity}</p>
-                      )}
-                      {item.notes && (
-                        <p className="text-xs text-slate-400 mt-1 italic">{item.notes}</p>
-                      )}
-                      <p className="text-[10px] text-slate-400 mt-2">
-                        {formatDate(item.created_at)} • {formatTime(item.created_at)}
-                      </p>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => handleDeleteItem(item.id)}
-                    className="p-2 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition shrink-0"
-                    title="Futa"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+              
+              <div className="grid grid-cols-3 gap-4 pt-4 mt-4 border-t border-slate-100">
+                <div className="text-center">
+                  <p className="text-xs text-slate-400">Jumla</p>
+                  <p className="text-lg font-bold text-slate-800">{activeWorkerStats.total}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-slate-400">Bado</p>
+                  <p className="text-lg font-bold text-amber-600">{activeWorkerStats.pending}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-slate-400">Zimefanyika</p>
+                  <p className="text-lg font-bold text-emerald-600">{activeWorkerStats.completed}</p>
                 </div>
               </div>
-            )) : (
-              <div className="bg-white p-12 text-center rounded-3xl border border-slate-100 shadow-sm text-slate-400">
-                <Package size={40} className="mx-auto text-slate-300 mb-3" />
-                <p className="text-sm font-semibold">Hakuna bidhaa bado.</p>
-                <p className="text-xs mt-1">Bonyeza "Ongeza Bidhaa" kuongeza bidhaa ya kwanza.</p>
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        /* WORKER SELECTION LIST */
-        <>
-          {/* Header */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-5 rounded-3xl border border-slate-100 shadow-sm gap-4">
-            <div>
-              <h2 className="text-md font-bold text-slate-800 flex items-center gap-2">
-                <Package className="text-accent" size={20} />
-                Orodha ya Bidhaa Zisizopo
-              </h2>
-              <p className="text-xs text-slate-400 mt-1">
-                {rememberedWorkerId 
-                  ? 'Chagua jina lako au endelea na lililokumbukwa' 
-                  : 'Chagua jina lako ili kuona au kuongeza bidhaa'}
-              </p>
             </div>
-            <div className="flex gap-2">
-              {!isWorkerMode && (
-                <button 
-                  onClick={() => setIsViewAllModalOpen(true)}
-                  className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition"
-                >
-                  <ListChecks size={15} /> Orodha Yote (Admin)
-                </button>
+
+            <div className="space-y-4">
+              {activeWorkerItems.length > 0 ? activeWorkerItems.map(item => (
+                <div key={item.id} className={`bg-white rounded-3xl border p-5 shadow-sm transition ${
+                  item.status === 'Completed' ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'
+                }`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 flex-1">
+                      <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        item.status === 'Completed' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
+                      }`}>
+                        {item.status === 'Completed' ? <CheckCircle2 size={18} /> : <Clock size={18} />}
+                      </div>
+                      <div className="flex-1">
+                        <h4 className={`text-sm font-bold ${item.status === 'Completed' ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
+                          {item.product_name}
+                        </h4>
+                        {item.quantity && (
+                          <p className="text-xs text-slate-500 mt-1">Idadi: {item.quantity}</p>
+                        )}
+                        {item.notes && (
+                          <p className="text-xs text-slate-400 mt-1 italic">{item.notes}</p>
+                        )}
+                        <p className="text-[10px] text-slate-400 mt-2">
+                          {formatDate(item.created_at)} • {formatTime(item.created_at)}
+                        </p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => handleDeleteItem(item.id)}
+                      className="p-2 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition shrink-0"
+                      title="Futa"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              )) : (
+                <div className="bg-white p-12 text-center rounded-3xl border border-slate-100 shadow-sm text-slate-400">
+                  <Package size={40} className="mx-auto text-slate-300 mb-3" />
+                  <p className="text-sm font-semibold">Hakuna bidhaa bado.</p>
+                  <p className="text-xs mt-1">Bonyeza "Ongeza Bidhaa" kuongeza bidhaa ya kwanza.</p>
+                </div>
               )}
+            </div>
+          </div>
+        ) : (
+          /* Worker Name Selection */
+          <>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-5 rounded-3xl border border-slate-100 shadow-sm gap-4">
+              <div>
+                <h2 className="text-md font-bold text-slate-800 flex items-center gap-2">
+                  <Package className="text-accent" size={20} />
+                  Orodha ya Bidhaa Zisizopo
+                </h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  {rememberedWorkerId 
+                    ? 'Chagua jina lako au endelea na lililokumbukwa' 
+                    : 'Chagua jina lako ili kuona au kuongeza bidhaa'}
+                </p>
+              </div>
               <button 
                 onClick={() => setIsAddWorkerModalOpen(true)}
                 className="bg-accent hover:bg-accent/90 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition"
@@ -668,93 +692,426 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                 <Plus size={15} /> Ongeza Jina Lako
               </button>
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {workers.length > 0 ? workers.map(worker => {
+                const workerItems = stockItems.filter(i => i.worker_id === worker.id);
+                const pendingCount = workerItems.filter(i => i.status === 'Pending').length;
+                const completedCount = workerItems.filter(i => i.status === 'Completed').length;
+                const isRemembered = rememberedWorkerId === worker.id;
+                
+                return (
+                  <div 
+                    key={worker.id}
+                    onClick={() => handleSelectWorker(worker.id)}
+                    className={`bg-white rounded-3xl border p-5 shadow-sm hover:shadow-md cursor-pointer transition ${
+                      isRemembered 
+                        ? 'border-emerald-300 ring-2 ring-emerald-500/20 bg-emerald-50/30' 
+                        : 'border-slate-100 hover:border-accent/50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`h-12 w-12 rounded-xl font-bold flex items-center justify-center ${
+                          isRemembered ? 'bg-emerald-100 text-emerald-700' : 'bg-accent/10 text-accent'
+                        }`}>
+                          {getInitials(worker.name)}
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                            {worker.name}
+                            {isRemembered && <CheckCircle2 size={12} className="text-emerald-600" />}
+                          </h3>
+                          {worker.phone && (
+                            <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                              <Phone size={10} /> {worker.phone}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        pendingCount > 0 ? 'bg-amber-100 text-amber-700' : 
+                        workerItems.length > 0 ? 'bg-emerald-100 text-emerald-700' : 
+                        'bg-slate-100 text-slate-500'
+                      }`}>
+                        {pendingCount > 0 ? `${pendingCount} Bado` : 
+                         workerItems.length > 0 ? 'Zote' : 
+                         'Hakuna'}
+                      </span>
+                    </div>
+                    
+                    <div className="mt-4 pt-3 border-t border-slate-50 flex justify-between items-center">
+                      <div className="flex gap-4">
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Jumla</p>
+                          <p className="text-sm font-bold text-slate-800">{workerItems.length}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Bado</p>
+                          <p className="text-sm font-bold text-amber-600">{pendingCount}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Zimefanyika</p>
+                          <p className="text-sm font-bold text-emerald-600">{completedCount}</p>
+                        </div>
+                      </div>
+                      <ChevronRight size={16} className="text-slate-400" />
+                    </div>
+                  </div>
+                );
+              }) : (
+                <div className="col-span-full bg-white p-12 text-center rounded-3xl border border-slate-100 shadow-sm text-slate-400">
+                  <UserPlus size={40} className="mx-auto text-slate-300 mb-3" />
+                  <p className="text-sm font-semibold">Hakuna majina bado.</p>
+                  <p className="text-xs mt-1">Bonyeza "Ongeza Jina Lako" kuanza.</p>
+                </div>
+              )}
+            </div>
+          </>
+        )
+      ) : (
+        /* ============================================
+            ADMIN MODE - PROFESSIONAL PANEL
+            ============================================ */
+        <div className="space-y-6">
+          
+          {/* Header with Stats */}
+          <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-3xl p-6 md:p-8 shadow-xl text-white">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+              <div>
+                <h1 className="text-xl md:text-2xl font-extrabold flex items-center gap-2">
+                  <Award className="text-accent" size={24} />
+                  Paneli ya Bidhaa Zisizopo
+                </h1>
+                <p className="text-slate-300 text-xs mt-1">
+                  Fuatilia na thibitisha bidhaa zilizofanyiwa kazi na wafanyakazi
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold px-3 py-1.5 bg-white/10 backdrop-blur-sm rounded-full flex items-center gap-1.5 border border-white/20">
+                  <Calendar size={11} />
+                  {new Date().toLocaleDateString('sw-TZ', { 
+                    weekday: 'long', 
+                    day: 'numeric', 
+                    month: 'long', 
+                    year: 'numeric' 
+                  })}
+                </span>
+              </div>
+            </div>
+            
+            {/* Stats Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+              <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10">
+                <div className="flex items-center justify-between mb-2">
+                  <ListChecks size={16} className="text-white/70" />
+                  <span className="text-[9px] uppercase font-bold text-white/60 tracking-wider">Jumla</span>
+                </div>
+                <p className="text-2xl md:text-3xl font-black">{adminStats.total}</p>
+                <p className="text-[10px] text-white/60 mt-1">Bidhaa zote</p>
+              </div>
+              
+              <div className="bg-amber-500/20 backdrop-blur-sm rounded-2xl p-4 border border-amber-400/30">
+                <div className="flex items-center justify-between mb-2">
+                  <Clock size={16} className="text-amber-300" />
+                  <span className="text-[9px] uppercase font-bold text-amber-200 tracking-wider">Bado</span>
+                </div>
+                <p className="text-2xl md:text-3xl font-black text-amber-100">{adminStats.pending}</p>
+                <p className="text-[10px] text-amber-200/80 mt-1">Hazijafanyika</p>
+              </div>
+              
+              <div className="bg-emerald-500/20 backdrop-blur-sm rounded-2xl p-4 border border-emerald-400/30">
+                <div className="flex items-center justify-between mb-2">
+                  <CheckCircle2 size={16} className="text-emerald-300" />
+                  <span className="text-[9px] uppercase font-bold text-emerald-200 tracking-wider">Zimefanyika</span>
+                </div>
+                <p className="text-2xl md:text-3xl font-black text-emerald-100">{adminStats.completed}</p>
+                <p className="text-[10px] text-emerald-200/80 mt-1">Zilizothibitishwa</p>
+              </div>
+              
+              <div className="bg-blue-500/20 backdrop-blur-sm rounded-2xl p-4 border border-blue-400/30">
+                <div className="flex items-center justify-between mb-2">
+                  <TrendingUp size={16} className="text-blue-300" />
+                  <span className="text-[9px] uppercase font-bold text-blue-200 tracking-wider">Kiwango</span>
+                </div>
+                <p className="text-2xl md:text-3xl font-black text-blue-100">{adminStats.completionRate}%</p>
+                <p className="text-[10px] text-blue-200/80 mt-1">Ufanisi</p>
+              </div>
+            </div>
           </div>
 
-          {/* Workers Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {workers.length > 0 ? workers.map(worker => {
-              const workerItems = stockItems.filter(i => i.worker_id === worker.id);
-              const pendingCount = workerItems.filter(i => i.status === 'Pending').length;
-              const completedCount = workerItems.filter(i => i.status === 'Completed').length;
-              const isRemembered = rememberedWorkerId === worker.id;
+          {/* Filters & Search Bar */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+            <div className="flex flex-col lg:flex-row gap-3">
+              {/* Search */}
+              <div className="relative flex-1">
+                <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Tafuta bidhaa, mfanyakazi, au maelezo..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-accent/20 focus:border-accent transition"
+                />
+              </div>
               
-              return (
-                <div 
-                  key={worker.id}
-                  onClick={() => handleSelectWorker(worker.id)}
-                  className={`bg-white rounded-3xl border p-5 shadow-sm hover:shadow-md cursor-pointer transition ${
-                    isRemembered 
-                      ? 'border-emerald-300 ring-2 ring-emerald-500/20 bg-emerald-50/30' 
-                      : 'border-slate-100 hover:border-accent/50'
-                  }`}
+              {/* Status Filter */}
+              <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
+                {(['Pending', 'Completed', 'All'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setAdminFilter(tab)}
+                    className={`px-3 py-2 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
+                      adminFilter === tab 
+                        ? tab === 'Pending'
+                          ? 'bg-amber-500 text-white shadow-sm'
+                          : tab === 'Completed'
+                            ? 'bg-emerald-500 text-white shadow-sm'
+                            : 'bg-slate-900 text-white shadow-sm'
+                        : 'text-slate-500 hover:bg-white/50'
+                    }`}
+                  >
+                    {tab === 'Pending' ? (
+                      <><Clock size={12} /> Bado ({adminStats.pending})</>
+                    ) : tab === 'Completed' ? (
+                      <><CheckCircle2 size={12} /> Zimefanyika ({adminStats.completed})</>
+                    ) : (
+                      <><ListChecks size={12} /> Zote ({adminStats.total})</>
+                    )}
+                  </button>
+                ))}
+              </div>
+              
+              {/* Worker Filter Dropdown */}
+              <div className="flex items-center gap-2">
+                <Users size={14} className="text-slate-400" />
+                <select
+                  value={workerFilter}
+                  onChange={(e) => setWorkerFilter(e.target.value)}
+                  className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs bg-white focus:ring-2 focus:ring-accent/20"
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`h-12 w-12 rounded-xl font-bold flex items-center justify-center ${
-                        isRemembered ? 'bg-emerald-100 text-emerald-700' : 'bg-accent/10 text-accent'
-                      }`}>
-                        {getInitials(worker.name)}
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-                          {worker.name}
-                          {isRemembered && (
-                            <span title="Imekumbukwa kwenye kifaa hiki">
-                              <CheckCircle2 size={12} className="text-emerald-600" />
+                  <option value="All">Wafanyakazi Wote ({workers.length})</option>
+                  {workers.map(w => {
+                    const count = stockItems.filter(i => i.worker_id === w.id).length;
+                    return (
+                      <option key={w.id} value={w.id}>
+                        {w.name} ({count})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              
+              {/* Expand/Collapse */}
+              {workerFilter === 'All' && (
+                <div className="flex gap-1">
+                  <button
+                    onClick={expandAllWorkers}
+                    className="px-3 py-2 text-xs font-bold rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 transition"
+                  >
+                    Fungua Zote
+                  </button>
+                  <button
+                    onClick={collapseAllWorkers}
+                    className="px-3 py-2 text-xs font-bold rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 transition"
+                  >
+                    Funga Zote
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Items List - Grouped by Worker OR Flat view */}
+          {Object.keys(itemsByWorker).length > 0 ? (
+            <div className="space-y-4">
+              {Object.values(itemsByWorker).map(({ worker, items, pending, completed }) => {
+                const isExpanded = expandedWorkers.has(worker.id) || workerFilter !== 'All' || searchTerm.length > 0;
+                const hasItems = items.length > 0;
+                
+                return (
+                  <div key={worker.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                    {/* Worker Header */}
+                    <button
+                      onClick={() => toggleWorkerExpanded(worker.id)}
+                      className="w-full flex items-center justify-between p-4 hover:bg-slate-50 transition"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`h-10 w-10 rounded-xl font-bold flex items-center justify-center ${
+                          pending > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                        }`}>
+                          {getInitials(worker.name)}
+                        </div>
+                        <div className="text-left">
+                          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                            {worker.name}
+                            {worker.phone && (
+                              <span className="text-[10px] font-normal text-slate-400 flex items-center gap-1">
+                                <Phone size={10} /> {worker.phone}
+                              </span>
+                            )}
+                          </h3>
+                          <div className="flex items-center gap-3 mt-0.5">
+                            <span className="text-[10px] font-semibold text-amber-600 flex items-center gap-1">
+                              <Clock size={10} /> {pending} Bado
                             </span>
-                          )}
-                        </h3>
-                        {worker.phone && (
-                          <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                            <Phone size={10} /> {worker.phone}
-                          </p>
+                            <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1">
+                              <CheckCircle2 size={10} /> {completed} Zimefanyika
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <ChevronRight 
+                        size={18} 
+                        className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} 
+                      />
+                    </button>
+                    
+                    {/* Worker Items */}
+                    {isExpanded && (
+                      <div className="border-t border-slate-100 p-4 space-y-2 bg-slate-50/50">
+                        {hasItems ? items.map(item => (
+                          <div 
+                            key={item.id} 
+                            className={`rounded-xl border p-3 transition-all ${
+                              item.status === 'Completed' 
+                                ? 'bg-emerald-50/50 border-emerald-200' 
+                                : 'bg-white border-slate-200 hover:border-accent/50 hover:shadow-sm'
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              {/* Tick Button */}
+                              <button
+                                onClick={() => handleToggleStatus(item.id, item.status)}
+                                className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 transition-all ${
+                                  item.status === 'Completed'
+                                    ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30 hover:bg-emerald-600'
+                                    : 'border-2 border-slate-300 text-transparent hover:border-emerald-500 hover:text-emerald-500 hover:bg-emerald-50 bg-white'
+                                }`}
+                                title={item.status === 'Completed' ? 'Rejesha' : 'Weka kama imefanyika'}
+                              >
+                                <Check size={18} strokeWidth={3.5} />
+                              </button>
+                              
+                              {/* Item Details */}
+                              <div className="flex-1 min-w-0">
+                                <h4 className={`text-sm font-bold ${
+                                  item.status === 'Completed' ? 'text-slate-500 line-through' : 'text-slate-800'
+                                }`}>
+                                  {item.product_name}
+                                </h4>
+                                
+                                <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                                  {item.quantity && (
+                                    <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                                      📦 Idadi: {item.quantity}
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                                    <Clock size={9} /> {formatDate(item.created_at)} • {formatTime(item.created_at)}
+                                  </span>
+                                </div>
+                                
+                                {item.notes && (
+                                  <p className="text-[11px] text-slate-500 mt-1.5 italic bg-white/70 rounded-lg p-2 border border-slate-100">
+                                    💬 {item.notes}
+                                  </p>
+                                )}
+                                
+                                {item.status === 'Completed' && item.completed_at && (
+                                  <p className="text-[10px] text-emerald-700 mt-1.5 flex items-center gap-1 font-semibold">
+                                    <CheckCircle2 size={10} /> Ilifanyika: {formatDate(item.completed_at)} • {formatTime(item.completed_at)}
+                                  </p>
+                                )}
+                              </div>
+                              
+                              {/* Delete Button */}
+                              <button 
+                                onClick={() => handleDeleteItem(item.id)}
+                                className="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition shrink-0"
+                                title="Futa"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        )) : (
+                          <div className="text-center py-6 text-slate-400">
+                            <p className="text-xs">Hakuna bidhaa zinazolingana na kichujio</p>
+                          </div>
                         )}
                       </div>
-                    </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      pendingCount > 0 ? 'bg-amber-100 text-amber-700' : 
-                      workerItems.length > 0 ? 'bg-emerald-100 text-emerald-700' : 
-                      'bg-slate-100 text-slate-500'
-                    }`}>
-                      {pendingCount > 0 ? `${pendingCount} Bado` : 
-                       workerItems.length > 0 ? 'Zote Zimefanyika' : 
-                       'Hakuna'}
-                    </span>
+                    )}
                   </div>
-                  
-                  <div className="mt-4 pt-3 border-t border-slate-50 flex justify-between items-center">
-                    <div className="flex gap-4">
-                      <div>
-                        <p className="text-[10px] text-slate-400 uppercase font-bold">Jumla</p>
-                        <p className="text-sm font-bold text-slate-800">{workerItems.length}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-slate-400 uppercase font-bold">Bado</p>
-                        <p className="text-sm font-bold text-amber-600">{pendingCount}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-slate-400 uppercase font-bold">Zimefanyika</p>
-                        <p className="text-sm font-bold text-emerald-600">{completedCount}</p>
-                      </div>
-                    </div>
-                    <ChevronRight size={16} className="text-slate-400" />
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-white p-16 text-center rounded-3xl border border-slate-100 shadow-sm">
+              <div className="h-20 w-20 rounded-full bg-slate-50 flex items-center justify-center mx-auto mb-4">
+                <Package size={36} className="text-slate-300" />
+              </div>
+              <p className="text-sm font-semibold text-slate-600">Hakuna bidhaa zilizopatikana</p>
+              <p className="text-xs text-slate-400 mt-1">
+                {searchTerm || adminFilter !== 'All' || workerFilter !== 'All'
+                  ? 'Jaribu kubadilisha vichujio au tafuta kwa maneno mengine'
+                  : 'Wafanyakazi hawajaongeza bidhaa zisizopo bado'}
+              </p>
+            </div>
+          )}
+
+          {/* Quick Summary Footer */}
+          {adminStats.total > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-6">
+                  <div>
+                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Wafanyakazi</p>
+                    <p className="text-lg font-black text-slate-800">{adminStats.workers}</p>
+                  </div>
+                  <div className="h-8 w-px bg-slate-200"></div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Jumla ya Bidhaa</p>
+                    <p className="text-lg font-black text-slate-800">{adminStats.total}</p>
+                  </div>
+                  <div className="h-8 w-px bg-slate-200"></div>
+                  <div>
+                    <p className="text-[10px] text-amber-500 uppercase font-bold tracking-wider">Zinazosubiri</p>
+                    <p className="text-lg font-black text-amber-600">{adminStats.pending}</p>
+                  </div>
+                  <div className="h-8 w-px bg-slate-200"></div>
+                  <div>
+                    <p className="text-[10px] text-emerald-500 uppercase font-bold tracking-wider">Zimefanyika</p>
+                    <p className="text-lg font-black text-emerald-600">{adminStats.completed}</p>
                   </div>
                 </div>
-              );
-            }) : (
-              <div className="col-span-full bg-white p-12 text-center rounded-3xl border border-slate-100 shadow-sm text-slate-400">
-                <UserPlus size={40} className="mx-auto text-slate-300 mb-3" />
-                <p className="text-sm font-semibold">Hakuna majina bado.</p>
-                <p className="text-xs mt-1">Bonyeza "Ongeza Jina Lako" kuanza.</p>
+                
+                {/* Progress bar */}
+                <div className="flex-1 min-w-[200px] max-w-md">
+                  <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 mb-1.5">
+                    <span>Maendeleo ya Kazi</span>
+                    <span className="text-emerald-600">{adminStats.completionRate}%</span>
+                  </div>
+                  <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full transition-all duration-500"
+                      style={{ width: `${adminStats.completionRate}%` }}
+                    ></div>
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
-        </>
+            </div>
+          )}
+        </div>
       )}
+
+      {/* ============================================
+          MODALS
+          ============================================ */}
 
       {/* MODAL: Add Worker */}
       {isAddWorkerModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
             <button 
               onClick={() => setIsAddWorkerModalOpen(false)} 
@@ -824,7 +1181,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
 
       {/* MODAL: Add Product */}
       {isAddProductModalOpen && activeWorker && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
             <button 
               onClick={() => setIsAddProductModalOpen(false)} 
@@ -899,142 +1256,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: Admin View All */}
-      {isViewAllModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-4xl w-full p-6 shadow-2xl relative max-h-[90vh] overflow-hidden flex flex-col">
-            <button 
-              onClick={() => setIsViewAllModalOpen(false)} 
-              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition z-10"
-            >
-              <X size={18} />
-            </button>
-            
-            <h3 className="text-md font-bold text-slate-800 flex items-center gap-2 mb-4">
-              <ListChecks className="text-accent" size={20} />
-              Orodha ya Bidhaa Zote (Admin)
-            </h3>
-            
-            {/* Admin Stats */}
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div className="bg-slate-50 rounded-2xl p-4 text-center">
-                <p className="text-xs text-slate-400">Jumla</p>
-                <p className="text-xl font-black text-slate-800">{adminStats.total}</p>
-              </div>
-              <div className="bg-amber-50 rounded-2xl p-4 text-center">
-                <p className="text-xs text-amber-600">Bado Hazijafanyika</p>
-                <p className="text-xl font-black text-amber-700">{adminStats.pending}</p>
-              </div>
-              <div className="bg-emerald-50 rounded-2xl p-4 text-center">
-                <p className="text-xs text-emerald-600">Zimefanyika</p>
-                <p className="text-xl font-black text-emerald-700">{adminStats.completed}</p>
-              </div>
-            </div>
-            
-            {/* Filters */}
-            <div className="flex flex-col sm:flex-row gap-3 mb-4">
-              <div className="flex gap-2">
-                {(['Pending', 'Completed', 'All'] as const).map(tab => (
-                  <button
-                    key={tab}
-                    onClick={() => setAdminFilter(tab)}
-                    className={`px-4 py-2 text-xs font-semibold rounded-xl transition ${
-                      adminFilter === tab 
-                        ? 'bg-slate-900 text-white' 
-                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
-                    }`}
-                  >
-                    {tab === 'Pending' ? 'Bado' : tab === 'Completed' ? 'Zimefanyika' : 'Zote'}
-                  </button>
-                ))}
-              </div>
-              <div className="relative flex-1">
-                <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Tafuta bidhaa au mfanyakazi..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl text-xs"
-                />
-              </div>
-            </div>
-            
-            {/* Items List */}
-            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-              {adminFilteredItems.length > 0 ? adminFilteredItems.map(item => (
-                <div 
-                  key={item.id} 
-                  className={`rounded-2xl border p-4 transition ${
-                    item.status === 'Completed' 
-                      ? 'border-emerald-200 bg-emerald-50/30' 
-                      : 'border-slate-100 bg-white'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <button
-                      onClick={() => handleToggleStatus(item.id, item.status)}
-                      className={`h-8 w-8 rounded-xl flex items-center justify-center shrink-0 transition ${
-                        item.status === 'Completed'
-                          ? 'bg-emerald-500 text-white hover:bg-emerald-600'
-                          : 'border-2 border-slate-300 text-transparent hover:border-emerald-500 hover:text-emerald-500 bg-white'
-                      }`}
-                      title={item.status === 'Completed' ? 'Rejesha' : 'Weka kama imefanyika'}
-                    >
-                      <Check size={16} strokeWidth={3} />
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <h4 className={`text-sm font-bold ${
-                            item.status === 'Completed' ? 'text-slate-500 line-through' : 'text-slate-800'
-                          }`}>
-                            {item.product_name}
-                          </h4>
-                          <div className="flex flex-wrap items-center gap-3 mt-1">
-                            <span className="text-[11px] font-semibold text-accent flex items-center gap-1">
-                              <User size={11} /> {item.worker_name}
-                            </span>
-                            {item.quantity && (
-                              <span className="text-[11px] text-slate-500">
-                                Idadi: {item.quantity}
-                              </span>
-                            )}
-                            <span className="text-[10px] text-slate-400">
-                              {formatDate(item.created_at)} • {formatTime(item.created_at)}
-                            </span>
-                          </div>
-                          {item.notes && (
-                            <p className="text-[11px] text-slate-500 mt-1 italic">{item.notes}</p>
-                          )}
-                          {item.status === 'Completed' && item.completed_at && (
-                            <p className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1">
-                              <CheckCircle2 size={10} /> Imefanyika: {formatDate(item.completed_at)} • {formatTime(item.completed_at)}
-                            </p>
-                          )}
-                        </div>
-                        <button 
-                          onClick={() => handleDeleteItem(item.id)}
-                          className="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition shrink-0"
-                          title="Futa"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )) : (
-                <div className="text-center py-12 text-slate-400">
-                  <Package size={40} className="mx-auto text-slate-300 mb-3" />
-                  <p className="text-sm font-semibold">Hakuna bidhaa zilizopatikana.</p>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       )}
