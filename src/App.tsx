@@ -26,7 +26,8 @@ import {
   LayoutDashboard, Users, BookOpen, Truck, Calendar, 
   FileSpreadsheet, Settings, LogOut, Menu, X, Shield, 
   MapPin, Phone, Bell, Loader2, AlertTriangle, RefreshCw,
-  FolderOpen, Download, Wallet, ShoppingCart, Package
+  FolderOpen, Download, Wallet, ShoppingCart, Package,
+  ArrowLeft, Eye
 } from 'lucide-react';
 
 // Utility: Get days difference
@@ -37,7 +38,7 @@ function getDaysDiff(currentDate: string, dueDate: string): number {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 }
 
-// Utility: Generate notifications from data - WITH SUPPLIERS
+// Utility: Generate notifications from data
 function generateNotificationsFromData(
   customers: Customer[],
   debts: Debt[],
@@ -160,6 +161,13 @@ function generateNotificationsFromData(
 }
 
 export default function App() {
+  // APP MODE: 'auth' | 'admin' | 'worker'
+  const [appMode, setAppMode] = useState<'auth' | 'admin' | 'worker'>(() => {
+    const saved = localStorage.getItem('app_mode');
+    if (saved === 'worker' || saved === 'admin') return saved;
+    return 'auth';
+  });
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('ledger_authenticated') === 'true';
   });
@@ -183,7 +191,6 @@ export default function App() {
 
   // Admin SMS processing state
   const [isProcessingAdminSMS, setIsProcessingAdminSMS] = useState(false);
-  const adminSMSProcessedRef = useRef(false);
 
   // Total notification count for badge
   const totalAlertCount = notifications.filter(n => n.type === 'Overdue' || n.type === 'Due Today').length + 
@@ -211,14 +218,14 @@ export default function App() {
     }
   }, [isProcessingAdminSMS]);
 
-  // Trigger admin SMS processing on app load and every 5 minutes
+  // Trigger admin SMS processing on admin load and every 5 minutes
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && appMode === 'admin') {
       processAdminSMSQueue();
       const interval = setInterval(processAdminSMSQueue, 5 * 60 * 1000);
       return () => clearInterval(interval);
     }
-  }, [isAuthenticated, processAdminSMSQueue]);
+  }, [isAuthenticated, appMode, processAdminSMSQueue]);
 
   const tryLoadFromLocalStorage = () => {
     try {
@@ -335,26 +342,76 @@ export default function App() {
   }, [cacheDataToLocalStorage]);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && appMode === 'admin') {
       tryLoadFromLocalStorage();
       syncDatabaseStates(true);
       processAdminSMSQueue();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, appMode]);
+
+  // ============================================
+  // MODE HANDLERS
+  // ============================================
 
   const handleAuthenticated = () => {
     setIsAuthenticated(true);
+    setAppMode('admin');
     localStorage.setItem('ledger_authenticated', 'true');
+    localStorage.setItem('app_mode', 'admin');
+  };
+
+  const handleWorkerAccess = () => {
+    setAppMode('worker');
+    localStorage.setItem('app_mode', 'worker');
+    // Load settings for worker view (business info)
+    if (!settings) {
+      api.settings.get().then((data) => {
+        setSettings({
+          businessName: data.business_name || 'Sonko Sound',
+          businessAddress: data.business_address || '',
+          businessPhone: data.business_phone || ''
+        });
+      }).catch(() => {
+        setSettings({
+          businessName: 'Sonko Sound',
+          businessAddress: 'Morogoro, Tanzania',
+          businessPhone: '0688423753'
+        });
+      });
+    }
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
+    setAppMode('auth');
     localStorage.removeItem('ledger_authenticated');
+    localStorage.removeItem('app_mode');
+    localStorage.removeItem('worker_mode');
     setCustomers([]); setDebts([]); setPayments([]);
     setSuppliers([]); setNotifications([]); setSettings(null);
     setInstallmentNotifications([]);
+    setCurrentTab('dashboard');
   };
 
+  const handleBackToAuth = () => {
+    setAppMode('auth');
+    localStorage.removeItem('app_mode');
+    localStorage.removeItem('worker_mode');
+  };
+
+  const handleSwitchToWorkerFromAdmin = () => {
+    setAppMode('worker');
+    localStorage.setItem('app_mode', 'worker');
+  };
+
+  const handleSwitchBackToAdmin = () => {
+    if (isAuthenticated) {
+      setAppMode('admin');
+      localStorage.setItem('app_mode', 'admin');
+    }
+  };
+
+  // Handle installment notifications
   const handleInstallmentNotifications = (notifs: InstallmentNotification[]) => {
     setInstallmentNotifications(prev => {
       const existingIds = new Set(prev.map(n => n.id));
@@ -384,10 +441,80 @@ export default function App() {
     { id: 'settings', label: 'Mipangilio (Settings)', icon: Settings },
   ];
 
-  if (!isAuthenticated) {
-    return <AuthScreen onAuthenticated={handleAuthenticated} />;
+  // ============================================
+  // RENDER: WORKER MODE
+  // ============================================
+  if (appMode === 'worker') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col">
+        {/* Worker Header */}
+        <header className="bg-slate-900 text-slate-300 flex items-center justify-between p-4 sticky top-0 z-40 border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-lg bg-accent flex items-center justify-center text-white font-bold shadow-md shadow-accent/20">
+              <Package size={14} />
+            </div>
+            <div>
+              <h2 className="text-xs font-bold text-white">{settings?.businessName || 'Sonko Sound'}</h2>
+              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
+                Bidhaa Zisizopo
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {isAuthenticated && (
+              <button
+                onClick={handleSwitchBackToAdmin}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 transition"
+                title="Rudi kama Admin"
+              >
+                <Eye size={14} />
+                Admin View
+              </button>
+            )}
+            <button
+              onClick={handleBackToAuth}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 transition"
+              title="Rudi kwenye Login"
+            >
+              <ArrowLeft size={14} />
+              Rudi
+            </button>
+          </div>
+        </header>
+
+        {/* Worker Content */}
+        <main className="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full overflow-y-auto">
+          <StockRequests 
+            onUpdate={() => {}} 
+            isWorkerMode={true}
+          />
+        </main>
+
+        {/* Worker Footer */}
+        <footer className="bg-slate-900 text-slate-400 p-4 text-center border-t border-slate-800">
+          <p className="text-[10px]">
+            {settings?.businessAddress || 'Morogoro, Tanzania'} • {settings?.businessPhone || '0688423753'}
+          </p>
+        </footer>
+      </div>
+    );
   }
 
+  // ============================================
+  // RENDER: AUTH SCREEN
+  // ============================================
+  if (!isAuthenticated) {
+    return (
+      <AuthScreen 
+        onAuthenticated={handleAuthenticated}
+        onWorkerAccess={handleWorkerAccess}
+      />
+    );
+  }
+
+  // ============================================
+  // RENDER: LOADING
+  // ============================================
   if (isLoading && customers.length === 0 && debts.length === 0) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -404,6 +531,9 @@ export default function App() {
     );
   }
 
+  // ============================================
+  // RENDER: ADMIN DASHBOARD
+  // ============================================
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans transition-colors duration-250">
       
@@ -461,6 +591,16 @@ export default function App() {
           </nav>
         </div>
         <div className="border-t border-slate-800 pt-4 mt-6 space-y-3">
+          {/* Worker Mode Shortcut */}
+          <button 
+            onClick={handleSwitchToWorkerFromAdmin}
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-400 hover:bg-slate-800 hover:text-white transition-all"
+            title="Ona kama Mfanyakazi"
+          >
+            <Package size={16} />
+            <span>Ona kama Mfanyakazi</span>
+          </button>
+
           <button 
             onClick={handleDownloadApp}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30"
@@ -503,7 +643,7 @@ export default function App() {
 
       {/* MOBILE DRAWER */}
       {isMobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 top-[57px] bg-slate-900 z-30 flex flex-col p-5 justify-between animate-fade-in select-none">
+        <div className="md:hidden fixed inset-0 top-[57px] bg-slate-900 z-30 flex flex-col p-5 justify-between animate-fade-in select-none overflow-y-auto">
           <nav className="space-y-2">
             {navigationItems.map(item => {
               const Icon = item.icon;
@@ -515,6 +655,13 @@ export default function App() {
               );
             })}
             <button 
+              onClick={() => { handleSwitchToWorkerFromAdmin(); setIsMobileMenuOpen(false); }}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all bg-slate-800 text-white hover:bg-slate-700"
+            >
+              <Package size={18} />
+              <span>Ona kama Mfanyakazi</span>
+            </button>
+            <button 
               onClick={() => { handleDownloadApp(); setIsMobileMenuOpen(false); }}
               className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/20"
             >
@@ -522,7 +669,7 @@ export default function App() {
               <span>Download App (APK)</span>
             </button>
           </nav>
-          <button onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 transition-all">
+          <button onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }} className="w-full flex items-center justify-center gap-2 py-3 mt-4 rounded-xl text-xs font-bold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 transition-all">
             <LogOut size={16} /><span>Ondoka kwenye Mfumo (Logout)</span>
           </button>
         </div>
@@ -555,7 +702,7 @@ export default function App() {
           }} />
         )}
         {currentTab === 'stock' && (
-          <StockRequests onUpdate={() => syncDatabaseStates(false)} />
+          <StockRequests onUpdate={() => syncDatabaseStates(false)} isWorkerMode={false} />
         )}
         {currentTab === 'calendar' && (
           <CalendarView debts={debts} customers={customers} payments={payments} suppliers={suppliers} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />
