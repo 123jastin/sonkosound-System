@@ -16,6 +16,7 @@ import DebtManagement from './components/DebtManagement';
 import SupplierManagement from './components/SupplierManagement';
 import InstallmentManagement, { InstallmentNotification } from './components/InstallmentManagement';
 import OrdersPage from './components/OrdersPage';
+import StockRequests from './components/StockRequests';
 import CalendarView from './components/CalendarView';
 import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
@@ -25,7 +26,7 @@ import {
   LayoutDashboard, Users, BookOpen, Truck, Calendar, 
   FileSpreadsheet, Settings, LogOut, Menu, X, Shield, 
   MapPin, Phone, Bell, Loader2, AlertTriangle, RefreshCw,
-  FolderOpen, Download, Wallet, ShoppingCart
+  FolderOpen, Download, Wallet, ShoppingCart, Package
 } from 'lucide-react';
 
 // Utility: Get days difference
@@ -190,7 +191,7 @@ export default function App() {
 
   // Process Admin SMS Queue
   const processAdminSMSQueue = useCallback(async () => {
-    if (isProcessingAdminSMS) return; // Prevent concurrent processing
+    if (isProcessingAdminSMS) return;
     
     setIsProcessingAdminSMS(true);
     try {
@@ -213,13 +214,8 @@ export default function App() {
   // Trigger admin SMS processing on app load and every 5 minutes
   useEffect(() => {
     if (isAuthenticated) {
-      // Process immediately on app load
       processAdminSMSQueue();
-      
-      // Set up interval to process every 5 minutes
       const interval = setInterval(processAdminSMSQueue, 5 * 60 * 1000);
-      
-      // Clean up interval on unmount
       return () => clearInterval(interval);
     }
   }, [isAuthenticated, processAdminSMSQueue]);
@@ -342,7 +338,6 @@ export default function App() {
     if (isAuthenticated) {
       tryLoadFromLocalStorage();
       syncDatabaseStates(true);
-      // Process admin SMS on load
       processAdminSMSQueue();
     }
   }, [isAuthenticated]);
@@ -360,7 +355,6 @@ export default function App() {
     setInstallmentNotifications([]);
   };
 
-  // Handle installment notifications
   const handleInstallmentNotifications = (notifs: InstallmentNotification[]) => {
     setInstallmentNotifications(prev => {
       const existingIds = new Set(prev.map(n => n.id));
@@ -383,6 +377,7 @@ export default function App() {
     { id: 'suppliers', label: 'Ma Suppliers (Wanaotudai)', icon: Truck },
     { id: 'installments', label: 'Kubandika (Installments)', icon: Wallet },
     { id: 'orders', label: 'Oda (Orders)', icon: ShoppingCart },
+    { id: 'stock', label: 'Bidhaa Zisizopo', icon: Package },
     { id: 'calendar', label: 'Kalenda (Calendar)', icon: Calendar },
     { id: 'reports', label: 'Ripoti (Reports)', icon: FileSpreadsheet },
     { id: 'memory', label: 'Kumbukumbu (Memory)', icon: FolderOpen },
@@ -556,9 +551,11 @@ export default function App() {
         {currentTab === 'orders' && (
           <OrdersPage onUpdate={() => {
             syncDatabaseStates(false);
-            // Process admin SMS queue after order update
             processAdminSMSQueue();
           }} />
+        )}
+        {currentTab === 'stock' && (
+          <StockRequests onUpdate={() => syncDatabaseStates(false)} />
         )}
         {currentTab === 'calendar' && (
           <CalendarView debts={debts} customers={customers} payments={payments} suppliers={suppliers} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />
