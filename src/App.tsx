@@ -161,7 +161,7 @@ function generateNotificationsFromData(
 
 export default function App() {
   // ============================================
-  // NEW: Detect worker URL parameter (?worker=1)
+  // NEW: URL-based worker mode (?worker=1)
   // ============================================
   const [isWorkerUrl, setIsWorkerUrl] = useState<boolean>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -189,14 +189,11 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Admin SMS processing state
   const [isProcessingAdminSMS, setIsProcessingAdminSMS] = useState(false);
 
-  // Total notification count for badge
   const totalAlertCount = notifications.filter(n => n.type === 'Overdue' || n.type === 'Due Today').length + 
                           installmentNotifications.filter(n => n.type === 'Installment Halfway' || n.type === 'Installment Completed').length;
 
-  // Process Admin SMS Queue
   const processAdminSMSQueue = useCallback(async () => {
     if (isProcessingAdminSMS) return;
     
@@ -218,7 +215,6 @@ export default function App() {
     }
   }, [isProcessingAdminSMS]);
 
-  // Trigger admin SMS processing on app load and every 5 minutes
   useEffect(() => {
     if (isAuthenticated && !isWorkerUrl) {
       processAdminSMSQueue();
@@ -370,7 +366,6 @@ export default function App() {
     });
   };
 
-  // APK Download URL
   const APK_DOWNLOAD_URL = 'https://drive.google.com/uc?export=download&id=1l1GZNupLt4UpPQRJVQoHPoD7b82X3o60';
 
   const handleDownloadApp = () => {
@@ -384,7 +379,7 @@ export default function App() {
     { id: 'suppliers', label: 'Ma Suppliers (Wanaotudai)', icon: Truck },
     { id: 'installments', label: 'Kubandika (Installments)', icon: Wallet },
     { id: 'orders', label: 'Oda (Orders)', icon: ShoppingCart },
-    { id: 'stock', label: 'Bidhaa Zisizopo', icon: Package },
+    { id: 'stock', label: 'Bidhaa Zisizokuepo', icon: Package },
     { id: 'calendar', label: 'Kalenda (Calendar)', icon: Calendar },
     { id: 'reports', label: 'Ripoti (Reports)', icon: FileSpreadsheet },
     { id: 'memory', label: 'Kumbukumbu (Memory)', icon: FolderOpen },
@@ -392,13 +387,11 @@ export default function App() {
   ];
 
   // ============================================
-  // WORKER VIEW (URL-based, no login required)
-  // Access via: your-app.pages.dev/?worker=1
+  // WORKER VIEW (via ?worker=1 URL)
   // ============================================
   if (isWorkerUrl) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
-        {/* Worker Header */}
         <header className="bg-slate-900 text-slate-300 flex items-center justify-between p-4 sticky top-0 z-40 border-b border-slate-800">
           <div className="flex items-center gap-2">
             <div className="h-7 w-7 rounded-lg bg-accent flex items-center justify-center text-white font-bold shadow-md shadow-accent/20">
@@ -407,7 +400,7 @@ export default function App() {
             <div>
               <h2 className="text-xs font-bold text-white">Sonko Sound</h2>
               <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
-                Bidhaa Zisizopo
+                Bidhaa Zisizokuepo
               </span>
             </div>
           </div>
@@ -422,15 +415,10 @@ export default function App() {
           </button>
         </header>
 
-        {/* Worker Content */}
         <main className="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full overflow-y-auto">
-          <StockRequests 
-            onUpdate={() => {}} 
-            isWorkerMode={true}
-          />
+          <StockRequests onUpdate={() => {}} isWorkerMode={true} />
         </main>
 
-        {/* Worker Footer */}
         <footer className="bg-slate-900 text-slate-400 p-4 text-center border-t border-slate-800">
           <p className="text-[10px]">Morogoro, Tanzania • 0688423753</p>
         </footer>
@@ -439,10 +427,18 @@ export default function App() {
   }
 
   // ============================================
-  // AUTH SCREEN (Admin)
+  // AUTH SCREEN
   // ============================================
   if (!isAuthenticated) {
-    return <AuthScreen onAuthenticated={handleAuthenticated} />;
+    return (
+      <AuthScreen 
+        onAuthenticated={handleAuthenticated}
+        onWorkerAccess={() => {
+          setIsWorkerUrl(true);
+          window.history.replaceState({}, '', `${window.location.pathname}?worker=1`);
+        }}
+      />
+    );
   }
 
   if (isLoading && customers.length === 0 && debts.length === 0) {
@@ -461,9 +457,6 @@ export default function App() {
     );
   }
 
-  // ============================================
-  // ADMIN DASHBOARD
-  // ============================================
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans transition-colors duration-250">
       
