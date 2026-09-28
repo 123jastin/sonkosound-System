@@ -49,12 +49,15 @@ export default function CustomerManagement({
   const [statusFilter, setStatusFilter] = useState<CustomerStatus | 'All'>('All');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isStatementOpen, setIsStatementOpen] = useState(false);
   const [isAddDebtOpen, setIsAddDebtOpen] = useState(false);
+  const [isEditDebtOpen, setIsEditDebtOpen] = useState(false);         // ✅ NEW
+  const [isDeleteDebtConfirmOpen, setIsDeleteDebtConfirmOpen] = useState(false); // ✅ NEW
   const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
 
   // Form states - Customer
@@ -72,6 +75,18 @@ export default function CustomerManagement({
   const [debtDueDate, setDebtDueDate] = useState('');
   const [debtCategory, setDebtCategory] = useState<string>('Mizigo/Products');
   const [debtNotes, setDebtNotes] = useState('');
+
+  // ============================================
+  // EDIT DEBT FORM STATES (NEW)
+  // ============================================
+  const [editingDebtId, setEditingDebtId] = useState<string | null>(null);
+  const [editDebtDescription, setEditDebtDescription] = useState('');
+  const [editDebtAmount, setEditDebtAmount] = useState('');
+  const [editDebtDateBorrowed, setEditDebtDateBorrowed] = useState('');
+  const [editDebtDueDate, setEditDebtDueDate] = useState('');
+  const [editDebtCategory, setEditDebtCategory] = useState('');
+  const [editDebtNotes, setEditDebtNotes] = useState('');
+  const [editDebtStatus, setEditDebtStatus] = useState('Active');
 
   // Form states - Payment recording
   const [payAmount, setPayAmount] = useState('');
@@ -346,6 +361,8 @@ export default function CustomerManagement({
       onUpdate();
       setIsAddDebtOpen(false);
       resetProductForm();
+      setSuccessMessage('Madeni yameongezwa!');
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       setError('Imeshindwa kuongeza madeni: ' + err.message);
     } finally {
@@ -353,10 +370,115 @@ export default function CustomerManagement({
     }
   };
 
+  // ============================================
+  // ✅ NEW: EDIT DEBT HANDLERS
+  // ============================================
+  const openEditDebtModal = (debt: Debt) => {
+    setEditingDebtId(debt.id);
+    setEditDebtDescription(debt.description || '');
+    setEditDebtAmount(String(debt.amount) || '');
+    setEditDebtDateBorrowed(debt.dateBorrowed || '');
+    setEditDebtDueDate(debt.dueDate || '');
+    setEditDebtCategory(debt.category || 'Mizigo/Products');
+    setEditDebtNotes(debt.notes || '');
+    setEditDebtStatus(debt.status || 'Active');
+    setIsEditDebtOpen(true);
+  };
+
+  const handleEditDebt = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDebtId) return;
+
+    if (!editDebtDescription.trim()) {
+      setError('Maelezo ya deni yanahitajika');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    if (!editDebtAmount || Number(editDebtAmount) <= 0) {
+      setError('Kiasi cha deni kinahitajika');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    if (!editDebtDueDate) {
+      setError('Tarehe ya ukomo inahitajika');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // ✅ Update via API
+      await api.debts.update(editingDebtId, {
+        amount: Number(editDebtAmount),
+        dateBorrowed: editDebtDateBorrowed,
+        dueDate: editDebtDueDate,
+        description: editDebtDescription.trim(),
+        category: editDebtCategory,
+        notes: editDebtNotes,
+        status: editDebtStatus
+      });
+      
+      onUpdate();
+      setIsEditDebtOpen(false);
+      setEditingDebtId(null);
+      setSuccessMessage('Deni limehaririwa kikamilifu!');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      console.error('Edit debt error:', err);
+      setError('Imeshindwa kuhariri deni: ' + (err?.message || 'Jaribu tena'));
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ✅ NEW: DELETE DEBT
+  const openDeleteDebtConfirm = (debtId: string) => {
+    setEditingDebtId(debtId);
+    setIsDeleteDebtConfirmOpen(true);
+  };
+
+  const handleDeleteDebt = async () => {
+    if (!editingDebtId) return;
+
+    setIsLoading(true);
+    try {
+      await api.debts.delete(editingDebtId);
+      
+      // Also delete associated payments
+      const debtPayments = payments.filter(p => p.debtId === editingDebtId);
+      for (const payment of debtPayments) {
+        try {
+          await api.payments.delete(payment.id);
+        } catch (e) {
+          console.error('Failed to delete payment:', e);
+        }
+      }
+      
+      onUpdate();
+      setIsDeleteDebtConfirmOpen(false);
+      setEditingDebtId(null);
+      setSuccessMessage('Deni limefutwa!');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      console.error('Delete debt error:', err);
+      setError('Imeshindwa kufuta deni: ' + (err?.message || 'Jaribu tena'));
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ============================================
+  // PAYMENT HANDLERS
+  // ============================================
   const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // ✅ VALIDATION: Amount is required
     if (!payAmount || Number(payAmount) <= 0) {
       setPayAmountError(true);
       setError('Tafadhali jaza kiasi cha malipo');
@@ -370,8 +492,6 @@ export default function CustomerManagement({
     
     try {
       const totalPayAmount = Number(payAmount);
-      
-      // Distribute payment across all unpaid debts
       let remainingToAllocate = totalPayAmount;
       
       for (const debt of unpaidDebts) {
@@ -396,7 +516,6 @@ export default function CustomerManagement({
       setIsAddPaymentOpen(false);
       resetPaymentForm();
       
-      // SMS Notification
       if (activeCustomer) {
         const remainingAfterAll = Math.max(0, totalRemaining - totalPayAmount);
         try {
@@ -416,6 +535,8 @@ export default function CustomerManagement({
         }
       }
       
+      setSuccessMessage('Malipo yamerekodiwa!');
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       setError('Imeshindwa kurekodi malipo: ' + err.message);
     } finally {
@@ -443,9 +564,8 @@ export default function CustomerManagement({
     setIsEditModalOpen(true);
   };
 
-  // Open Payment Modal — starts EMPTY now (no auto-fill)
   const openPaymentModal = () => {
-    setPayAmount('');            // ✅ EMPTY instead of auto-filled
+    setPayAmount('');
     setPayMethod('Cash');
     setPayNotes('');
     setPayAmountError(false);
@@ -481,437 +601,129 @@ export default function CustomerManagement({
     @page { size: A4; margin: 12mm; }
     body { font-family: 'Segoe UI', Tahoma, sans-serif; background: white; color: #1e293b; padding: 20px; }
     .container { max-width: 190mm; margin: 0 auto; }
-    
-    /* ============ HEADER WITH LOGO ============ */
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 20px 24px;
-      background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 50%, #22c55e 100%);
-      color: white;
-      border-radius: 12px;
-      margin-bottom: 24px;
-      gap: 20px;
-    }
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-    .logo-box {
-      width: 70px;
-      height: 70px;
-      border-radius: 14px;
-      background: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 6px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-      flex-shrink: 0;
-      overflow: hidden;
-    }
-    .logo-box img {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-    }
-    .business-info {
-      display: flex;
-      flex-direction: column;
-    }
-    .business-name {
-      font-size: 22px;
-      font-weight: 900;
-      letter-spacing: 1px;
-      line-height: 1.1;
-    }
-    .business-slogan {
-      font-size: 11px;
-      opacity: 0.9;
-      margin-top: 4px;
-    }
-    .business-contact {
-      font-size: 10px;
-      opacity: 0.85;
-      margin-top: 3px;
-    }
-    .header-right {
-      text-align: right;
-      flex-shrink: 0;
-    }
-    .statement-badge {
-      display: inline-block;
-      background: rgba(255,255,255,0.2);
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-size: 10px;
-      font-weight: bold;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-    }
-    .statement-id {
-      font-size: 10px;
-      opacity: 0.8;
-      margin-top: 8px;
-      font-family: monospace;
-    }
-    
-    /* ============ BODY SECTIONS ============ */
-    .section {
-      margin-bottom: 24px;
-    }
-    .section-title {
-      font-size: 13px;
-      font-weight: 800;
-      color: #1e3a5f;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 10px;
-      padding-bottom: 6px;
-      border-bottom: 2px solid #e2e8f0;
-    }
-    
-    .info-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      padding: 16px;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-    }
-    .info-card {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-    }
-    .info-label {
-      font-size: 9px;
-      font-weight: 800;
-      text-transform: uppercase;
-      color: #64748b;
-      letter-spacing: 0.5px;
-    }
-    .info-value {
-      font-size: 13px;
-      font-weight: bold;
-      color: #1e293b;
-    }
-    .info-value.highlight {
-      color: #dc2626;
-      font-size: 16px;
-    }
-    
-    /* ============ TABLES ============ */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: white;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      overflow: hidden;
-    }
-    thead th {
-      background: #1e3a5f;
-      color: white;
-      padding: 10px 12px;
-      text-align: left;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      font-weight: 800;
-    }
-    thead th:last-child {
-      text-align: right;
-    }
-    tbody td {
-      padding: 10px 12px;
-      border-bottom: 1px solid #f1f5f9;
-      font-size: 11px;
-      color: #334155;
-    }
-    tbody td:last-child {
-      text-align: right;
-      font-weight: bold;
-    }
-    tbody tr:nth-child(even) {
-      background: #f8fafc;
-    }
-    tbody tr:last-child td {
-      border-bottom: none;
-    }
-    .empty-row {
-      text-align: center !important;
-      padding: 20px !important;
-      color: #94a3b8;
-      font-style: italic;
-    }
-    .payment-amount {
-      color: #059669;
-      font-weight: bold;
-    }
-    
-    /* ============ SUMMARY ============ */
-    .summary-box {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
-      margin-top: 20px;
-    }
-    .summary-item {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      padding: 12px;
-      text-align: center;
-    }
-    .summary-item.total {
-      background: #fef2f2;
-      border-color: #fecaca;
-    }
-    .summary-item.paid {
-      background: #f0fdf4;
-      border-color: #bbf7d0;
-    }
-    .summary-item.balance {
-      background: #fff7ed;
-      border-color: #fed7aa;
-    }
-    .summary-label {
-      font-size: 9px;
-      font-weight: 800;
-      text-transform: uppercase;
-      color: #64748b;
-      letter-spacing: 0.5px;
-      margin-bottom: 4px;
-    }
-    .summary-value {
-      font-size: 18px;
-      font-weight: 900;
-      color: #1e293b;
-    }
+    .header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 50%, #22c55e 100%); color: white; border-radius: 12px; margin-bottom: 24px; gap: 20px; }
+    .header-left { display: flex; align-items: center; gap: 16px; }
+    .logo-box { width: 70px; height: 70px; border-radius: 14px; background: white; display: flex; align-items: center; justify-content: center; padding: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); flex-shrink: 0; overflow: hidden; }
+    .logo-box img { width: 100%; height: 100%; object-fit: contain; }
+    .business-name { font-size: 22px; font-weight: 900; letter-spacing: 1px; line-height: 1.1; }
+    .business-slogan { font-size: 11px; opacity: 0.9; margin-top: 4px; }
+    .business-contact { font-size: 10px; opacity: 0.85; margin-top: 3px; }
+    .statement-badge { display: inline-block; background: rgba(255,255,255,0.2); padding: 6px 14px; border-radius: 20px; font-size: 10px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; }
+    .statement-id { font-size: 10px; opacity: 0.8; margin-top: 8px; font-family: monospace; }
+    .section { margin-bottom: 24px; }
+    .section-title { font-size: 13px; font-weight: 800; color: #1e3a5f; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #e2e8f0; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }
+    .info-card { display: flex; flex-direction: column; gap: 3px; }
+    .info-label { font-size: 9px; font-weight: 800; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px; }
+    .info-value { font-size: 13px; font-weight: bold; color: #1e293b; }
+    .info-value.highlight { color: #dc2626; font-size: 16px; }
+    table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+    thead th { background: #1e3a5f; color: white; padding: 10px 12px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 800; }
+    thead th:last-child { text-align: right; }
+    tbody td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 11px; color: #334155; }
+    tbody td:last-child { text-align: right; font-weight: bold; }
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    tbody tr:last-child td { border-bottom: none; }
+    .empty-row { text-align: center !important; padding: 20px !important; color: #94a3b8; font-style: italic; }
+    .payment-amount { color: #059669; font-weight: bold; }
+    .summary-box { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
+    .summary-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center; }
+    .summary-item.total { background: #fef2f2; border-color: #fecaca; }
+    .summary-item.paid { background: #f0fdf4; border-color: #bbf7d0; }
+    .summary-item.balance { background: #fff7ed; border-color: #fed7aa; }
+    .summary-label { font-size: 9px; font-weight: 800; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .summary-value { font-size: 18px; font-weight: 900; color: #1e293b; }
     .summary-item.total .summary-value { color: #1e293b; }
     .summary-item.paid .summary-value { color: #059669; }
     .summary-item.balance .summary-value { color: #dc2626; }
-    
-    /* ============ SIGNATURES ============ */
-    .signatures {
-      display: flex;
-      justify-content: space-between;
-      gap: 40px;
-      margin-top: 50px;
-      padding: 0 20px;
-    }
-    .signature-box {
-      flex: 1;
-      text-align: center;
-    }
-    .signature-line {
-      border-top: 1.5px solid #1e3a5f;
-      padding-top: 8px;
-      font-size: 11px;
-      font-weight: bold;
-      color: #1e3a5f;
-    }
-    .signature-sub {
-      font-size: 9px;
-      color: #94a3b8;
-      margin-top: 3px;
-    }
-    
-    /* ============ FOOTER ============ */
-    .footer {
-      margin-top: 30px;
-      padding: 14px;
-      background: #f8fafc;
-      border-radius: 10px;
-      text-align: center;
-      font-size: 10px;
-      color: #64748b;
-      border: 1px solid #e2e8f0;
-    }
-    .footer strong {
-      color: #1e3a5f;
-    }
-    
-    /* ============ PRINT BUTTONS ============ */
-    .no-print {
-      text-align: center;
-      padding: 20px;
-      margin-top: 10px;
-    }
-    .no-print button {
-      background: #3b82f6;
-      color: white;
-      border: none;
-      padding: 12px 28px;
-      border-radius: 22px;
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-      margin: 0 5px;
-      transition: all 0.2s;
-    }
+    .signatures { display: flex; justify-content: space-between; gap: 40px; margin-top: 50px; padding: 0 20px; }
+    .signature-box { flex: 1; text-align: center; }
+    .signature-line { border-top: 1.5px solid #1e3a5f; padding-top: 8px; font-size: 11px; font-weight: bold; color: #1e3a5f; }
+    .signature-sub { font-size: 9px; color: #94a3b8; margin-top: 3px; }
+    .footer { margin-top: 30px; padding: 14px; background: #f8fafc; border-radius: 10px; text-align: center; font-size: 10px; color: #64748b; border: 1px solid #e2e8f0; }
+    .footer strong { color: #1e3a5f; }
+    .no-print { text-align: center; padding: 20px; margin-top: 10px; }
+    .no-print button { background: #3b82f6; color: white; border: none; padding: 12px 28px; border-radius: 22px; font-size: 13px; font-weight: bold; cursor: pointer; margin: 0 5px; transition: all 0.2s; }
     .no-print button:hover { background: #2563eb; }
-    .no-print button.close {
-      background: #64748b;
-    }
+    .no-print button.close { background: #64748b; }
     .no-print button.close:hover { background: #475569; }
-    
-    @media print {
-      .no-print { display: none !important; }
-      body { padding: 0; }
-    }
+    @media print { .no-print { display: none !important; } body { padding: 0; } }
   </style>
 </head>
 <body>
   <div class="container">
-    
-    <!-- HEADER WITH LOGO -->
     <div class="header">
       <div class="header-left">
         <div class="logo-box">
           <img src="${LOGO_URL}" alt="Sonko Sound Logo" />
         </div>
-        <div class="business-info">
+        <div>
           <div class="business-name">SONKO SOUND</div>
           <div class="business-slogan">Electronics & Appliances</div>
           <div class="business-contact">${settings.businessAddress} • ${settings.businessPhone}</div>
         </div>
       </div>
-      <div class="header-right">
+      <div style="text-align: right;">
         <div class="statement-badge">Taarifa ya Mteja</div>
         <div class="statement-id">${statementId}</div>
       </div>
     </div>
-
-    <!-- CUSTOMER INFO -->
     <div class="section">
       <div class="section-title">Taarifa za Mteja</div>
       <div class="info-grid">
-        <div class="info-card">
-          <span class="info-label">Jina la Mteja</span>
-          <span class="info-value">${activeCustomer.fullName}</span>
-        </div>
-        <div class="info-card">
-          <span class="info-label">Namba ya Simu</span>
-          <span class="info-value">${activeCustomer.phoneNumber}</span>
-        </div>
-        <div class="info-card">
-          <span class="info-label">Tarehe ya Taarifa</span>
-          <span class="info-value">${now.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-        </div>
-        <div class="info-card">
-          <span class="info-label">Salio la Sasa</span>
-          <span class="info-value highlight">TSh ${activeCustomerStats.remainingBalance.toLocaleString()}</span>
-        </div>
+        <div class="info-card"><span class="info-label">Jina la Mteja</span><span class="info-value">${activeCustomer.fullName}</span></div>
+        <div class="info-card"><span class="info-label">Namba ya Simu</span><span class="info-value">${activeCustomer.phoneNumber}</span></div>
+        <div class="info-card"><span class="info-label">Tarehe ya Taarifa</span><span class="info-value">${now.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
+        <div class="info-card"><span class="info-label">Salio la Sasa</span><span class="info-value highlight">TSh ${activeCustomerStats.remainingBalance.toLocaleString()}</span></div>
       </div>
     </div>
-
-    <!-- DEBTS HISTORY -->
     <div class="section">
       <div class="section-title">Historia ya Madeni (${activeCustomerHistory.debts.length})</div>
       <table>
-        <thead>
-          <tr>
-            <th>Maelezo</th>
-            <th>Tarehe</th>
-            <th>Ukomo</th>
-            <th>Kiasi (TSh)</th>
-          </tr>
-        </thead>
+        <thead><tr><th>Maelezo</th><th>Tarehe</th><th>Ukomo</th><th>Kiasi (TSh)</th></tr></thead>
         <tbody>
           ${activeCustomerHistory.debts.length > 0 
             ? activeCustomerHistory.debts.map(debt => `
-              <tr>
-                <td>${debt.description}</td>
-                <td>${debt.dateBorrowed}</td>
-                <td>${debt.dueDate}</td>
-                <td>TSh ${debt.amount.toLocaleString()}</td>
-              </tr>
+              <tr><td>${debt.description}</td><td>${debt.dateBorrowed}</td><td>${debt.dueDate}</td><td>TSh ${debt.amount.toLocaleString()}</td></tr>
             `).join('')
             : '<tr><td colspan="4" class="empty-row">Hakuna madeni bado</td></tr>'
           }
         </tbody>
       </table>
     </div>
-
-    <!-- PAYMENTS HISTORY -->
     <div class="section">
       <div class="section-title">Historia ya Malipo (${activeCustomerHistory.payments.length})</div>
       <table>
-        <thead>
-          <tr>
-            <th>Maelezo</th>
-            <th>Tarehe</th>
-            <th>Njia</th>
-            <th>Kiasi (TSh)</th>
-          </tr>
-        </thead>
+        <thead><tr><th>Maelezo</th><th>Tarehe</th><th>Njia</th><th>Kiasi (TSh)</th></tr></thead>
         <tbody>
           ${activeCustomerHistory.payments.length > 0
             ? activeCustomerHistory.payments.map(pay => `
-              <tr>
-                <td>${pay.notes || 'Malipo'}</td>
-                <td>${pay.date}</td>
-                <td>${pay.paymentMethod}</td>
-                <td class="payment-amount">TSh ${pay.amount.toLocaleString()}</td>
-              </tr>
+              <tr><td>${pay.notes || 'Malipo'}</td><td>${pay.date}</td><td>${pay.paymentMethod}</td><td class="payment-amount">TSh ${pay.amount.toLocaleString()}</td></tr>
             `).join('')
             : '<tr><td colspan="4" class="empty-row">Hakuna malipo bado</td></tr>'
           }
         </tbody>
       </table>
     </div>
-
-    <!-- SUMMARY -->
     <div class="summary-box">
-      <div class="summary-item total">
-        <div class="summary-label">Jumla ya Madeni</div>
-        <div class="summary-value">TSh ${activeCustomerStats.totalDebt.toLocaleString()}</div>
-      </div>
-      <div class="summary-item paid">
-        <div class="summary-label">Jumla Iliyolipwa</div>
-        <div class="summary-value">TSh ${activeCustomerStats.totalPaid.toLocaleString()}</div>
-      </div>
-      <div class="summary-item balance">
-        <div class="summary-label">Salio la Sasa</div>
-        <div class="summary-value">TSh ${activeCustomerStats.remainingBalance.toLocaleString()}</div>
-      </div>
+      <div class="summary-item total"><div class="summary-label">Jumla ya Madeni</div><div class="summary-value">TSh ${activeCustomerStats.totalDebt.toLocaleString()}</div></div>
+      <div class="summary-item paid"><div class="summary-label">Jumla Iliyolipwa</div><div class="summary-value">TSh ${activeCustomerStats.totalPaid.toLocaleString()}</div></div>
+      <div class="summary-item balance"><div class="summary-label">Salio la Sasa</div><div class="summary-value">TSh ${activeCustomerStats.remainingBalance.toLocaleString()}</div></div>
     </div>
-
-    <!-- SIGNATURES -->
     <div class="signatures">
-      <div class="signature-box">
-        <div class="signature-line">Sahihi ya Mmiliki</div>
-        <div class="signature-sub">${settings.businessName}</div>
-      </div>
-      <div class="signature-box">
-        <div class="signature-line">Sahihi ya Mteja</div>
-        <div class="signature-sub">${activeCustomer.fullName}</div>
-      </div>
+      <div class="signature-box"><div class="signature-line">Sahihi ya Mmiliki</div><div class="signature-sub">${settings.businessName}</div></div>
+      <div class="signature-box"><div class="signature-line">Sahihi ya Mteja</div><div class="signature-sub">${activeCustomer.fullName}</div></div>
     </div>
-
-    <!-- FOOTER -->
     <div class="footer">
       <strong>${settings.businessName}</strong> • ${settings.businessAddress} • ${settings.businessPhone}<br>
       Taarifa hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })} saa ${now.toLocaleTimeString('sw-TZ', { hour: '2-digit', minute: '2-digit' })}
     </div>
-
-    <!-- PRINT BUTTONS -->
     <div class="no-print">
       <button onclick="window.print()">🖨️ Chapisha / Save as PDF</button>
       <button class="close" onclick="window.close()">Funga</button>
     </div>
   </div>
-
-  <script>
-    window.onload = function() {
-      setTimeout(function() { window.print(); }, 400);
-    };
-  </script>
+  <script>window.onload = function() { setTimeout(function() { window.print(); }, 400); };</script>
 </body>
 </html>`;
 
@@ -938,6 +750,14 @@ export default function CustomerManagement({
           <button onClick={() => setError(null)} className="text-rose-500 hover:text-rose-700">
             <X size={16} />
           </button>
+        </div>
+      )}
+
+      {/* Success Banner */}
+      {successMessage && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-2 text-emerald-700 text-xs animate-fade-in">
+          <Check size={16} />
+          <span>{successMessage}</span>
         </div>
       )}
 
@@ -1017,6 +837,7 @@ export default function CustomerManagement({
 
           {/* History section */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* DEBTS LIST WITH EDIT/DELETE */}
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
               <h4 className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5 border-b border-slate-100 pb-2">
                 <FileText size={14} className="text-amber-500" /> Madeni ({activeCustomerHistory.debts.length})
@@ -1026,14 +847,42 @@ export default function CustomerManagement({
                   const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === debt.id);
                   const paidSum = dPayments.reduce((acc, p) => acc + p.amount, 0);
                   const bal = debt.amount - paidSum;
+                  const isFullyPaid = bal <= 0;
+                  
                   return (
                     <div key={debt.id} className="p-4 bg-slate-50/60 rounded-2xl border border-slate-100 text-xs">
-                      <div className="flex justify-between font-bold"><span className="truncate">{debt.description}</span><span>TSh {debt.amount.toLocaleString()}</span></div>
-                      <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400">
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between font-bold"><span className="truncate">{debt.description}</span><span>TSh {debt.amount.toLocaleString()}</span></div>
+                        </div>
+                        
+                        {/* ✅ EDIT & DELETE BUTTONS */}
+                        <div className="flex gap-1 shrink-0">
+                          <button
+                            onClick={() => openEditDebtModal(debt)}
+                            className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition"
+                            title="Hariri deni"
+                          >
+                            <Edit2 size={12} />
+                          </button>
+                          <button
+                            onClick={() => openDeleteDebtConfirm(debt.id)}
+                            className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 transition"
+                            title="Futa deni"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400 flex-wrap">
                         <span><Calendar size={10} /> {debt.dateBorrowed}</span>
                         <span><Calendar size={10} className="text-rose-500" /> {debt.dueDate}</span>
                         <span className={bal > 0 ? 'text-rose-600 font-bold' : 'text-emerald-600 font-bold'}>{bal > 0 ? `Salio: TSh ${bal.toLocaleString()}` : '✓ Imelipwa'}</span>
                       </div>
+                      
+                      {debt.notes && <p className="text-[10px] text-slate-500 mt-1 italic">{debt.notes}</p>}
+                      
                       {debt.amount > 0 && (
                         <div className="mt-2 space-y-1">
                           <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
@@ -1174,6 +1023,193 @@ export default function CustomerManagement({
                 <button type="submit" disabled={isLoading} className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2">{isLoading ? <><Loader2 size={14} className="animate-spin" /> Inahifadhi...</> : 'Hifadhi Wasifu'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================
+          MODAL: EDIT DEBT (NEW)
+          ============================================ */}
+      {isEditDebtOpen && editingDebtId && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
+            <button onClick={() => { setIsEditDebtOpen(false); setEditingDebtId(null); }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
+              <X size={18} />
+            </button>
+            
+            <h3 className="text-md font-bold text-slate-850 flex items-center gap-1.5">
+              <Edit2 className="text-blue-600" size={18} />
+              Hariri Deni
+            </h3>
+            
+            <p className="text-xs text-slate-500">
+              Badilisha taarifa za deni kwa <strong>{activeCustomer?.fullName}</strong>
+            </p>
+
+            <form onSubmit={handleEditDebt} className="space-y-4 text-xs text-left">
+              
+              {/* Description */}
+              <div>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo ya Deni *</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={editDebtDescription}
+                  onChange={(e) => setEditDebtDescription(e.target.value)}
+                  placeholder="Mfano: Speaker ya Sony"
+                  className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              {/* Amount + Category */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kiasi (TSh) *</label>
+                  <input 
+                    type="number" 
+                    required 
+                    min="1"
+                    value={editDebtAmount}
+                    onChange={(e) => setEditDebtAmount(e.target.value)}
+                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kundi</label>
+                  <input 
+                    type="text" 
+                    value={editDebtCategory}
+                    onChange={(e) => setEditDebtCategory(e.target.value)}
+                    placeholder="Mizigo/Products"
+                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Date Borrowed + Due Date */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Tarehe ya Kukopa</label>
+                  <input 
+                    type="date" 
+                    value={editDebtDateBorrowed}
+                    onChange={(e) => setEditDebtDateBorrowed(e.target.value)}
+                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                    Ukomo (Due Date) *
+                  </label>
+                  <input 
+                    type="date" 
+                    required
+                    value={editDebtDueDate}
+                    onChange={(e) => setEditDebtDueDate(e.target.value)}
+                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Status */}
+              <div>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Hali ya Deni</label>
+                <select
+                  value={editDebtStatus}
+                  onChange={(e) => setEditDebtStatus(e.target.value)}
+                  className="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="Active">Active - Inaendelea</option>
+                  <option value="Paid">Paid - Imelipwa</option>
+                  <option value="Overdue">Overdue - Imechelewa</option>
+                </select>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo ya Ziada</label>
+                <textarea 
+                  value={editDebtNotes}
+                  onChange={(e) => setEditDebtNotes(e.target.value)}
+                  placeholder="Maelezo yoyote ya ziada..."
+                  className="w-full p-2.5 border border-slate-200 rounded-xl h-20 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              {/* Info banner */}
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                <p className="text-[11px] text-blue-700 leading-relaxed">
+                  <strong>Kumbuka:</strong> Kubadilisha kiasi kutaathiri salio la mteja. Malipo yaliyofanywa bado yanabaki kama yalivyo.
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="pt-2 flex justify-end gap-2">
+                <button 
+                  type="button" 
+                  onClick={() => { setIsEditDebtOpen(false); setEditingDebtId(null); }}
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
+                >
+                  Ghairi
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isLoading}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isLoading ? (
+                    <><Loader2 size={14} className="animate-spin" /> Inahifadhi...</>
+                  ) : (
+                    <>Hifadhi Mabadiliko</>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================
+          MODAL: DELETE DEBT CONFIRM (NEW)
+          ============================================ */}
+      {isDeleteDebtConfirmOpen && editingDebtId && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
+            <div className="text-center">
+              <div className="h-16 w-16 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
+                <Trash2 size={28} />
+              </div>
+              <h3 className="text-md font-bold text-slate-800">Futa Deni?</h3>
+              <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                Je, una uhakika unataka kufuta deni hili? 
+                <br />
+                <span className="font-bold text-rose-600">Malipo yote yanayohusiana nalo yatafutwa pia.</span>
+                <br />
+                <span className="text-slate-400 mt-1 block">Kitendo hiki hakiwezi kutenduliwa.</span>
+              </p>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button 
+                onClick={() => { setIsDeleteDebtConfirmOpen(false); setEditingDebtId(null); }}
+                disabled={isLoading}
+                className="flex-1 py-2.5 px-4 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
+              >
+                Ghairi
+              </button>
+              <button 
+                onClick={handleDeleteDebt}
+                disabled={isLoading}
+                className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isLoading ? (
+                  <><Loader2 size={14} className="animate-spin" /> Inafuta...</>
+                ) : (
+                  <><Trash2 size={14} /> Futa</>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1351,7 +1387,7 @@ export default function CustomerManagement({
         </div>
       )}
 
-      {/* MODAL: Payment (EMPTY AMOUNT + RED VALIDATION) */}
+      {/* MODAL: Payment */}
       {isAddPaymentOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -1366,7 +1402,6 @@ export default function CustomerManagement({
             
             <form onSubmit={handleAddPayment} className="space-y-4 text-xs text-left">
               
-              {/* Debts Summary */}
               <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2">
                 <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs mb-2">
                   <ListChecks size={14} /> Madeni Yote ({unpaidDebts.length})
