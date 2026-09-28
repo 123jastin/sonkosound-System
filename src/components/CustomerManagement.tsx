@@ -11,7 +11,7 @@ import {
   Users, Search, Plus, Filter, Phone, MapPin, 
   Building, UserPlus, CreditCard, ChevronRight, FileText, 
   History, Calendar, Check, AlertCircle, Printer, X, Trash2, Edit2, 
-  ArrowLeft, Loader2, ListChecks, Package
+  ArrowLeft, Loader2, ListChecks, Package, ChevronDown, ChevronUp
 } from 'lucide-react';
 
 interface CustomerManagementProps {
@@ -36,6 +36,11 @@ interface ProductItem {
 // ============================================
 const LOGO_URL = 'https://pics.sonkosound.store/file_0000000018a881f4bef28aaff0866bbd.png';
 
+// ============================================
+// PAGE SIZE for "See More"
+// ============================================
+const INITIAL_PAGE_SIZE = 5;
+
 export default function CustomerManagement({
   customers,
   debts,
@@ -50,6 +55,9 @@ export default function CustomerManagement({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  
+  // ✅ See More state
+  const [showAllCustomers, setShowAllCustomers] = useState(false);
   
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -87,6 +95,9 @@ export default function CustomerManagement({
   const [editDebtCategory, setEditDebtCategory] = useState('');
   const [editDebtNotes, setEditDebtNotes] = useState('');
   const [editDebtStatus, setEditDebtStatus] = useState('Active');
+  // ✅ New: track original amount + paid
+  const [editDebtOriginalAmount, setEditDebtOriginalAmount] = useState(0);
+  const [editDebtPaidAmount, setEditDebtPaidAmount] = useState(0);
 
   // Form states - Payment recording
   const [payAmount, setPayAmount] = useState('');
@@ -191,19 +202,37 @@ export default function CustomerManagement({
     });
   }, [customers, debts, payments]);
 
-  // Filtered customers
+  // ✅ Filtered customers with ENHANCED search (name + phone + business)
   const filteredCustomers = useMemo(() => {
     return customersWithStats.filter(c => {
+      const query = searchQuery.toLowerCase().trim();
+      const digitsOnly = searchQuery.replace(/\D/g, '');
+      
+      // Search by name OR business OR phone
       const matchesSearch = 
-        c.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.phoneNumber.includes(searchQuery) ||
-        (c.businessName && c.businessName.toLowerCase().includes(searchQuery.toLowerCase()));
+        query === '' ||
+        c.fullName.toLowerCase().includes(query) ||
+        (c.businessName && c.businessName.toLowerCase().includes(query)) ||
+        c.phoneNumber.includes(query) ||
+        (digitsOnly && c.phoneNumber.replace(/\D/g, '').includes(digitsOnly));
       
       const matchesStatus = statusFilter === 'All' || c.stats.status === statusFilter;
       
       return matchesSearch && matchesStatus;
     });
   }, [customersWithStats, searchQuery, statusFilter]);
+
+  // ✅ Visible customers (5 by default, all when expanded)
+  const visibleCustomers = useMemo(() => {
+    if (showAllCustomers || searchQuery.trim() !== '' || statusFilter !== 'All') {
+      return filteredCustomers;
+    }
+    return filteredCustomers.slice(0, INITIAL_PAGE_SIZE);
+  }, [filteredCustomers, showAllCustomers, searchQuery, statusFilter]);
+
+  // ✅ Check if "See More" should show
+  const hasMoreCustomers = filteredCustomers.length > INITIAL_PAGE_SIZE;
+  const remainingCount = Math.max(0, filteredCustomers.length - INITIAL_PAGE_SIZE);
 
   // ============================================
   // MULTI-PRODUCT HANDLERS
@@ -371,17 +400,28 @@ export default function CustomerManagement({
   };
 
   // ============================================
-  // EDIT DEBT HANDLERS
+  // ✅ EDIT DEBT HANDLERS — WITH REMAINING BALANCE
   // ============================================
   const openEditDebtModal = (debt: Debt) => {
+    // Calculate paid and remaining for THIS specific debt
+    const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === debt.id);
+    const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
+    const remainingAmount = Math.max(0, debt.amount - paidSum);
+    
     setEditingDebtId(debt.id);
     setEditDebtDescription(debt.description || '');
-    setEditDebtAmount(String(debt.amount) || '');
+    // ✅ PRE-FILL WITH REMAINING BALANCE (Baki ya sasa), not the full original amount
+    setEditDebtAmount(String(remainingAmount) || '');
     setEditDebtDateBorrowed(debt.dateBorrowed || '');
     setEditDebtDueDate(debt.dueDate || '');
     setEditDebtCategory(debt.category || 'Mizigo/Products');
     setEditDebtNotes(debt.notes || '');
     setEditDebtStatus(debt.status || 'Active');
+    
+    // ✅ Store original + paid amounts to show info in modal
+    setEditDebtOriginalAmount(debt.amount);
+    setEditDebtPaidAmount(paidSum);
+    
     setIsEditDebtOpen(true);
   };
 
@@ -411,8 +451,11 @@ export default function CustomerManagement({
     setError(null);
 
     try {
+      // ✅ Reconstruct the new TOTAL debt amount = paid + remaining (edited)
+      const newTotalAmount = editDebtPaidAmount + Number(editDebtAmount);
+      
       await api.debts.update(editingDebtId, {
-        amount: Number(editDebtAmount),
+        amount: newTotalAmount,                          // Store the full total
         dateBorrowed: editDebtDateBorrowed,
         dueDate: editDebtDueDate,
         description: editDebtDescription.trim(),
@@ -847,7 +890,6 @@ export default function CustomerManagement({
                   const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === debt.id);
                   const paidSum = dPayments.reduce((acc, p) => acc + p.amount, 0);
                   const bal = debt.amount - paidSum;
-                  const isFullyPaid = bal <= 0;
                   
                   return (
                     <div key={debt.id} className="p-4 bg-slate-50/60 rounded-2xl border border-slate-100 text-xs">
@@ -921,11 +963,21 @@ export default function CustomerManagement({
           <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-4 rounded-3xl border border-slate-100 shadow-sm gap-4">
             <div className="relative flex-1">
               <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400"><Search size={18} /></span>
-              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Tafuta mteja kwa jina, simu, au biashara..." className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-emerald-500" />
+              <input 
+                type="text" 
+                value={searchQuery} 
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  // ✅ Reset to see-more when searching
+                  if (e.target.value === '') setShowAllCustomers(false);
+                }} 
+                placeholder="Tafuta kwa jina, namba ya simu, au biashara..." 
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-emerald-500" 
+              />
             </div>
             <div className="flex items-center gap-2 overflow-x-auto">
               {(['All', 'Active', 'Cleared', 'Overdue'] as const).map(tab => (
-                <button key={tab} onClick={() => setStatusFilter(tab)} className={`px-4 py-2 text-xs font-semibold rounded-xl transition ${statusFilter === tab ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>
+                <button key={tab} onClick={() => { setStatusFilter(tab); setShowAllCustomers(false); }} className={`px-4 py-2 text-xs font-semibold rounded-xl transition ${statusFilter === tab ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>
                   {tab === 'All' ? 'Wote' : tab === 'Active' ? 'Active' : tab === 'Cleared' ? 'Safi' : 'Overdue'}
                 </button>
               ))}
@@ -941,9 +993,18 @@ export default function CustomerManagement({
             </div>
           )}
 
+          {/* ✅ Customer count indicator */}
+          {filteredCustomers.length > 0 && (
+            <div className="flex items-center justify-between text-[11px] px-1">
+              <span className="text-slate-400">
+                Inaonyesha <strong className="text-slate-600">{visibleCustomers.length}</strong> kati ya <strong className="text-slate-600">{filteredCustomers.length}</strong> wateja
+              </span>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredCustomers.length > 0 ? (
-              filteredCustomers.map(customer => (
+            {visibleCustomers.length > 0 ? (
+              visibleCustomers.map(customer => (
                 <div key={customer.id} onClick={() => setSelectedCustomerId(customer.id)} className={`p-5 rounded-3xl border transition-all cursor-pointer flex flex-col justify-between h-48 ${selectedCustomerId === customer.id ? 'bg-emerald-50/50 border-emerald-500 ring-2 ring-emerald-500/20' : 'bg-white border-slate-100 hover:border-slate-300 shadow-sm'}`}>
                   <div>
                     <div className="flex items-start justify-between">
@@ -968,10 +1029,41 @@ export default function CustomerManagement({
               <div className="col-span-full bg-white p-12 text-center rounded-3xl border border-slate-100 shadow-sm text-slate-400">
                 <Users size={40} className="mx-auto text-slate-300 mb-3" />
                 <p className="text-sm font-semibold">Hakuna wateja waliopatikana.</p>
-                <p className="text-xs mt-1">Sajili wateja kwa kutumia kitufe kilichopo juu.</p>
+                <p className="text-xs mt-1">
+                  {searchQuery ? 'Jaribu kubadilisha maneno ya utafutaji.' : 'Sajili wateja kwa kutumia kitufe kilichopo juu.'}
+                </p>
               </div>
             )}
           </div>
+
+          {/* ✅ SEE MORE / SEE LESS Button */}
+          {hasMoreCustomers && !showAllCustomers && searchQuery.trim() === '' && statusFilter === 'All' && (
+            <div className="flex justify-center pt-2">
+              <button
+                onClick={() => setShowAllCustomers(true)}
+                className="group flex items-center gap-2 px-6 py-3 bg-white hover:bg-emerald-50 border-2 border-slate-200 hover:border-emerald-500 rounded-2xl text-xs font-bold text-slate-600 hover:text-emerald-700 transition-all shadow-sm hover:shadow-md"
+              >
+                <ChevronDown size={16} className="group-hover:translate-y-0.5 transition-transform" />
+                <span>Ona Wateja Wengine ({remainingCount} zaidi)</span>
+              </button>
+            </div>
+          )}
+
+          {hasMoreCustomers && showAllCustomers && (
+            <div className="flex justify-center pt-2">
+              <button
+                onClick={() => {
+                  setShowAllCustomers(false);
+                  // Scroll to top of list
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="group flex items-center gap-2 px-6 py-3 bg-white hover:bg-slate-50 border-2 border-slate-200 rounded-2xl text-xs font-bold text-slate-600 transition-all shadow-sm hover:shadow-md"
+              >
+                <ChevronUp size={16} className="group-hover:-translate-y-0.5 transition-transform" />
+                <span>Ona Wateja Wachache</span>
+              </button>
+            </div>
+          )}
         </>
       )}
 
@@ -1027,7 +1119,7 @@ export default function CustomerManagement({
       )}
 
       {/* ============================================
-          MODAL: EDIT DEBT — SIMPLIFIED WITH PROMINENT KIASO
+          MODAL: EDIT DEBT — SHOWS BAKI YA SASA
           ============================================ */}
       {isEditDebtOpen && editingDebtId && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
@@ -1046,23 +1138,35 @@ export default function CustomerManagement({
 
             <form onSubmit={handleEditDebt} className="space-y-4 text-xs text-left">
               
-              {/* ===== 1. KIASO — MOST PROMINENT ===== */}
+              {/* ===== 1. BAKI YA SASA — REMAINING BALANCE ===== */}
               <div className="bg-blue-50 border-2 border-blue-300 rounded-2xl p-4">
                 <label className="block font-bold text-blue-800 uppercase tracking-wide mb-2 text-sm flex items-center gap-2">
-                  <span className="text-lg">💰</span> Kiasi cha Deni (TSh) *
+                  <span className="text-lg">💰</span> Baki ya Sasa (TSh) *
                 </label>
                 <input 
                   type="number" 
                   required 
-                  min="1"
+                  min="0"
                   value={editDebtAmount}
                   onChange={(e) => setEditDebtAmount(e.target.value)}
-                  placeholder="Weka kiasi..."
+                  placeholder="Weka baki..."
                   className="w-full p-3 border-2 border-blue-400 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg font-bold text-center bg-white"
                 />
                 <p className="text-[11px] text-blue-700 mt-2 text-center font-semibold">
-                  Kiasi cha sasa: TSh {Number(editDebtAmount || 0).toLocaleString()}
+                  Baki ya sasa: TSh {Number(editDebtAmount || 0).toLocaleString()}
                 </p>
+                
+                {/* Info: Original Amount + Already Paid */}
+                <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-blue-200">
+                  <div className="text-center">
+                    <p className="text-[9px] text-blue-600 uppercase font-bold">Deni la Awali</p>
+                    <p className="text-[11px] font-bold text-slate-700 mt-0.5">TSh {editDebtOriginalAmount.toLocaleString()}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[9px] text-blue-600 uppercase font-bold">Tayari Kulipwa</p>
+                    <p className="text-[11px] font-bold text-emerald-600 mt-0.5">TSh {editDebtPaidAmount.toLocaleString()}</p>
+                  </div>
+                </div>
               </div>
 
               {/* 2. Description */}
@@ -1141,7 +1245,7 @@ export default function CustomerManagement({
               {/* Info banner */}
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
                 <p className="text-[11px] text-amber-800 leading-relaxed">
-                  <strong>⚠️ Kumbuka:</strong> Kubadilisha kiasi kutaathiri salio la mteja. Malipo yaliyofanywa bado yanabaki kama yalivyo.
+                  <strong>⚠️ Kumbuka:</strong> Unabadilisha <strong>baki ya sasa</strong>. Malipo ya awali bado yanabaki kama yalivyo.
                 </p>
               </div>
 
