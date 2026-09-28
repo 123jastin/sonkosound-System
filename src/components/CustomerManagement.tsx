@@ -11,8 +11,7 @@ import {
   Users, Search, Plus, Filter, Phone, MapPin, 
   Building, UserPlus, CreditCard, ChevronRight, FileText, 
   History, Calendar, Check, AlertCircle, Printer, X, Trash2, Edit2, 
-  ArrowLeft, Loader2, ListChecks, Package, ChevronDown, ChevronUp,
-  Wallet
+  ArrowLeft, Loader2, ListChecks, Package
 } from 'lucide-react';
 
 interface CustomerManagementProps {
@@ -32,8 +31,10 @@ interface ProductItem {
   total_price: number;
 }
 
+// ============================================
+// LOGO URL (constant — easy to change)
+// ============================================
 const LOGO_URL = 'https://pics.sonkosound.store/file_0000000018a881f4bef28aaff0866bbd.png';
-const PAGE_SIZE = 5;
 
 export default function CustomerManagement({
   customers,
@@ -43,25 +44,23 @@ export default function CustomerManagement({
   selectedCustomerId,
   setSelectedCustomerId
 }: CustomerManagementProps) {
+  // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<CustomerStatus | 'All'>('All');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  
+  // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isStatementOpen, setIsStatementOpen] = useState(false);
   const [isAddDebtOpen, setIsAddDebtOpen] = useState(false);
-  const [isEditDebtOpen, setIsEditDebtOpen] = useState(false);
-  const [isEditPaymentOpen, setIsEditPaymentOpen] = useState(false);
-  const [isDeleteDebtConfirmOpen, setIsDeleteDebtConfirmOpen] = useState(false);
-  const [isDeletePaymentConfirmOpen, setIsDeletePaymentConfirmOpen] = useState(false);
+  const [isEditDebtOpen, setIsEditDebtOpen] = useState(false);         // ✅ NEW
+  const [isDeleteDebtConfirmOpen, setIsDeleteDebtConfirmOpen] = useState(false); // ✅ NEW
   const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
 
-  // Customer
+  // Form states - Customer
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [address, setAddress] = useState('');
@@ -69,7 +68,7 @@ export default function CustomerManagement({
   const [notes, setNotes] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
 
-  // New debt
+  // Form states - Multi-Product Debt creation
   const [productItems, setProductItems] = useState<ProductItem[]>([
     { id: 'item-' + Date.now(), product_name: '', quantity: 1, unit_price: '', total_price: 0 }
   ]);
@@ -77,7 +76,9 @@ export default function CustomerManagement({
   const [debtCategory, setDebtCategory] = useState<string>('Mizigo/Products');
   const [debtNotes, setDebtNotes] = useState('');
 
-  // Edit Debt
+  // ============================================
+  // EDIT DEBT FORM STATES (NEW)
+  // ============================================
   const [editingDebtId, setEditingDebtId] = useState<string | null>(null);
   const [editDebtDescription, setEditDebtDescription] = useState('');
   const [editDebtAmount, setEditDebtAmount] = useState('');
@@ -87,32 +88,19 @@ export default function CustomerManagement({
   const [editDebtNotes, setEditDebtNotes] = useState('');
   const [editDebtStatus, setEditDebtStatus] = useState('Active');
 
-  // ✅ Edit Payment (Zilizolipwa) — This is what we focus on
-  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
-  const [editingPaymentDebtId, setEditingPaymentDebtId] = useState<string | null>(null);
-  const [editPaymentAmount, setEditPaymentAmount] = useState('');
-  const [editPaymentMethod, setEditPaymentMethod] = useState('Cash');
-  const [editPaymentDate, setEditPaymentDate] = useState('');
-  const [editPaymentNotes, setEditPaymentNotes] = useState('');
-  const [editPaymentError, setEditPaymentError] = useState(false);
-  const [editPaymentDebtName, setEditPaymentDebtName] = useState('');
-  const [editPaymentDebtTotal, setEditPaymentDebtTotal] = useState(0);
-  const [editPaymentOtherPaid, setEditPaymentOtherPaid] = useState(0);
-
-  // Add Payment
+  // Form states - Payment recording
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState<string>('Cash');
   const [payNotes, setPayNotes] = useState('');
   const [payAmountError, setPayAmountError] = useState(false);
 
-  // Delete Payment
-  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
-
+  // Active customer details
   const activeCustomer = useMemo(() => {
     if (!selectedCustomerId) return null;
     return customers.find(c => c.id === selectedCustomerId) || null;
   }, [customers, selectedCustomerId]);
 
+  // Active customer stats
   const activeCustomerStats = useMemo(() => {
     if (!selectedCustomerId) return null;
     const customerDebts = debts.filter(d => d.customerId === selectedCustomerId);
@@ -141,6 +129,7 @@ export default function CustomerManagement({
     };
   }, [selectedCustomerId, debts, payments]);
 
+  // Selected customer's specific debts and payments
   const activeCustomerHistory = useMemo(() => {
     if (!selectedCustomerId) return { debts: [], payments: [] };
     const custDebts = debts.filter(d => d.customerId === selectedCustomerId);
@@ -149,6 +138,7 @@ export default function CustomerManagement({
     return { debts: custDebts, payments: custPayments };
   }, [selectedCustomerId, debts, payments]);
 
+  // Unpaid debts
   const unpaidDebts = useMemo(() => {
     return activeCustomerHistory.debts
       .map(d => {
@@ -160,10 +150,12 @@ export default function CustomerManagement({
       .filter(d => d.remaining > 0);
   }, [activeCustomerHistory]);
 
+  // Total remaining for all debts
   const totalRemaining = useMemo(() => {
     return unpaidDebts.reduce((sum, d) => sum + d.remaining, 0);
   }, [unpaidDebts]);
 
+  // Multi-product total
   const productsTotal = useMemo(() => {
     return productItems.reduce((sum, item) => {
       const qty = Number(item.quantity) || 0;
@@ -172,6 +164,7 @@ export default function CustomerManagement({
     }, 0);
   }, [productItems]);
 
+  // All customers with calculated stats
   const customersWithStats = useMemo(() => {
     return customers.map(c => {
       const customerDebts = debts.filter(d => d.customerId === c.id);
@@ -198,17 +191,13 @@ export default function CustomerManagement({
     });
   }, [customers, debts, payments]);
 
+  // Filtered customers
   const filteredCustomers = useMemo(() => {
     return customersWithStats.filter(c => {
-      const query = searchQuery.toLowerCase().trim();
-      const digitsOnly = searchQuery.replace(/\D/g, '');
-      
       const matchesSearch = 
-        query === '' ||
-        c.fullName.toLowerCase().includes(query) ||
-        (c.businessName && c.businessName.toLowerCase().includes(query)) ||
-        c.phoneNumber.includes(query) ||
-        (digitsOnly && c.phoneNumber.replace(/\D/g, '').includes(digitsOnly));
+        c.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        c.phoneNumber.includes(searchQuery) ||
+        (c.businessName && c.businessName.toLowerCase().includes(searchQuery.toLowerCase()));
       
       const matchesStatus = statusFilter === 'All' || c.stats.status === statusFilter;
       
@@ -216,15 +205,9 @@ export default function CustomerManagement({
     });
   }, [customersWithStats, searchQuery, statusFilter]);
 
-  const visibleCustomers = useMemo(() => {
-    if (searchQuery.trim() !== '' || statusFilter !== 'All') {
-      return filteredCustomers;
-    }
-    return filteredCustomers.slice(0, visibleCount);
-  }, [filteredCustomers, visibleCount, searchQuery, statusFilter]);
-
-  const hasMoreCustomers = filteredCustomers.length > visibleCount;
-  const remainingCount = Math.max(0, filteredCustomers.length - visibleCount);
+  // ============================================
+  // MULTI-PRODUCT HANDLERS
+  // ============================================
 
   const updateProductItem = (index: number, field: string, value: any) => {
     const updated = [...productItems];
@@ -266,6 +249,10 @@ export default function CustomerManagement({
     setDebtNotes('');
   };
 
+  // ============================================
+  // API HANDLERS
+  // ============================================
+  
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName || !phoneNumber) return;
@@ -383,6 +370,9 @@ export default function CustomerManagement({
     }
   };
 
+  // ============================================
+  // ✅ NEW: EDIT DEBT HANDLERS
+  // ============================================
   const openEditDebtModal = (debt: Debt) => {
     setEditingDebtId(debt.id);
     setEditDebtDescription(debt.description || '');
@@ -421,6 +411,7 @@ export default function CustomerManagement({
     setError(null);
 
     try {
+      // ✅ Update via API
       await api.debts.update(editingDebtId, {
         amount: Number(editDebtAmount),
         dateBorrowed: editDebtDateBorrowed,
@@ -445,120 +436,7 @@ export default function CustomerManagement({
     }
   };
 
-  // ============================================
-  // ✅ EDIT PAYMENT (Zilizolipwa) — THE FIX
-  // ============================================
-  const openEditPaymentModal = (payment: Payment) => {
-    // Find the linked debt
-    const debt = activeCustomerHistory.debts.find(d => d.id === payment.debtId);
-    if (!debt) {
-      setError('Deni halikupatikana kwa malipo haya');
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
-
-    // Calculate OTHER payments on the same debt (excluding this one)
-    const otherPaidOnDebt = activeCustomerHistory.payments
-      .filter(p => p.debtId === debt.id && p.id !== payment.id)
-      .reduce((s, p) => s + p.amount, 0);
-    
-    setEditingPaymentId(payment.id);
-    setEditingPaymentDebtId(debt.id);
-    setEditPaymentAmount(String(payment.amount));
-    setEditPaymentMethod(payment.paymentMethod || 'Cash');
-    setEditPaymentDate(payment.date || new Date().toISOString().split('T')[0]);
-    setEditPaymentNotes(payment.notes || '');
-    setEditPaymentError(false);
-    
-    setEditPaymentDebtName(debt.description);
-    setEditPaymentDebtTotal(debt.amount);
-    setEditPaymentOtherPaid(otherPaidOnDebt);
-    
-    setIsEditPaymentOpen(true);
-  };
-
-  const handleEditPayment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingPaymentId) return;
-
-    if (!editPaymentAmount || Number(editPaymentAmount) <= 0) {
-      setEditPaymentError(true);
-      setError('Kiasi cha malipo kinahitajika');
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
-
-    // Safety: total paid cannot exceed debt total
-    const newTotalPaid = editPaymentOtherPaid + Number(editPaymentAmount);
-    if (newTotalPaid > editPaymentDebtTotal) {
-      setError(
-        `Jumla ya malipo (TSh ${newTotalPaid.toLocaleString()}) haiwezi kuzidi deni la awali (TSh ${editPaymentDebtTotal.toLocaleString()})`
-      );
-      setTimeout(() => setError(null), 5000);
-      return;
-    }
-
-    setEditPaymentError(false);
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      await api.payments.update(editingPaymentId, {
-        amount: Number(editPaymentAmount),
-        date: editPaymentDate,
-        paymentMethod: editPaymentMethod,
-        notes: editPaymentNotes
-      });
-      
-      onUpdate();
-      setIsEditPaymentOpen(false);
-      setEditingPaymentId(null);
-      setEditingPaymentDebtId(null);
-      setSuccessMessage('Malipo yamehaririwa! Salio limesasishwa.');
-      setTimeout(() => setSuccessMessage(null), 3000);
-    } catch (err: any) {
-      console.error('Edit payment error:', err);
-      setError('Imeshindwa kuhariri malipo: ' + (err?.message || 'Jaribu tena'));
-      setTimeout(() => setError(null), 5000);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Live preview of new totals for this debt
-  const editPaymentPreview = useMemo(() => {
-    const newThisPayment = Number(editPaymentAmount) || 0;
-    const newTotalPaidForDebt = editPaymentOtherPaid + newThisPayment;
-    const newRemaining = Math.max(0, editPaymentDebtTotal - newTotalPaidForDebt);
-    return { newTotalPaidForDebt, newRemaining };
-  }, [editPaymentAmount, editPaymentOtherPaid, editPaymentDebtTotal]);
-
-  // Delete payment
-  const openDeletePaymentConfirm = (paymentId: string) => {
-    setDeletingPaymentId(paymentId);
-    setIsDeletePaymentConfirmOpen(true);
-  };
-
-  const handleDeletePayment = async () => {
-    if (!deletingPaymentId) return;
-
-    setIsLoading(true);
-    try {
-      await api.payments.delete(deletingPaymentId);
-      onUpdate();
-      setIsDeletePaymentConfirmOpen(false);
-      setDeletingPaymentId(null);
-      setSuccessMessage('Malipo yamefutwa! Salio limesasishwa.');
-      setTimeout(() => setSuccessMessage(null), 3000);
-    } catch (err: any) {
-      console.error('Delete payment error:', err);
-      setError('Imeshindwa kufuta malipo: ' + (err?.message || 'Jaribu tena'));
-      setTimeout(() => setError(null), 5000);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  // ✅ NEW: DELETE DEBT
   const openDeleteDebtConfirm = (debtId: string) => {
     setEditingDebtId(debtId);
     setIsDeleteDebtConfirmOpen(true);
@@ -570,6 +448,16 @@ export default function CustomerManagement({
     setIsLoading(true);
     try {
       await api.debts.delete(editingDebtId);
+      
+      // Also delete associated payments
+      const debtPayments = payments.filter(p => p.debtId === editingDebtId);
+      for (const payment of debtPayments) {
+        try {
+          await api.payments.delete(payment.id);
+        } catch (e) {
+          console.error('Failed to delete payment:', e);
+        }
+      }
       
       onUpdate();
       setIsDeleteDebtConfirmOpen(false);
@@ -585,6 +473,9 @@ export default function CustomerManagement({
     }
   };
 
+  // ============================================
+  // PAYMENT HANDLERS
+  // ============================================
   const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -691,6 +582,9 @@ export default function CustomerManagement({
     businessPhone: '0688423753'
   };
 
+  // ============================================
+  // PRINT STATEMENT (with logo)
+  // ============================================
   const handlePrintStatement = () => {
     if (!activeCustomer || !activeCustomerStats) return;
 
@@ -846,6 +740,7 @@ export default function CustomerManagement({
   return (
     <div className="space-y-6">
       
+      {/* Error Banner */}
       {error && (
         <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-center justify-between gap-3 animate-fade-in">
           <div className="flex items-center gap-2 text-rose-700 text-xs">
@@ -858,6 +753,7 @@ export default function CustomerManagement({
         </div>
       )}
 
+      {/* Success Banner */}
       {successMessage && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-2 text-emerald-700 text-xs animate-fade-in">
           <Check size={16} />
@@ -866,7 +762,9 @@ export default function CustomerManagement({
       )}
 
       {activeCustomer && activeCustomerStats ? (
+        /* CUSTOMER PROFILE FULL PAGE VIEW */
         <div className="space-y-6 text-xs text-left animate-fade-in">
+          {/* Profile Header Block */}
           <div className="bg-white rounded-3xl border border-slate-100 p-6 md:p-8 shadow-sm space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-4">
@@ -904,6 +802,7 @@ export default function CustomerManagement({
             </div>
           </div>
 
+          {/* Info Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-1 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
               <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">Hali ya Mizania</h4>
@@ -936,8 +835,9 @@ export default function CustomerManagement({
             </div>
           </div>
 
+          {/* History section */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* DEBTS */}
+            {/* DEBTS LIST WITH EDIT/DELETE */}
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
               <h4 className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5 border-b border-slate-100 pb-2">
                 <FileText size={14} className="text-amber-500" /> Madeni ({activeCustomerHistory.debts.length})
@@ -947,6 +847,7 @@ export default function CustomerManagement({
                   const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === debt.id);
                   const paidSum = dPayments.reduce((acc, p) => acc + p.amount, 0);
                   const bal = debt.amount - paidSum;
+                  const isFullyPaid = bal <= 0;
                   
                   return (
                     <div key={debt.id} className="p-4 bg-slate-50/60 rounded-2xl border border-slate-100 text-xs">
@@ -955,6 +856,7 @@ export default function CustomerManagement({
                           <div className="flex justify-between font-bold"><span className="truncate">{debt.description}</span><span>TSh {debt.amount.toLocaleString()}</span></div>
                         </div>
                         
+                        {/* ✅ EDIT & DELETE BUTTONS */}
                         <div className="flex gap-1 shrink-0">
                           <button
                             onClick={() => openEditDebtModal(debt)}
@@ -995,78 +897,36 @@ export default function CustomerManagement({
               </div>
             </div>
 
-            {/* ZILIZOLIPWA (PAYMENTS) — Each has edit + delete */}
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
               <h4 className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5 border-b border-slate-100 pb-2">
-                <Wallet size={14} className="text-emerald-500" /> Zilizolipwa ({activeCustomerHistory.payments.length})
+                <History size={14} className="text-emerald-500" /> Malipo ({activeCustomerHistory.payments.length})
               </h4>
               <div className="space-y-3 max-h-80 overflow-y-auto">
-                {activeCustomerHistory.payments.map(p => {
-                  const linkedDebt = activeCustomerHistory.debts.find(d => d.id === p.debtId);
-                  return (
-                    <div key={p.id} className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-100 text-xs">
-                      <div className="flex justify-between items-start gap-2">
-                        <div className="flex-1 min-w-0">
-                          <h5 className="font-bold truncate">{p.notes || 'Malipo ya Deni'}</h5>
-                          <span className="text-[10px] text-slate-500 block">
-                            <Calendar size={10} className="inline" /> {p.date} • {p.paymentMethod}
-                          </span>
-                          {linkedDebt && (
-                            <p className="text-[10px] text-slate-500 mt-1">
-                              Deni: <strong>{linkedDebt.description}</strong>
-                            </p>
-                          )}
-                        </div>
-                        
-                        <div className="flex flex-col items-end gap-2 shrink-0">
-                          <span className="font-extrabold text-emerald-700 text-sm">TSh {Number(p.amount).toLocaleString()}</span>
-                          
-                          {/* ✅ EDIT + DELETE PAYMENT BUTTONS */}
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => openEditPaymentModal(p)}
-                              className="p-1.5 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-700 transition"
-                              title="Hariri kiasi kilicholipwa"
-                            >
-                              <Edit2 size={12} />
-                            </button>
-                            <button
-                              onClick={() => openDeletePaymentConfirm(p.id)}
-                              className="p-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700 transition"
-                              title="Futa malipo"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                {activeCustomerHistory.payments.map(p => (
+                  <div key={p.id} className="p-4 bg-slate-50/60 rounded-2xl border border-slate-100 text-xs flex justify-between items-start">
+                    <div>
+                      <h5 className="font-bold">{p.notes || 'Malipo ya Deni'}</h5>
+                      <span className="text-[10px] text-slate-400"><Calendar size={10} /> {p.date} • {p.paymentMethod}</span>
                     </div>
-                  );
-                })}
+                    <span className="font-extrabold text-emerald-600">TSh {p.amount.toLocaleString()}</span>
+                  </div>
+                ))}
                 {activeCustomerHistory.payments.length === 0 && <p className="text-xs text-slate-400 text-center py-6">Hakuna malipo bado.</p>}
               </div>
             </div>
           </div>
         </div>
       ) : (
+        /* CUSTOMERS LIST VIEW */
         <>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-4 rounded-3xl border border-slate-100 shadow-sm gap-4">
             <div className="relative flex-1">
               <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400"><Search size={18} /></span>
-              <input 
-                type="text" 
-                value={searchQuery} 
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setVisibleCount(PAGE_SIZE);
-                }} 
-                placeholder="Tafuta kwa jina, namba ya simu, au biashara..." 
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-emerald-500" 
-              />
+              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Tafuta mteja kwa jina, simu, au biashara..." className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-emerald-500" />
             </div>
             <div className="flex items-center gap-2 overflow-x-auto">
               {(['All', 'Active', 'Cleared', 'Overdue'] as const).map(tab => (
-                <button key={tab} onClick={() => { setStatusFilter(tab); setVisibleCount(PAGE_SIZE); }} className={`px-4 py-2 text-xs font-semibold rounded-xl transition ${statusFilter === tab ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>
+                <button key={tab} onClick={() => setStatusFilter(tab)} className={`px-4 py-2 text-xs font-semibold rounded-xl transition ${statusFilter === tab ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>
                   {tab === 'All' ? 'Wote' : tab === 'Active' ? 'Active' : tab === 'Cleared' ? 'Safi' : 'Overdue'}
                 </button>
               ))}
@@ -1082,17 +942,9 @@ export default function CustomerManagement({
             </div>
           )}
 
-          {filteredCustomers.length > 0 && (
-            <div className="flex items-center justify-between text-[11px] px-1">
-              <span className="text-slate-400">
-                Inaonyesha <strong className="text-slate-600">{visibleCustomers.length}</strong> kati ya <strong className="text-slate-600">{filteredCustomers.length}</strong> wateja
-              </span>
-            </div>
-          )}
-
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {visibleCustomers.length > 0 ? (
-              visibleCustomers.map(customer => (
+            {filteredCustomers.length > 0 ? (
+              filteredCustomers.map(customer => (
                 <div key={customer.id} onClick={() => setSelectedCustomerId(customer.id)} className={`p-5 rounded-3xl border transition-all cursor-pointer flex flex-col justify-between h-48 ${selectedCustomerId === customer.id ? 'bg-emerald-50/50 border-emerald-500 ring-2 ring-emerald-500/20' : 'bg-white border-slate-100 hover:border-slate-300 shadow-sm'}`}>
                   <div>
                     <div className="flex items-start justify-between">
@@ -1117,39 +969,10 @@ export default function CustomerManagement({
               <div className="col-span-full bg-white p-12 text-center rounded-3xl border border-slate-100 shadow-sm text-slate-400">
                 <Users size={40} className="mx-auto text-slate-300 mb-3" />
                 <p className="text-sm font-semibold">Hakuna wateja waliopatikana.</p>
-                <p className="text-xs mt-1">
-                  {searchQuery ? 'Jaribu kubadilisha maneno ya utafutaji.' : 'Sajili wateja kwa kutumia kitufe kilichopo juu.'}
-                </p>
+                <p className="text-xs mt-1">Sajili wateja kwa kutumia kitufe kilichopo juu.</p>
               </div>
             )}
           </div>
-
-          {hasMoreCustomers && searchQuery.trim() === '' && statusFilter === 'All' && (
-            <div className="flex justify-center pt-2">
-              <button
-                onClick={() => setVisibleCount(prev => prev + PAGE_SIZE)}
-                className="group flex items-center gap-2 px-6 py-3 bg-white hover:bg-emerald-50 border-2 border-slate-200 hover:border-emerald-500 rounded-2xl text-xs font-bold text-slate-600 hover:text-emerald-700 transition-all shadow-sm hover:shadow-md"
-              >
-                <ChevronDown size={16} className="group-hover:translate-y-0.5 transition-transform" />
-                <span>Ona Wateja Wengine 5 ({remainingCount} wanabaki)</span>
-              </button>
-            </div>
-          )}
-
-          {visibleCount > PAGE_SIZE && (
-            <div className="flex justify-center pt-2">
-              <button
-                onClick={() => {
-                  setVisibleCount(PAGE_SIZE);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="group flex items-center gap-2 px-6 py-3 bg-white hover:bg-slate-50 border-2 border-slate-200 rounded-2xl text-xs font-bold text-slate-600 transition-all shadow-sm hover:shadow-md"
-              >
-                <ChevronUp size={16} className="group-hover:-translate-y-0.5 transition-transform" />
-                <span>Ona Wateja Wachache (5 tu)</span>
-              </button>
-            </div>
-          )}
         </>
       )}
 
@@ -1204,239 +1027,97 @@ export default function CustomerManagement({
         </div>
       )}
 
-      {/* MODAL: EDIT PAYMENT (Zilizolipwa) — THE FIX */}
-      {isEditPaymentOpen && editingPaymentId && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
-            <button 
-              onClick={() => { setIsEditPaymentOpen(false); setEditingPaymentId(null); setEditingPaymentDebtId(null); }} 
-              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition"
-            >
-              <X size={18} />
-            </button>
-            
-            <h3 className="text-md font-bold text-slate-850 flex items-center gap-1.5">
-              <Wallet className="text-emerald-600" size={18} />
-              Hariri Zilizolipwa
-            </h3>
-
-            <p className="text-[11px] text-slate-500 leading-relaxed bg-emerald-50 rounded-xl p-2.5 border border-emerald-100">
-              💡 Rekebisha <strong>kiasi kilicholipwa</strong> kwa deni hili. Jumla ya deni <strong>haitabadilika</strong> — Baki (Salio) itahesabiwa upya.
-            </p>
-
-            <form onSubmit={handleEditPayment} className="space-y-4 text-xs text-left">
-              
-              {/* Debt Context */}
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wide">Deni</p>
-                <p className="text-sm font-bold text-slate-800 mt-0.5 truncate">{editPaymentDebtName}</p>
-                <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-200">
-                  <div>
-                    <p className="text-[9px] text-slate-400 uppercase font-bold">Jumla ya Deni</p>
-                    <p className="text-[11px] font-bold text-slate-700 mt-0.5">TSh {editPaymentDebtTotal.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] text-slate-400 uppercase font-bold">Malipo Mengine</p>
-                    <p className="text-[11px] font-bold text-slate-700 mt-0.5">TSh {editPaymentOtherPaid.toLocaleString()}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Zilizolipwa — editable */}
-              <div className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-4">
-                <label className="block font-bold text-emerald-800 uppercase tracking-wide mb-2 text-sm flex items-center gap-2">
-                  <span className="text-lg">💵</span> Kiasi Kilicholipwa (TSh) *
-                </label>
-                <input 
-                  type="number" 
-                  required 
-                  min="1"
-                  max={editPaymentDebtTotal - editPaymentOtherPaid}
-                  value={editPaymentAmount}
-                  onChange={(e) => {
-                    setEditPaymentAmount(e.target.value);
-                    if (editPaymentError) setEditPaymentError(false);
-                  }}
-                  placeholder="Weka kiasi..."
-                  className={`w-full p-3 border-2 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-lg font-bold text-center bg-white ${
-                    editPaymentError ? 'border-rose-400 animate-pulse' : 'border-emerald-400'
-                  }`}
-                />
-                {editPaymentError && (
-                  <p className="mt-1 text-[10px] text-rose-600 font-bold flex items-center gap-1">
-                    <AlertCircle size={10} /> Kiasi kinahitajika
-                  </p>
-                )}
-                
-                <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-emerald-200">
-                  <div className="text-center">
-                    <p className="text-[9px] text-emerald-700 uppercase font-bold">Jumla Mpya ya Malipo</p>
-                    <p className="text-[12px] font-bold text-emerald-600 mt-0.5">
-                      TSh {editPaymentPreview.newTotalPaidForDebt.toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-[9px] text-emerald-700 uppercase font-bold">Baki Mpya</p>
-                    <p className="text-[12px] font-bold text-rose-600 mt-0.5">
-                      TSh {editPaymentPreview.newRemaining.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Njia ya Malipo</label>
-                <select
-                  value={editPaymentMethod}
-                  onChange={(e) => setEditPaymentMethod(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
-                >
-                  <option value="Cash">Cash / Pesa Taslimu</option>
-                  <option value="M-Pesa">M-Pesa</option>
-                  <option value="Tigo Pesa">Tigo Pesa</option>
-                  <option value="Airtel Money">Airtel Money</option>
-                  <option value="HaloPesa">HaloPesa</option>
-                  <option value="Bank Transfer">Bank Transfer</option>
-                  <option value="Cheque">Cheque</option>
-                  <option value="Other">Nyinginezo</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Tarehe ya Malipo</label>
-                <input 
-                  type="date"
-                  value={editPaymentDate}
-                  onChange={(e) => setEditPaymentDate(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo</label>
-                <textarea 
-                  value={editPaymentNotes}
-                  onChange={(e) => setEditPaymentNotes(e.target.value)}
-                  placeholder="Maelezo ya ziada..."
-                  className="w-full p-2.5 border border-slate-200 rounded-xl h-16"
-                />
-              </div>
-
-              {Number(editPaymentAmount) > 0 && editPaymentPreview.newTotalPaidForDebt > editPaymentDebtTotal && (
-                <div className="bg-rose-50 border border-rose-200 rounded-xl p-3">
-                  <p className="text-[11px] text-rose-700 leading-relaxed flex items-start gap-2">
-                    <AlertCircle size={14} className="shrink-0 mt-0.5" />
-                    <span>
-                      <strong>Hitilafu:</strong> Jumla ya malipo (TSh {editPaymentPreview.newTotalPaidForDebt.toLocaleString()}) haiwezi kuzidi deni la awali (TSh {editPaymentDebtTotal.toLocaleString()}).
-                    </span>
-                  </p>
-                </div>
-              )}
-
-              <div className="pt-2 flex justify-end gap-2">
-                <button 
-                  type="button" 
-                  onClick={() => { setIsEditPaymentOpen(false); setEditingPaymentId(null); setEditingPaymentDebtId(null); }}
-                  disabled={isLoading}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
-                >
-                  Ghairi
-                </button>
-                <button 
-                  type="submit" 
-                  disabled={isLoading || (Number(editPaymentAmount) > 0 && editPaymentPreview.newTotalPaidForDebt > editPaymentDebtTotal)}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
-                >
-                  {isLoading ? (
-                    <><Loader2 size={14} className="animate-spin" /> Inahifadhi...</>
-                  ) : (
-                    <>Hifadhi Mabadiliko</>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: Edit Debt (total amount) */}
+      {/* ============================================
+          MODAL: EDIT DEBT (NEW)
+          ============================================ */}
       {isEditDebtOpen && editingDebtId && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
-            <button 
-              onClick={() => { setIsEditDebtOpen(false); setEditingDebtId(null); }} 
-              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition"
-            >
+            <button onClick={() => { setIsEditDebtOpen(false); setEditingDebtId(null); }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
               <X size={18} />
             </button>
             
             <h3 className="text-md font-bold text-slate-850 flex items-center gap-1.5">
               <Edit2 className="text-blue-600" size={18} />
-              Hariri Deni (Jumla)
+              Hariri Deni
             </h3>
+            
+            <p className="text-xs text-slate-500">
+              Badilisha taarifa za deni kwa <strong>{activeCustomer?.fullName}</strong>
+            </p>
 
             <form onSubmit={handleEditDebt} className="space-y-4 text-xs text-left">
+              
+              {/* Description */}
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">💰 Jumla ya Deni (TSh) *</label>
-                <input 
-                  type="number" 
-                  required 
-                  min="1"
-                  value={editDebtAmount}
-                  onChange={(e) => setEditDebtAmount(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">📝 Maelezo ya Deni *</label>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo ya Deni *</label>
                 <input 
                   type="text" 
                   required 
                   value={editDebtDescription}
                   onChange={(e) => setEditDebtDescription(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl"
+                  placeholder="Mfano: Speaker ya Sony"
+                  className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
 
+              {/* Amount + Category */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">📅 Kukopa</label>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kiasi (TSh) *</label>
+                  <input 
+                    type="number" 
+                    required 
+                    min="1"
+                    value={editDebtAmount}
+                    onChange={(e) => setEditDebtAmount(e.target.value)}
+                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kundi</label>
+                  <input 
+                    type="text" 
+                    value={editDebtCategory}
+                    onChange={(e) => setEditDebtCategory(e.target.value)}
+                    placeholder="Mizigo/Products"
+                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Date Borrowed + Due Date */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Tarehe ya Kukopa</label>
                   <input 
                     type="date" 
                     value={editDebtDateBorrowed}
                     onChange={(e) => setEditDebtDateBorrowed(e.target.value)}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl"
+                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">⏰ Ukomo *</label>
+                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                    Ukomo (Due Date) *
+                  </label>
                   <input 
                     type="date" 
                     required
                     value={editDebtDueDate}
                     onChange={(e) => setEditDebtDueDate(e.target.value)}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl"
+                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
 
+              {/* Status */}
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">🏷️ Kundi</label>
-                <input 
-                  type="text" 
-                  value={editDebtCategory}
-                  onChange={(e) => setEditDebtCategory(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">📊 Hali</label>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Hali ya Deni</label>
                 <select
                   value={editDebtStatus}
                   onChange={(e) => setEditDebtStatus(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
+                  className="w-full p-2.5 border border-slate-200 rounded-xl bg-white focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="Active">Active - Inaendelea</option>
                   <option value="Paid">Paid - Imelipwa</option>
@@ -1444,15 +1125,25 @@ export default function CustomerManagement({
                 </select>
               </div>
 
+              {/* Notes */}
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">💬 Maelezo ya Ziada</label>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo ya Ziada</label>
                 <textarea 
                   value={editDebtNotes}
                   onChange={(e) => setEditDebtNotes(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl h-16"
+                  placeholder="Maelezo yoyote ya ziada..."
+                  className="w-full p-2.5 border border-slate-200 rounded-xl h-20 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
 
+              {/* Info banner */}
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                <p className="text-[11px] text-blue-700 leading-relaxed">
+                  <strong>Kumbuka:</strong> Kubadilisha kiasi kutaathiri salio la mteja. Malipo yaliyofanywa bado yanabaki kama yalivyo.
+                </p>
+              </div>
+
+              {/* Actions */}
               <div className="pt-2 flex justify-end gap-2">
                 <button 
                   type="button" 
@@ -1479,7 +1170,9 @@ export default function CustomerManagement({
         </div>
       )}
 
-      {/* MODAL: Delete Debt Confirm */}
+      {/* ============================================
+          MODAL: DELETE DEBT CONFIRM (NEW)
+          ============================================ */}
       {isDeleteDebtConfirmOpen && editingDebtId && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
@@ -1489,11 +1182,14 @@ export default function CustomerManagement({
               </div>
               <h3 className="text-md font-bold text-slate-800">Futa Deni?</h3>
               <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                Futa deni hili pamoja na malipo yake yote?
+                Je, una uhakika unataka kufuta deni hili? 
+                <br />
+                <span className="font-bold text-rose-600">Malipo yote yanayohusiana nalo yatafutwa pia.</span>
                 <br />
                 <span className="text-slate-400 mt-1 block">Kitendo hiki hakiwezi kutenduliwa.</span>
               </p>
             </div>
+
             <div className="flex gap-2 pt-2">
               <button 
                 onClick={() => { setIsDeleteDebtConfirmOpen(false); setEditingDebtId(null); }}
@@ -1507,42 +1203,11 @@ export default function CustomerManagement({
                 disabled={isLoading}
                 className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inafuta...</> : <><Trash2 size={14} /> Futa</>}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: Delete Payment Confirm */}
-      {isDeletePaymentConfirmOpen && deletingPaymentId && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
-            <div className="text-center">
-              <div className="h-16 w-16 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
-                <Trash2 size={28} />
-              </div>
-              <h3 className="text-md font-bold text-slate-800">Futa Malipo?</h3>
-              <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                Futa malipo haya? Salio (Baki) litahesabiwa upya.
-                <br />
-                <span className="text-slate-400 mt-1 block">Kitendo hiki hakiwezi kutenduliwa.</span>
-              </p>
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button 
-                onClick={() => { setIsDeletePaymentConfirmOpen(false); setDeletingPaymentId(null); }}
-                disabled={isLoading}
-                className="flex-1 py-2.5 px-4 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
-              >
-                Ghairi
-              </button>
-              <button 
-                onClick={handleDeletePayment}
-                disabled={isLoading}
-                className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inafuta...</> : <><Trash2 size={14} /> Futa</>}
+                {isLoading ? (
+                  <><Loader2 size={14} className="animate-spin" /> Inafuta...</>
+                ) : (
+                  <><Trash2 size={14} /> Futa</>
+                )}
               </button>
             </div>
           </div>
