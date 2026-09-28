@@ -56,8 +56,8 @@ export default function CustomerManagement({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isStatementOpen, setIsStatementOpen] = useState(false);
   const [isAddDebtOpen, setIsAddDebtOpen] = useState(false);
-  const [isEditDebtOpen, setIsEditDebtOpen] = useState(false);         // ✅ NEW
-  const [isDeleteDebtConfirmOpen, setIsDeleteDebtConfirmOpen] = useState(false); // ✅ NEW
+  const [isEditDebtOpen, setIsEditDebtOpen] = useState(false);
+  const [isDeleteDebtConfirmOpen, setIsDeleteDebtConfirmOpen] = useState(false);
   const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
 
   // Form states - Customer
@@ -77,7 +77,7 @@ export default function CustomerManagement({
   const [debtNotes, setDebtNotes] = useState('');
 
   // ============================================
-  // EDIT DEBT FORM STATES (NEW)
+  // EDIT DEBT FORM STATES
   // ============================================
   const [editingDebtId, setEditingDebtId] = useState<string | null>(null);
   const [editDebtDescription, setEditDebtDescription] = useState('');
@@ -371,7 +371,7 @@ export default function CustomerManagement({
   };
 
   // ============================================
-  // ✅ NEW: EDIT DEBT HANDLERS
+  // EDIT DEBT HANDLERS
   // ============================================
   const openEditDebtModal = (debt: Debt) => {
     setEditingDebtId(debt.id);
@@ -411,7 +411,6 @@ export default function CustomerManagement({
     setError(null);
 
     try {
-      // ✅ Update via API
       await api.debts.update(editingDebtId, {
         amount: Number(editDebtAmount),
         dateBorrowed: editDebtDateBorrowed,
@@ -436,7 +435,9 @@ export default function CustomerManagement({
     }
   };
 
-  // ✅ NEW: DELETE DEBT
+  // ============================================
+  // DELETE DEBT
+  // ============================================
   const openDeleteDebtConfirm = (debtId: string) => {
     setEditingDebtId(debtId);
     setIsDeleteDebtConfirmOpen(true);
@@ -449,7 +450,6 @@ export default function CustomerManagement({
     try {
       await api.debts.delete(editingDebtId);
       
-      // Also delete associated payments
       const debtPayments = payments.filter(p => p.debtId === editingDebtId);
       for (const payment of debtPayments) {
         try {
@@ -856,7 +856,6 @@ export default function CustomerManagement({
                           <div className="flex justify-between font-bold"><span className="truncate">{debt.description}</span><span>TSh {debt.amount.toLocaleString()}</span></div>
                         </div>
                         
-                        {/* ✅ EDIT & DELETE BUTTONS */}
                         <div className="flex gap-1 shrink-0">
                           <button
                             onClick={() => openEditDebtModal(debt)}
@@ -1028,29 +1027,47 @@ export default function CustomerManagement({
       )}
 
       {/* ============================================
-          MODAL: EDIT DEBT (NEW)
+          MODAL: EDIT DEBT — SIMPLIFIED WITH PROMINENT KIASO
           ============================================ */}
       {isEditDebtOpen && editingDebtId && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
-            <button onClick={() => { setIsEditDebtOpen(false); setEditingDebtId(null); }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
+            <button 
+              onClick={() => { setIsEditDebtOpen(false); setEditingDebtId(null); }} 
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition"
+            >
               <X size={18} />
             </button>
             
             <h3 className="text-md font-bold text-slate-850 flex items-center gap-1.5">
               <Edit2 className="text-blue-600" size={18} />
-              Hariri Deni
+              Hariri Deni - {activeCustomer?.fullName}
             </h3>
-            
-            <p className="text-xs text-slate-500">
-              Badilisha taarifa za deni kwa <strong>{activeCustomer?.fullName}</strong>
-            </p>
 
             <form onSubmit={handleEditDebt} className="space-y-4 text-xs text-left">
               
-              {/* Description */}
+              {/* ===== 1. KIASO — MOST PROMINENT ===== */}
+              <div className="bg-blue-50 border-2 border-blue-300 rounded-2xl p-4">
+                <label className="block font-bold text-blue-800 uppercase tracking-wide mb-2 text-sm flex items-center gap-2">
+                  <span className="text-lg">💰</span> Kiasi cha Deni (TSh) *
+                </label>
+                <input 
+                  type="number" 
+                  required 
+                  min="1"
+                  value={editDebtAmount}
+                  onChange={(e) => setEditDebtAmount(e.target.value)}
+                  placeholder="Weka kiasi..."
+                  className="w-full p-3 border-2 border-blue-400 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg font-bold text-center bg-white"
+                />
+                <p className="text-[11px] text-blue-700 mt-2 text-center font-semibold">
+                  Kiasi cha sasa: TSh {Number(editDebtAmount || 0).toLocaleString()}
+                </p>
+              </div>
+
+              {/* 2. Description */}
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo ya Deni *</label>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">📝 Maelezo ya Deni *</label>
                 <input 
                   type="text" 
                   required 
@@ -1061,59 +1078,44 @@ export default function CustomerManagement({
                 />
               </div>
 
-              {/* Amount + Category */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kiasi (TSh) *</label>
-                  <input 
-                    type="number" 
-                    required 
-                    min="1"
-                    value={editDebtAmount}
-                    onChange={(e) => setEditDebtAmount(e.target.value)}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Kundi</label>
-                  <input 
-                    type="text" 
-                    value={editDebtCategory}
-                    onChange={(e) => setEditDebtCategory(e.target.value)}
-                    placeholder="Mizigo/Products"
-                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              {/* Date Borrowed + Due Date */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Tarehe ya Kukopa</label>
-                  <input 
-                    type="date" 
-                    value={editDebtDateBorrowed}
-                    onChange={(e) => setEditDebtDateBorrowed(e.target.value)}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
-                    Ukomo (Due Date) *
-                  </label>
-                  <input 
-                    type="date" 
-                    required
-                    value={editDebtDueDate}
-                    onChange={(e) => setEditDebtDueDate(e.target.value)}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              {/* Status */}
+              {/* 3. Date Borrowed */}
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Hali ya Deni</label>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">📅 Tarehe ya Kukopa</label>
+                <input 
+                  type="date" 
+                  value={editDebtDateBorrowed}
+                  onChange={(e) => setEditDebtDateBorrowed(e.target.value)}
+                  className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              {/* 4. Due Date */}
+              <div>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">⏰ Ukomo (Due Date) *</label>
+                <input 
+                  type="date" 
+                  required
+                  value={editDebtDueDate}
+                  onChange={(e) => setEditDebtDueDate(e.target.value)}
+                  className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              {/* 5. Category */}
+              <div>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">🏷️ Kundi</label>
+                <input 
+                  type="text" 
+                  value={editDebtCategory}
+                  onChange={(e) => setEditDebtCategory(e.target.value)}
+                  placeholder="Mizigo/Products"
+                  className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              {/* 6. Status */}
+              <div>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">📊 Hali ya Deni</label>
                 <select
                   value={editDebtStatus}
                   onChange={(e) => setEditDebtStatus(e.target.value)}
@@ -1125,9 +1127,9 @@ export default function CustomerManagement({
                 </select>
               </div>
 
-              {/* Notes */}
+              {/* 7. Notes */}
               <div>
-                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo ya Ziada</label>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">💬 Maelezo ya Ziada</label>
                 <textarea 
                   value={editDebtNotes}
                   onChange={(e) => setEditDebtNotes(e.target.value)}
@@ -1137,9 +1139,9 @@ export default function CustomerManagement({
               </div>
 
               {/* Info banner */}
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
-                <p className="text-[11px] text-blue-700 leading-relaxed">
-                  <strong>Kumbuka:</strong> Kubadilisha kiasi kutaathiri salio la mteja. Malipo yaliyofanywa bado yanabaki kama yalivyo.
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  <strong>⚠️ Kumbuka:</strong> Kubadilisha kiasi kutaathiri salio la mteja. Malipo yaliyofanywa bado yanabaki kama yalivyo.
                 </p>
               </div>
 
@@ -1171,7 +1173,7 @@ export default function CustomerManagement({
       )}
 
       {/* ============================================
-          MODAL: DELETE DEBT CONFIRM (NEW)
+          MODAL: DELETE DEBT CONFIRM
           ============================================ */}
       {isDeleteDebtConfirmOpen && editingDebtId && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 flex items-center justify-center p-4">
