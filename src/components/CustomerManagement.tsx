@@ -56,7 +56,7 @@ export default function CustomerManagement({
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
-  // ✅ See More state
+  // See More state
   const [showAllCustomers, setShowAllCustomers] = useState(false);
   
   // Modals state
@@ -89,14 +89,14 @@ export default function CustomerManagement({
   // ============================================
   const [editingDebtId, setEditingDebtId] = useState<string | null>(null);
   const [editDebtDescription, setEditDebtDescription] = useState('');
-  const [editDebtAmount, setEditDebtAmount] = useState('');
+  const [editDebtAmount, setEditDebtAmount] = useState('');       // Total debt amount
   const [editDebtDateBorrowed, setEditDebtDateBorrowed] = useState('');
   const [editDebtDueDate, setEditDebtDueDate] = useState('');
   const [editDebtCategory, setEditDebtCategory] = useState('');
   const [editDebtNotes, setEditDebtNotes] = useState('');
   const [editDebtStatus, setEditDebtStatus] = useState('Active');
-  // ✅ New: track original amount + paid
-  const [editDebtOriginalAmount, setEditDebtOriginalAmount] = useState(0);
+  
+  // Info for edit modal: what was already paid on this debt
   const [editDebtPaidAmount, setEditDebtPaidAmount] = useState(0);
 
   // Form states - Payment recording
@@ -202,13 +202,12 @@ export default function CustomerManagement({
     });
   }, [customers, debts, payments]);
 
-  // ✅ Filtered customers with ENHANCED search (name + phone + business)
+  // Filtered customers with ENHANCED search (name + phone + business)
   const filteredCustomers = useMemo(() => {
     return customersWithStats.filter(c => {
       const query = searchQuery.toLowerCase().trim();
       const digitsOnly = searchQuery.replace(/\D/g, '');
       
-      // Search by name OR business OR phone
       const matchesSearch = 
         query === '' ||
         c.fullName.toLowerCase().includes(query) ||
@@ -222,7 +221,7 @@ export default function CustomerManagement({
     });
   }, [customersWithStats, searchQuery, statusFilter]);
 
-  // ✅ Visible customers (5 by default, all when expanded)
+  // Visible customers (5 by default, all when expanded)
   const visibleCustomers = useMemo(() => {
     if (showAllCustomers || searchQuery.trim() !== '' || statusFilter !== 'All') {
       return filteredCustomers;
@@ -230,7 +229,6 @@ export default function CustomerManagement({
     return filteredCustomers.slice(0, INITIAL_PAGE_SIZE);
   }, [filteredCustomers, showAllCustomers, searchQuery, statusFilter]);
 
-  // ✅ Check if "See More" should show
   const hasMoreCustomers = filteredCustomers.length > INITIAL_PAGE_SIZE;
   const remainingCount = Math.max(0, filteredCustomers.length - INITIAL_PAGE_SIZE);
 
@@ -400,26 +398,24 @@ export default function CustomerManagement({
   };
 
   // ============================================
-  // ✅ EDIT DEBT HANDLERS — WITH REMAINING BALANCE
+  // ✅ EDIT DEBT — TOTAL AMOUNT (to fix typos)
   // ============================================
   const openEditDebtModal = (debt: Debt) => {
-    // Calculate paid and remaining for THIS specific debt
+    // Calculate paid amount for THIS specific debt (informational only)
     const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === debt.id);
     const paidSum = dPayments.reduce((s, p) => s + p.amount, 0);
-    const remainingAmount = Math.max(0, debt.amount - paidSum);
     
     setEditingDebtId(debt.id);
     setEditDebtDescription(debt.description || '');
-    // ✅ PRE-FILL WITH REMAINING BALANCE (Baki ya sasa), not the full original amount
-    setEditDebtAmount(String(remainingAmount) || '');
+    // ✅ Pre-fill with the TOTAL DEBT AMOUNT (so you can fix typos)
+    setEditDebtAmount(String(debt.amount) || '');
     setEditDebtDateBorrowed(debt.dateBorrowed || '');
     setEditDebtDueDate(debt.dueDate || '');
     setEditDebtCategory(debt.category || 'Mizigo/Products');
     setEditDebtNotes(debt.notes || '');
     setEditDebtStatus(debt.status || 'Active');
     
-    // ✅ Store original + paid amounts to show info in modal
-    setEditDebtOriginalAmount(debt.amount);
+    // Info: how much has been paid on this debt
     setEditDebtPaidAmount(paidSum);
     
     setIsEditDebtOpen(true);
@@ -436,7 +432,7 @@ export default function CustomerManagement({
     }
 
     if (!editDebtAmount || Number(editDebtAmount) <= 0) {
-      setError('Kiasi cha deni kinahitajika');
+      setError('Jumla ya deni inahitajika');
       setTimeout(() => setError(null), 3000);
       return;
     }
@@ -447,15 +443,21 @@ export default function CustomerManagement({
       return;
     }
 
+    // Safety check: new total debt cannot be less than amount already paid
+    const newTotalAmount = Number(editDebtAmount);
+    if (newTotalAmount < editDebtPaidAmount) {
+      setError(`Jumla ya deni haiwezi kuwa chini ya kiasi kilicholipwa (TSh ${editDebtPaidAmount.toLocaleString()})`);
+      setTimeout(() => setError(null), 5000);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
     try {
-      // ✅ Reconstruct the new TOTAL debt amount = paid + remaining (edited)
-      const newTotalAmount = editDebtPaidAmount + Number(editDebtAmount);
-      
+      // ✅ Save the TOTAL debt amount directly
       await api.debts.update(editingDebtId, {
-        amount: newTotalAmount,                          // Store the full total
+        amount: newTotalAmount,                        // Store the new total
         dateBorrowed: editDebtDateBorrowed,
         dueDate: editDebtDueDate,
         description: editDebtDescription.trim(),
@@ -477,6 +479,12 @@ export default function CustomerManagement({
       setIsLoading(false);
     }
   };
+
+  // Live preview of new remaining balance in the edit modal
+  const editDebtNewRemaining = useMemo(() => {
+    const newTotal = Number(editDebtAmount) || 0;
+    return Math.max(0, newTotal - editDebtPaidAmount);
+  }, [editDebtAmount, editDebtPaidAmount]);
 
   // ============================================
   // DELETE DEBT
@@ -968,7 +976,6 @@ export default function CustomerManagement({
                 value={searchQuery} 
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
-                  // ✅ Reset to see-more when searching
                   if (e.target.value === '') setShowAllCustomers(false);
                 }} 
                 placeholder="Tafuta kwa jina, namba ya simu, au biashara..." 
@@ -993,7 +1000,6 @@ export default function CustomerManagement({
             </div>
           )}
 
-          {/* ✅ Customer count indicator */}
           {filteredCustomers.length > 0 && (
             <div className="flex items-center justify-between text-[11px] px-1">
               <span className="text-slate-400">
@@ -1036,7 +1042,7 @@ export default function CustomerManagement({
             )}
           </div>
 
-          {/* ✅ SEE MORE / SEE LESS Button */}
+          {/* SEE MORE / SEE LESS Button */}
           {hasMoreCustomers && !showAllCustomers && searchQuery.trim() === '' && statusFilter === 'All' && (
             <div className="flex justify-center pt-2">
               <button
@@ -1054,7 +1060,6 @@ export default function CustomerManagement({
               <button
                 onClick={() => {
                   setShowAllCustomers(false);
-                  // Scroll to top of list
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
                 className="group flex items-center gap-2 px-6 py-3 bg-white hover:bg-slate-50 border-2 border-slate-200 rounded-2xl text-xs font-bold text-slate-600 transition-all shadow-sm hover:shadow-md"
@@ -1119,7 +1124,7 @@ export default function CustomerManagement({
       )}
 
       {/* ============================================
-          MODAL: EDIT DEBT — SHOWS BAKI YA SASA
+          MODAL: EDIT DEBT — TOTAL AMOUNT (fix typo)
           ============================================ */}
       {isEditDebtOpen && editingDebtId && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
@@ -1136,35 +1141,40 @@ export default function CustomerManagement({
               Hariri Deni - {activeCustomer?.fullName}
             </h3>
 
+            <p className="text-[11px] text-slate-500 leading-relaxed bg-slate-50 rounded-xl p-2.5 border border-slate-100">
+              💡 Tumia fomu hii kurekebisha <strong>jumla ya deni</strong> (kwa mfano kama uliandika kiasi kikubwa kwa makosa). Kiasi kilicholipwa hakibadiliki.
+            </p>
+
             <form onSubmit={handleEditDebt} className="space-y-4 text-xs text-left">
               
-              {/* ===== 1. BAKI YA SASA — REMAINING BALANCE ===== */}
+              {/* ===== 1. JUMLA YA DENI (TOTAL) — Editable ===== */}
               <div className="bg-blue-50 border-2 border-blue-300 rounded-2xl p-4">
                 <label className="block font-bold text-blue-800 uppercase tracking-wide mb-2 text-sm flex items-center gap-2">
-                  <span className="text-lg">💰</span> Baki ya Sasa (TSh) *
+                  <span className="text-lg">💰</span> Jumla ya Deni (TSh) *
                 </label>
                 <input 
                   type="number" 
                   required 
-                  min="0"
+                  min={editDebtPaidAmount}
                   value={editDebtAmount}
                   onChange={(e) => setEditDebtAmount(e.target.value)}
-                  placeholder="Weka baki..."
+                  placeholder="Weka jumla ya deni..."
                   className="w-full p-3 border-2 border-blue-400 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg font-bold text-center bg-white"
                 />
-                <p className="text-[11px] text-blue-700 mt-2 text-center font-semibold">
-                  Baki ya sasa: TSh {Number(editDebtAmount || 0).toLocaleString()}
-                </p>
                 
-                {/* Info: Original Amount + Already Paid */}
-                <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-blue-200">
+                {/* Info: Paid + new remaining */}
+                <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-blue-200">
                   <div className="text-center">
-                    <p className="text-[9px] text-blue-600 uppercase font-bold">Deni la Awali</p>
-                    <p className="text-[11px] font-bold text-slate-700 mt-0.5">TSh {editDebtOriginalAmount.toLocaleString()}</p>
+                    <p className="text-[9px] text-blue-700 uppercase font-bold">Tayari Kulipwa</p>
+                    <p className="text-[12px] font-bold text-emerald-600 mt-0.5">
+                      TSh {editDebtPaidAmount.toLocaleString()}
+                    </p>
                   </div>
                   <div className="text-center">
-                    <p className="text-[9px] text-blue-600 uppercase font-bold">Tayari Kulipwa</p>
-                    <p className="text-[11px] font-bold text-emerald-600 mt-0.5">TSh {editDebtPaidAmount.toLocaleString()}</p>
+                    <p className="text-[9px] text-blue-700 uppercase font-bold">Baki Mpya</p>
+                    <p className="text-[12px] font-bold text-rose-600 mt-0.5">
+                      TSh {editDebtNewRemaining.toLocaleString()}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1238,16 +1248,21 @@ export default function CustomerManagement({
                   value={editDebtNotes}
                   onChange={(e) => setEditDebtNotes(e.target.value)}
                   placeholder="Maelezo yoyote ya ziada..."
-                  className="w-full p-2.5 border border-slate-200 rounded-xl h-20 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full p-2.5 border border-slate-200 rounded-xl h-16 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
 
-              {/* Info banner */}
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-                <p className="text-[11px] text-amber-800 leading-relaxed">
-                  <strong>⚠️ Kumbuka:</strong> Unabadilisha <strong>baki ya sasa</strong>. Malipo ya awali bado yanabaki kama yalivyo.
-                </p>
-              </div>
+              {/* Warning if amount < paid */}
+              {Number(editDebtAmount) > 0 && Number(editDebtAmount) < editDebtPaidAmount && (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-3">
+                  <p className="text-[11px] text-rose-700 leading-relaxed flex items-start gap-2">
+                    <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                    <span>
+                      <strong>Hitilafu:</strong> Jumla ya deni haiwezi kuwa chini ya kiasi kilicholipwa (TSh {editDebtPaidAmount.toLocaleString()}).
+                    </span>
+                  </p>
+                </div>
+              )}
 
               {/* Actions */}
               <div className="pt-2 flex justify-end gap-2">
@@ -1261,7 +1276,7 @@ export default function CustomerManagement({
                 </button>
                 <button 
                   type="submit" 
-                  disabled={isLoading}
+                  disabled={isLoading || (Number(editDebtAmount) > 0 && Number(editDebtAmount) < editDebtPaidAmount)}
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
                 >
                   {isLoading ? (
