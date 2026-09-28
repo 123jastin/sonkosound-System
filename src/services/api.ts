@@ -85,14 +85,20 @@ export const api = {
   // ============================================
   debts: {
     list: () => safeFetch(`${API_BASE}/debts`),
+    
+    listByCustomer: (customerId: string) => 
+      safeFetch(`${API_BASE}/debts?customerId=${customerId}`),
+    
     create: (data: any) => safeFetch(`${API_BASE}/debts`, {
       method: 'POST',
       body: JSON.stringify(data)
     }),
+    
     update: (id: string, data: any) => safeFetch(`${API_BASE}/debts/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
     }),
+    
     delete: (id: string) => safeFetch(`${API_BASE}/debts/${id}`, {
       method: 'DELETE'
     })
@@ -103,9 +109,24 @@ export const api = {
   // ============================================
   payments: {
     list: () => safeFetch(`${API_BASE}/payments`),
+    
+    listByDebt: (debtId: string) => 
+      safeFetch(`${API_BASE}/payments?debtId=${debtId}`),
+    
     create: (data: any) => safeFetch(`${API_BASE}/payments`, {
       method: 'POST',
       body: JSON.stringify(data)
+    }),
+    
+    // ✅ NEW: Update payment (fix Zilizolipwa typos)
+    update: (id: string, data: any) => safeFetch(`${API_BASE}/payments/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    }),
+    
+    // ✅ NEW: Delete payment
+    delete: (id: string) => safeFetch(`${API_BASE}/payments/${id}`, {
+      method: 'DELETE'
     })
   },
 
@@ -148,7 +169,7 @@ export const api = {
   },
 
   // ============================================
-  // MEMORIES (NEW)
+  // MEMORIES
   // ============================================
   memories: {
     list: (): Promise<any[]> => safeFetch(`${API_BASE}/memories`),
