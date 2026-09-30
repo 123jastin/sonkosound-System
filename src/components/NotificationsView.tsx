@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { NotificationItem, Customer } from '../types';
 import { api } from '../services/api';
 import { 
   Bell, ArrowLeft, Trash2, Calendar, Phone, CheckCircle2, 
-  AlertTriangle, AlertCircle, Sparkles, MessageCircle, 
+  AlertTriangle, AlertCircle, MessageCircle, 
   Send, Loader2, Check, Truck, Package, Award
 } from 'lucide-react';
 
@@ -35,6 +35,17 @@ interface NotificationsViewProps {
   installmentNotifications?: InstallmentNotification[];
 }
 
+// Priority order for picking the "dominant" status when grouping
+const STATUS_PRIORITY: Record<string, number> = {
+  'Overdue': 0,
+  'Due Today': 1,
+  'Due Tomorrow': 2,
+  'Installment Halfway': 3,
+  'Installment Completed': 4,
+  'Fully Paid': 5,
+  'Payment Received': 6,
+};
+
 export default function NotificationsView({
   notifications,
   customers,
@@ -52,28 +63,114 @@ export default function NotificationsView({
   const [sendingIds, setSendingIds] = useState<Set<string>>(new Set());
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
 
-  // Combine all notifications
-  const allNotifications = [...notifications, ...installmentNotifications];
+  const allNotifications = useMemo(
+    () => [...notifications, ...installmentNotifications],
+    [notifications, installmentNotifications]
+  );
 
-  const filteredNotifications = allNotifications.filter(item => {
-    if (filterType === 'All') return true;
-    if (filterType === 'Overdue') return item.type === 'Overdue';
-    if (filterType === 'Due Today') return item.type === 'Due Today' || item.type === 'Due Tomorrow';
-    if (filterType === 'Paid') return item.type === 'Fully Paid' || item.type === 'Payment Received';
-    if (filterType === 'Installments') return item.type === 'Installment Halfway' || item.type === 'Installment Completed';
-    return true;
-  });
+  // ============================================================
+  // ✅ GROUP NOTIFICATIONS BY CUSTOMER
+  // ============================================================
+  const { groupedRows, supplierRows } = useMemo(() => {
+    const byCustomer = new Map<string, any[]>();
+    const supplierItems: any[] = [];
 
-  const todayDueCount = allNotifications.filter(n => n.type === 'Due Today').length;
-  const installmentCount = allNotifications.filter(n => n.type === 'Installment Halfway' || n.type === 'Installment Completed').length;
+    for (const item of allNotifications) {
+      const isSupplier = item.id?.startsWith('supplier-');
+      if (isSupplier) {
+        supplierItems.push(item);
+        continue;
+      }
+      if (!item.customerId) continue;   // orphans are dropped (shouldn't happen)
+      if (!byCustomer.has(item.customerId)) byCustomer.set(item.customerId, []);
+      byCustomer.get(item.customerId)!.push(item);
+    }
 
+    const rows: any[] = [];
+
+    byCustomer.forEach((items, customerId) => {
+      const customer = customers.find(c => c.id === customerId);
+
+      // Sort by priority → dominant status is items[0]
+      const sorted = [...items].sort(
+        (a, b) => (STATUS_PRIORITY[a.type] ?? 99) - (STATUS_PRIORITY[b.type] ?? 99)
+      );
+      const dominant = sorted[0];
+
+      // Build product/debt bullet lines
+      const productLines = items.map((it: any) => ({
+        id: it.id,
+        type: it.type,
+        message: it.message,
+        debtId: it.debtId,
+        amount: it.amount ?? 0,
+        description: it.description ?? it.productName ?? '',
+      }));
+
+      // Total = sum of any amount-like fields we can find
+      const total = items.reduce((sum, it: any) => {
+        // Prefer explicit amount fields
+        if (typeof it.amount === 'number') return sum + it.amount;
+        if (typeof it.remaining === 'number') return sum + it.remaining;
+        return sum;
+      }, 0);
+
+      rows.push({
+        id: `group-${customerId}`,
+        customerId,
+        customerName: customer?.fullName || items[0]?.customerName || 'Mteja',
+        phoneNumber: customer?.phoneNumber || items[0]?.phoneNumber,
+        type: dominant.type,
+        date: dominant.date,
+        itemIds: items.map((i: any) => i.id),
+        debtIds: items.map((i: any) => i.debtId).filter(Boolean),
+        productLines,
+        total,
+        count: items.length,
+        isSingle: items.length === 1,
+        rawItems: items,
+      });
+    });
+
+    // Sort grouped rows by status priority
+    rows.sort((a, b) => (STATUS_PRIORITY[a.type] ?? 99) - (STATUS_PRIORITY[b.type] ?? 99));
+
+    return { groupedRows: rows, supplierRows: supplierItems };
+  }, [allNotifications, customers]);
+
+  // ============================================================
+  // FILTERS
+  // ============================================================
+  const filteredNotifications = useMemo(() => {
+    const combined = [...groupedRows, ...supplierRows];
+    return combined.filter(item => {
+      if (filterType === 'All') return true;
+      if (filterType === 'Overdue') return item.type === 'Overdue';
+      if (filterType === 'Due Today') return item.type === 'Due Today' || item.type === 'Due Tomorrow';
+      if (filterType === 'Paid') return item.type === 'Fully Paid' || item.type === 'Payment Received';
+      if (filterType === 'Installments') return item.type === 'Installment Halfway' || item.type === 'Installment Completed';
+      return true;
+    });
+  }, [groupedRows, supplierRows, filterType]);
+
+  const todayDueCount = groupedRows.filter(
+    n => n.type === 'Due Today' || n.type === 'Overdue'
+  ).length;
+
+  const installmentCount = allNotifications.filter(
+    n => n.type === 'Installment Halfway' || n.type === 'Installment Completed'
+  ).length;
+
+  // ============================================================
+  // SEND — ALL
+  // ============================================================
   const handleSendAllReminders = async () => {
     if (todayDueCount === 0) {
       setReminderResult({ success: false, message: 'Hakuna vikumbusho vya leo.' });
       return;
     }
 
-    if (!confirm(`Tuma vikumbusho vyote vya leo (${todayDueCount})?`)) return;
+    if (!confirm(`Tuma vikumbusho vyote vya leo (wateja ${todayDueCount})?`)) return;
 
     setIsSendingAll(true);
     setReminderResult(null);
@@ -91,8 +188,12 @@ export default function NotificationsView({
           success: true,
           message: `✅ Wateja: ${result.data.customerSent} | Wauzaji: ${result.data.supplierSent || 0}`,
         });
-        const todayIds = allNotifications.filter(n => n.type === 'Due Today').map(n => n.id);
-        setSentIds(new Set(todayIds));
+
+        // Mark all underlying notification IDs as sent
+        const ids = groupedRows
+          .filter(n => n.type === 'Due Today' || n.type === 'Overdue')
+          .flatMap(n => n.itemIds);
+        setSentIds(new Set(ids));
       } else {
         setReminderResult({ success: false, message: `❌ ${result.error || 'Imeshindwa kutuma.'}` });
       }
@@ -103,110 +204,76 @@ export default function NotificationsView({
     }
   };
 
-  const handleSendSingleReminder = async (item: any) => {
-    if (sendingIds.has(item.id) || sentIds.has(item.id)) return;
+  // ============================================================
+  // SEND — SINGLE CUSTOMER (sends ALL their debts in one call)
+  // ============================================================
+  const handleSendSingleReminder = async (group: any) => {
+    const groupKey = group.id;
+    if (sendingIds.has(groupKey)) return;
+    // Already sent if every underlying id is in sentIds
+    const allSent = group.itemIds.every((id: string) => sentIds.has(id));
+    if (allSent) return;
 
-    setSendingIds(prev => new Set(prev).add(item.id));
+    setSendingIds(prev => new Set(prev).add(groupKey));
 
     try {
-      const relevantDebts = item.debtId 
-        ? debts.filter((d: any) => d.id === item.debtId)
+      // ✅ Send ALL debts for this customer (not just one)
+      const relevantDebts = group.debtIds?.length
+        ? debts.filter((d: any) => group.debtIds.includes(d.id))
         : [];
-      
-      const isSupplierNotification = item.id.startsWith('supplier-');
-      
+
       const result = await api.reminders.send({
         debts: relevantDebts,
-        customers,
+        customers: customers.filter(c => c.id === group.customerId),
         payments,
-        suppliers: isSupplierNotification ? suppliers : [],
+        suppliers: [],
       });
 
       if (result.success) {
-        setSentIds(prev => new Set(prev).add(item.id));
+        setSentIds(prev => {
+          const next = new Set(prev);
+          group.itemIds.forEach((id: string) => next.add(id));
+          return next;
+        });
       }
     } catch (err: any) {
       console.error('Send failed:', err);
     } finally {
       setSendingIds(prev => {
         const next = new Set(prev);
-        next.delete(item.id);
+        next.delete(groupKey);
         return next;
       });
     }
   };
 
+  // ============================================================
+  // STYLES
+  // ============================================================
   const getNotificationStyle = (item: any) => {
     const isSupplier = item.id?.startsWith('supplier-');
-    
-    if (item.type === 'Overdue') {
-      return {
-        bgClass: 'bg-rose-50/70 border-rose-100 text-rose-950',
-        iconColor: 'text-rose-600',
-        badgeText: 'IMEKITHIRI',
-        badgeClass: 'bg-rose-100 text-rose-800',
-        IconComponent: AlertCircle,
-        label: isSupplier ? '🚚 Mlipaji' : '👤 Mteja'
-      };
+    const base = (overrides: any) => ({
+      label: isSupplier ? '🚚 Mlipaji' : '👤 Mteja',
+      ...overrides
+    });
+
+    switch (item.type) {
+      case 'Overdue':
+        return base({ bgClass: 'bg-rose-50/70 border-rose-100 text-rose-950', iconColor: 'text-rose-600', badgeText: 'IMEKITHIRI', badgeClass: 'bg-rose-100 text-rose-800', IconComponent: AlertCircle });
+      case 'Due Today':
+        return base({ bgClass: 'bg-amber-50/70 border-amber-100 text-amber-950', iconColor: 'text-amber-600', badgeText: 'LEO', badgeClass: 'bg-amber-100 text-amber-800', IconComponent: AlertTriangle });
+      case 'Due Tomorrow':
+        return base({ bgClass: 'bg-amber-50/40 border-amber-100/60 text-slate-800', iconColor: 'text-amber-500', badgeText: 'KESHO', badgeClass: 'bg-amber-100/60 text-amber-800', IconComponent: Calendar });
+      case 'Fully Paid':
+      case 'Payment Received':
+        return base({ bgClass: 'bg-emerald-50/70 border-emerald-100 text-emerald-950', iconColor: 'text-emerald-600', badgeText: 'MALIPO', badgeClass: 'bg-emerald-100 text-emerald-800', IconComponent: CheckCircle2 });
+      case 'Installment Halfway':
+        return base({ bgClass: 'bg-blue-50/70 border-blue-100 text-blue-950', iconColor: 'text-blue-600', badgeText: 'NUSU YA MALIPO', badgeClass: 'bg-blue-100 text-blue-800', IconComponent: Package });
+      case 'Installment Completed':
+        return base({ bgClass: 'bg-purple-50/70 border-purple-100 text-purple-950', iconColor: 'text-purple-600', badgeText: 'KAMILIFU', badgeClass: 'bg-purple-100 text-purple-800', IconComponent: Award });
+      default:
+        return { bgClass: 'bg-slate-50 border-slate-100 text-slate-700', iconColor: 'text-slate-500', badgeText: 'TAARIFA', badgeClass: 'bg-slate-200/60 text-slate-600', IconComponent: Bell, label: '' };
     }
-    if (item.type === 'Due Today') {
-      return {
-        bgClass: 'bg-amber-50/70 border-amber-100 text-amber-950',
-        iconColor: 'text-amber-600',
-        badgeText: 'LEO',
-        badgeClass: 'bg-amber-100 text-amber-800',
-        IconComponent: AlertTriangle,
-        label: isSupplier ? '🚚 Mlipaji' : '👤 Mteja'
-      };
-    }
-    if (item.type === 'Due Tomorrow') {
-      return {
-        bgClass: 'bg-amber-50/40 border-amber-100/60 text-slate-800',
-        iconColor: 'text-amber-500',
-        badgeText: 'KESHO',
-        badgeClass: 'bg-amber-100/60 text-amber-800',
-        IconComponent: Calendar,
-        label: isSupplier ? '🚚 Mlipaji' : '👤 Mteja'
-      };
-    }
-    if (item.type === 'Fully Paid' || item.type === 'Payment Received') {
-      return {
-        bgClass: 'bg-emerald-50/70 border-emerald-100 text-emerald-950',
-        iconColor: 'text-emerald-600',
-        badgeText: 'MALIPO',
-        badgeClass: 'bg-emerald-100 text-emerald-800',
-        IconComponent: CheckCircle2,
-        label: '👤 Mteja'
-      };
-    }
-    if (item.type === 'Installment Halfway') {
-      return {
-        bgClass: 'bg-blue-50/70 border-blue-100 text-blue-950',
-        iconColor: 'text-blue-600',
-        badgeText: 'NUSU YA MALIPO',
-        badgeClass: 'bg-blue-100 text-blue-800',
-        IconComponent: Package,
-        label: '🎯 Mteja wa Mkopo'
-      };
-    }
-    if (item.type === 'Installment Completed') {
-      return {
-        bgClass: 'bg-purple-50/70 border-purple-100 text-purple-950',
-        iconColor: 'text-purple-600',
-        badgeText: 'KAMILIFU',
-        badgeClass: 'bg-purple-100 text-purple-800',
-        IconComponent: Award,
-        label: '🎉 Hongera'
-      };
-    }
-    return {
-      bgClass: 'bg-slate-50 border-slate-100 text-slate-700',
-      iconColor: 'text-slate-500',
-      badgeText: 'TAARIFA',
-      badgeClass: 'bg-slate-200/60 text-slate-600',
-      IconComponent: Bell,
-      label: ''
-    };
   };
 
   const formatWhatsAppNumber = (phone: string): string => {
@@ -217,16 +284,23 @@ export default function NotificationsView({
     return cleaned;
   };
 
-  const getWhatsAppMessage = (item: any): string => {
-    if (item.type === 'Installment Completed') {
-      return `Habari ${item.customerName}, Tungependa kukupongeza kwa kumaliza kiwango chote cha ${item.productName} Bidhaa uliyoibandika tangu tarehe ${item.startDate}. Asante kwa kuaminiana nasi!`;
+  // ✅ One consolidated WhatsApp message per customer
+  const getWhatsAppMessage = (group: any): string => {
+    const name = group.customerName?.split(' ')[0] || 'Mteja';
+    const lines = (group.productLines || []).map((p: any) => p.message).filter(Boolean);
+
+    if (group.type === 'Installment Completed') {
+      return `Habari ${name}, Hongera kwa kumaliza malipo yote ya bidhaa zako:\n${lines.map((l: string) => '• ' + l).join('\n')}\n\nAsante kwa kuaminiana nasi!`;
     }
-    if (item.type === 'Installment Halfway') {
-      return `Habari ${item.customerName}, Umefika nusu ya malipo ya ${item.productName} (${item.progressPercentage}%). Endelea hivyo hivyo!`;
+    if (group.type === 'Installment Halfway') {
+      return `Habari ${name}, umefika nusu ya malipo ya bidhaa zako:\n${lines.map((l: string) => '• ' + l).join('\n')}\n\nEndelea hivyo hivyo!`;
     }
-    return "Habari, ningependa kukukumbusha kuhusu deni lako.";
+    return `Habari ${name}, Tunakukumbusha Madeni ya\n${lines.map((l: string) => '• ' + l).join('\n')}\n\nAsante`;
   };
 
+  // ============================================================
+  // RENDER
+  // ============================================================
   return (
     <div className="space-y-6 text-xs text-left">
       {/* Header */}
@@ -241,7 +315,9 @@ export default function NotificationsView({
               <Bell size={18} className="text-rose-500" />
               Arifu na Vikumbusho
             </h2>
-            <p className="text-xs text-slate-400 mt-1">Wateja wanaodaiwa, wauzaji na wateja wa mafungu.</p>
+            <p className="text-xs text-slate-400 mt-1">
+              Kila mteja anaonekana mara moja tu — bidhaa zake zote zimeunganishwa.
+            </p>
           </div>
         </div>
 
@@ -260,7 +336,7 @@ export default function NotificationsView({
         </div>
       </div>
 
-      {/* Result */}
+      {/* Result banner */}
       {reminderResult && (
         <div className={`p-4 rounded-2xl border text-xs font-medium ${reminderResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
           <div className="flex items-center gap-2">
@@ -274,10 +350,10 @@ export default function NotificationsView({
       {/* Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-1 select-none">
         {[
-          { id: 'All', label: `Zote (${allNotifications.length})` },
-          { id: 'Overdue', label: `Zilizopitisha (${allNotifications.filter(n => n.type === 'Overdue').length})` },
-          { id: 'Due Today', label: `Leo & Kesho (${allNotifications.filter(n => n.type === 'Due Today' || n.type === 'Due Tomorrow').length})` },
-          { id: 'Paid', label: `Malipo (${allNotifications.filter(n => n.type === 'Fully Paid' || n.type === 'Payment Received').length})` },
+          { id: 'All', label: `Zote (${groupedRows.length + supplierRows.length})` },
+          { id: 'Overdue', label: `Zilizopitisha (${groupedRows.filter(n => n.type === 'Overdue').length})` },
+          { id: 'Due Today', label: `Leo & Kesho (${groupedRows.filter(n => n.type === 'Due Today' || n.type === 'Due Tomorrow').length})` },
+          { id: 'Paid', label: `Malipo (${groupedRows.filter(n => n.type === 'Fully Paid' || n.type === 'Payment Received').length})` },
           { id: 'Installments', label: `Mafungu (${installmentCount})` }
         ].map(tab => (
           <button key={tab.id} onClick={() => setFilterType(tab.id)}
@@ -287,129 +363,112 @@ export default function NotificationsView({
         ))}
       </div>
 
-      {/* Notifications List */}
+      {/* Notification list */}
       <div className="space-y-3">
         {filteredNotifications.length > 0 ? (
           filteredNotifications.map(item => {
-            const isSupplier = item.id?.startsWith('supplier-') || false;
-            const isInstallment = item.type === 'Installment Halfway' || item.type === 'Installment Completed';
+            const isSupplier = item.id?.startsWith('supplier-');
+            const isGrouped = !isSupplier;
             const { bgClass, iconColor, badgeText, badgeClass, IconComponent, label } = getNotificationStyle(item);
+
             const isSending = sendingIds.has(item.id);
-            const isSent = sentIds.has(item.id);
-            const canSend = (item.type === 'Due Today' || item.type === 'Overdue') && !isSent;
+            const isSent = item.itemIds
+              ? item.itemIds.every((id: string) => sentIds.has(id))
+              : sentIds.has(item.id);
+            const canSend = isGrouped && (item.type === 'Due Today' || item.type === 'Overdue') && !isSent;
 
             return (
               <div key={item.id} className={`p-4 rounded-2xl border flex items-start gap-3.5 transition-all shadow-sm ${bgClass}`}>
                 <div className={`p-2 rounded-xl bg-white shadow-sm mt-0.5 ${iconColor}`}>
                   {isSupplier ? <Truck size={18} /> : <IconComponent size={18} />}
                 </div>
-                
+
                 <div className="flex-1 space-y-1">
+                  {/* Header row */}
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded ${badgeClass}`}>{badgeText}</span>
-                    {label && (
-                      <span className="text-[9px] text-slate-500 font-medium">{label}</span>
-                    )}
+                    {label && <span className="text-[9px] text-slate-500 font-medium">{label}</span>}
                     <span className="text-[10px] text-slate-400 font-mono">{item.date}</span>
+                    {isGrouped && item.count > 1 && (
+                      <span className="text-[9px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded-full">
+                        Bidhaa {item.count}
+                      </span>
+                    )}
                     {isSent && (
                       <span className="text-[9px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full flex items-center gap-1">
                         <Check size={10} /> Imetumwa
                       </span>
                     )}
                     {isSupplier && (
-                      <span className="text-[9px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-full">
-                        SMS kwako tu
-                      </span>
+                      <span className="text-[9px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-full">SMS kwako tu</span>
                     )}
                   </div>
-                  
-                  <p className="text-xs font-semibold leading-relaxed text-slate-800">{item.message}</p>
 
-                  {/* Action buttons for INSTALLMENT notifications */}
-                  {isInstallment && (
+                  {/* Customer name (only for grouped) */}
+                  {isGrouped && (
+                    <p className="text-[11px] font-bold text-slate-700">{item.customerName}</p>
+                  )}
+
+                  {/* Body — bullet list if multiple, single message if one */}
+                  {isGrouped && item.count > 1 ? (
+                    <ul className="list-disc list-inside space-y-0.5 mt-1">
+                      {item.productLines.map((line: any, i: number) => (
+                        <li key={i} className="text-xs font-medium leading-relaxed text-slate-700">{line.message}</li>
+                      ))}
+                      {item.total > 0 && (
+                        <li className="list-none mt-1 text-xs font-bold text-slate-900">
+                          Jumla: TSh {item.total.toLocaleString()}
+                        </li>
+                      )}
+                    </ul>
+                  ) : (
+                    <p className="text-xs font-semibold leading-relaxed text-slate-800">
+                      {isGrouped ? item.productLines[0]?.message : item.message}
+                    </p>
+                  )}
+
+                  {/* Grouped customer action row */}
+                  {isGrouped && (
                     <div className="pt-2.5 flex items-center justify-between flex-wrap gap-2 border-t border-slate-100/50 mt-2">
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        📱 {item.phoneNumber || 'N/A'} • Bidhaa: {item.productName}
-                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">📱 {item.phoneNumber || 'N/A'}</span>
                       <div className="flex items-center gap-1.5">
                         {item.phoneNumber && (
                           <>
                             <a href={`tel:${item.phoneNumber}`} className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition border border-slate-200" title="Piga">
                               <Phone size={13} />
                             </a>
-                            <a 
-                              href={`https://wa.me/${formatWhatsAppNumber(item.phoneNumber).replace('+', '')}?text=${encodeURIComponent(getWhatsAppMessage(item))}`} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl transition border border-emerald-100 text-[10px] font-extrabold" 
+                            <a
+                              href={`https://wa.me/${formatWhatsAppNumber(item.phoneNumber).replace('+', '')}?text=${encodeURIComponent(getWhatsAppMessage(item))}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl transition border border-emerald-100 text-[10px] font-extrabold"
                               title="WhatsApp"
                             >
                               <MessageCircle size={13} /><span>WhatsApp</span>
                             </a>
                           </>
                         )}
-                        {item.customerId && (
-                          <button 
-                            onClick={() => { 
-                              setSelectedCustomerId(item.customerId!); 
-                              setCurrentTab('installments'); 
-                            }}
-                            className="text-[10px] font-extrabold text-slate-900 hover:text-accent bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl transition shadow-sm"
-                          >
-                            Wasifu →
+                        {canSend && (
+                          <button onClick={() => handleSendSingleReminder(item)} disabled={isSending}
+                            className={`p-1.5 rounded-xl transition border ${isSending ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-200'}`}
+                            title="Tuma SMS moja kwa mteja (bidhaa zake zote)">
+                            {isSending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
                           </button>
                         )}
+                        <button
+                          onClick={() => { setSelectedCustomerId(item.customerId!); setCurrentTab('customers'); }}
+                          className="text-[10px] font-extrabold text-slate-900 hover:text-accent bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl transition shadow-sm">
+                          Wasifu →
+                        </button>
                       </div>
                     </div>
                   )}
 
-                  {/* Action buttons for CUSTOMER notifications */}
-                  {item.customerId && !isSupplier && !isInstallment && (() => {
-                    const customer = customers.find(c => c.id === item.customerId);
-                    if (!customer) return null;
-
-                    const phoneFormattedForWa = formatWhatsAppNumber(customer.phoneNumber).replace('+', '');
-                    const waMessage = getWhatsAppMessage(item);
-                    const waUrl = `https://wa.me/${phoneFormattedForWa}?text=${encodeURIComponent(waMessage)}`;
-
-                    return (
-                      <div className="pt-2.5 flex items-center justify-between flex-wrap gap-2 border-t border-slate-100/50 mt-2">
-                        <span className="text-[10px] text-slate-400 font-mono">📱 {customer.phoneNumber}</span>
-                        <div className="flex items-center gap-1.5">
-                          <a href={`tel:${customer.phoneNumber}`} className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition border border-slate-200" title="Piga">
-                            <Phone size={13} />
-                          </a>
-                          <a href={waUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl transition border border-emerald-100 text-[10px] font-extrabold" title="WhatsApp">
-                            <MessageCircle size={13} /><span>WhatsApp</span>
-                          </a>
-                          {canSend && (
-                            <button onClick={() => handleSendSingleReminder(item)} disabled={isSending}
-                              className={`p-1.5 rounded-xl transition border ${isSending ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-200'}`}
-                              title="Tuma SMS">
-                              {isSending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-                            </button>
-                          )}
-                          <button onClick={() => { setSelectedCustomerId(item.customerId!); setCurrentTab('customers'); }}
-                            className="text-[10px] font-extrabold text-slate-900 hover:text-accent bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl transition shadow-sm">
-                            Wasifu →
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Action buttons for SUPPLIER notifications */}
+                  {/* Supplier action row */}
                   {isSupplier && (
                     <div className="pt-2.5 flex items-center justify-between flex-wrap gap-2 border-t border-slate-100/50 mt-2">
                       <span className="text-[10px] text-slate-400">⚠️ Vikumbusho vinakwenda kwako (admin)</span>
                       <div className="flex items-center gap-1.5">
-                        {canSend && (
-                          <button onClick={() => handleSendSingleReminder(item)} disabled={isSending}
-                            className={`px-2.5 py-1.5 rounded-xl transition border text-[10px] font-extrabold flex items-center gap-1 ${isSending ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-200'}`}
-                            title="Tuma SMS kwako">
-                            {isSending ? <Loader2 size={13} className="animate-spin" /> : <><Send size={13} /> Tuma SMS</>}
-                          </button>
-                        )}
                         <button onClick={() => setCurrentTab('suppliers')}
                           className="text-[10px] font-extrabold text-slate-900 hover:text-accent bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl transition shadow-sm">
                           Wauzaji →
