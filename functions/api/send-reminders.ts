@@ -93,8 +93,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const today = new Date().toISOString().split('T')[0];
 
     console.log('========================================');
-    console.log('📨 SEND REMINDERS -', today);
-    console.log('👥 Customers:', customers.length, '| 🚚 Suppliers:', suppliers.length, '| 📦 Installments:', installmentProducts.length);
+    console.log('SEND REMINDERS -', today);
+    console.log('Customers:', customers.length, '| Suppliers:', suppliers.length, '| Installments:', installmentProducts.length);
     console.log('========================================');
 
     const results: any[] = [];
@@ -109,11 +109,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     // ============================================
     // 1. CUSTOMER DEBTS — GROUPED BY CUSTOMER
     // ============================================
-    // Build a map: customerId -> [debts...]
     const debtsByCustomer = new Map<string, any[]>();
     for (const debt of debts) {
       if (!debt.customerId) continue;
-      if (debt.dueDate !== today) continue;   // only today's due debts
+      if (debt.dueDate !== today) continue;
       if (!debtsByCustomer.has(debt.customerId)) {
         debtsByCustomer.set(debt.customerId, []);
       }
@@ -124,7 +123,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const customer = customers.find((c: any) => c.id === customerId);
       if (!customer || !customer.phoneNumber) continue;
 
-      // Compute remaining per debt, skip fully-paid
       const unpaidDebts: { description: string; remaining: number }[] = [];
       for (const debt of customerDebts) {
         const debtPayments = payments.filter((p: any) => p.debtId === debt.id);
@@ -143,9 +141,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const customerPhone = normalizePhone(customer.phoneNumber);
       const ownerPhone = normalizePhone(MY_PHONE);
 
-      // ✅ Customer message — one SMS, bullet list + Jumla + Asante
+      // Customer message — one SMS, bullet list + Jumla + Asante
       const firstName = (customer.fullName || '').split(' ')[0] || 'Mteja';
-      const lines = unpaidDebts.map(d => `• ${d.description} - TSh ${d.remaining.toLocaleString()}`);
+      const lines = unpaidDebts.map(d => `- ${d.description} - TSh ${d.remaining.toLocaleString()}`);
       const totalRemaining = unpaidDebts.reduce((s, d) => s + d.remaining, 0);
 
       const customerMessage =
@@ -153,7 +151,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         lines.join('\n') +
         `\nJumla: TSh ${totalRemaining.toLocaleString()}.\n\nAsante`;
 
-      // Send to Customer
       const custResult = await sendSingleSMS({
         apiKey: BEEM_API_KEY,
         secretKey: BEEM_SECRET_KEY,
@@ -175,7 +172,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       if (custResult.success) customerSent++;
       else customerFailed++;
 
-      // ✅ Admin message — one SMS confirming reminder was sent
+      // Admin message — plain text, no emoji
       const ownerMsg =
         `${customer.fullName} amekumbushwa Madeni yake leo:\n` +
         `Jumla: TSh ${totalRemaining.toLocaleString()}.`;
@@ -193,7 +190,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     // ============================================
-    // 2. SUPPLIER PAYMENTS (unchanged — one per supplier)
+    // 2. SUPPLIER PAYMENTS
     // ============================================
     for (const supplier of suppliers) {
       const remaining = (supplier.amount || 0) - (supplier.paidAmount || 0);
@@ -203,7 +200,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       const ownerPhone = normalizePhone(MY_PHONE);
 
-      const ownerMessage = `⏰ Leo ni siku ya mwisho kumlipa ${supplier.name}. Deni: TSh ${remaining.toLocaleString()} ya "${supplier.notes || 'Bidhaa'}". Simu: ${supplier.phoneNumber || 'Haina'}.`;
+      // No emoji
+      const ownerMessage = `Leo ni siku ya mwisho kumlipa ${supplier.name}. Deni: TSh ${remaining.toLocaleString()} ya "${supplier.notes || 'Bidhaa'}". Simu: ${supplier.phoneNumber || 'Haina'}.`;
 
       const result = await sendSingleSMS({
         apiKey: BEEM_API_KEY,
@@ -228,7 +226,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     // ============================================
-    // 3. INSTALLMENT PAYMENT NOTIFICATIONS (unchanged)
+    // 3. INSTALLMENT PAYMENT NOTIFICATIONS
     // ============================================
     for (const product of installmentProducts) {
       const customer = installmentCustomers.find((c: any) => c.id === product.customer_id);
@@ -251,13 +249,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       if (isCompleted) {
         customerMessage = `Hongera ${customer.full_name}! Umemaliza malipo ya ${product.product_name} ya TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!`;
-        ownerMessage = `🎉 ${customer.full_name} amekamilisha malipo ya ${product.product_name} TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa.`;
+        // No emoji
+        ownerMessage = `${customer.full_name} amekamilisha malipo ya ${product.product_name} TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa.`;
       } else if (progressPercentage >= 45 && progressPercentage <= 55) {
         customerMessage = `Habari ${customer.full_name}, umefika nusu ya malipo ya ${product.product_name} (${progressPercentage}%). Umelipa TSh ${paidAmount.toLocaleString()}, baki TSh ${remaining.toLocaleString()}. Endelea hivyo hivyo!`;
-        ownerMessage = `📊 ${customer.full_name} amefika ${progressPercentage}% ya malipo ya ${product.product_name}. Amelipa TSh ${paidAmount.toLocaleString()}, baki TSh ${remaining.toLocaleString()}.`;
+        // No emoji
+        ownerMessage = `${customer.full_name} amefika ${progressPercentage}% ya malipo ya ${product.product_name}. Amelipa TSh ${paidAmount.toLocaleString()}, baki TSh ${remaining.toLocaleString()}.`;
       } else {
         customerMessage = `Habari ${customer.full_name}, malipo ya TSh ${paidAmount.toLocaleString()} ya ${product.product_name} yamepokelewa. Kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
-        ownerMessage = `💰 ${customer.full_name} amelipa TSh ${paidAmount.toLocaleString()} ya ${product.product_name}. Kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
+        // No emoji
+        ownerMessage = `${customer.full_name} amelipa TSh ${paidAmount.toLocaleString()} ya ${product.product_name}. Kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
       }
 
       const custResult = await sendSingleSMS({
@@ -294,10 +295,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     console.log('========================================');
-    console.log(`✅ Customers: ${customerSent} | ❌ Failed: ${customerFailed}`);
-    console.log(`✅ Suppliers: ${supplierSent} | ❌ Failed: ${supplierFailed}`);
-    console.log(`✅ Installments: ${installmentSent} | ❌ Failed: ${installmentFailed}`);
-    console.log(`📋 Owner copies: ${ownerSent}`);
+    console.log(`Customers: ${customerSent} | Failed: ${customerFailed}`);
+    console.log(`Suppliers: ${supplierSent} | Failed: ${supplierFailed}`);
+    console.log(`Installments: ${installmentSent} | Failed: ${installmentFailed}`);
+    console.log(`Owner copies: ${ownerSent}`);
     console.log('========================================');
 
     return json({
@@ -313,10 +314,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         ownerSent,
         results,
       },
-      message: `✅ Wateja: ${customerSent} | 🚚 Wauzaji: ${supplierSent} | 📦 Mafungu: ${installmentSent} | 📋 Nakala: ${ownerSent}`,
+      message: `Wateja: ${customerSent} | Wauzaji: ${supplierSent} | Mafungu: ${installmentSent} | Nakala: ${ownerSent}`,
     });
   } catch (error: any) {
-    console.error('❌ Error:', error);
+    console.error('Error:', error);
     return json({ success: false, error: error?.message }, 500);
   }
 };
