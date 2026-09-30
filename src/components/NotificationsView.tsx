@@ -35,7 +35,6 @@ interface NotificationsViewProps {
   installmentNotifications?: InstallmentNotification[];
 }
 
-// Priority order for picking the "dominant" status when grouping
 const STATUS_PRIORITY: Record<string, number> = {
   'Overdue': 0,
   'Due Today': 1,
@@ -44,6 +43,25 @@ const STATUS_PRIORITY: Record<string, number> = {
   'Installment Completed': 4,
   'Fully Paid': 5,
   'Payment Received': 6,
+};
+
+// ✅ Clean up a description: strip any leading "Habari X, ..." or
+// "Leo ni siku ya mwisho kwa X kulipa TSh ... ya" sentence if present.
+const cleanDescription = (raw: string): string => {
+  let d = String(raw || '').trim();
+  // Remove trailing period
+  d = d.replace(/\.$/, '');
+  // If it contains `ya "..."` extract inside quotes
+  const quoted = d.match(/ya\s+"([^"]+)"/i);
+  if (quoted) return quoted[1].trim();
+  // If it contains `ya '...'` extract inside single quotes
+  const singleQuoted = d.match(/ya\s+'([^']+)'/i);
+  if (singleQuoted) return singleQuoted[1].trim();
+  // If it starts with "Leo ni siku..." strip the preamble
+  d = d.replace(/^Leo ni siku ya mwisho kwa .+? kulipa\s+TSh\s+[\d,]+\.?\s*ya\s*/i, '');
+  d = d.replace(/^Habari\s+\S+,?\s*/i, '');
+  d = d.replace(/^Tunakukumbusha Madeni ya\s*/i, '');
+  return d.trim() || String(raw || '').trim();
 };
 
 export default function NotificationsView({
@@ -69,7 +87,7 @@ export default function NotificationsView({
   );
 
   // ============================================================
-  // ✅ GROUP NOTIFICATIONS BY CUSTOMER
+  // GROUP NOTIFICATIONS BY CUSTOMER
   // ============================================================
   const { groupedRows, supplierRows } = useMemo(() => {
     const byCustomer = new Map<string, any[]>();
@@ -81,7 +99,7 @@ export default function NotificationsView({
         supplierItems.push(item);
         continue;
       }
-      if (!item.customerId) continue;   // orphans are dropped (shouldn't happen)
+      if (!item.customerId) continue;
       if (!byCustomer.has(item.customerId)) byCustomer.set(item.customerId, []);
       byCustomer.get(item.customerId)!.push(item);
     }
@@ -91,29 +109,40 @@ export default function NotificationsView({
     byCustomer.forEach((items, customerId) => {
       const customer = customers.find(c => c.id === customerId);
 
-      // Sort by priority → dominant status is items[0]
       const sorted = [...items].sort(
         (a, b) => (STATUS_PRIORITY[a.type] ?? 99) - (STATUS_PRIORITY[b.type] ?? 99)
       );
       const dominant = sorted[0];
 
-      // Build product/debt bullet lines
-      const productLines = items.map((it: any) => ({
-        id: it.id,
-        type: it.type,
-        message: it.message,
-        debtId: it.debtId,
-        amount: it.amount ?? 0,
-        description: it.description ?? it.productName ?? '',
-      }));
+      // ✅ Build clean product lines: description + amount
+      const productLines = items.map((it: any) => {
+        // Prefer explicit structured fields, fall back to parsing message
+        let description = it.description || it.productName || '';
+        let amount = typeof it.amount === 'number' ? it.amount
+                   : typeof it.remaining === 'number' ? it.remaining
+                   : 0;
 
-      // Total = sum of any amount-like fields we can find
-      const total = items.reduce((sum, it: any) => {
-        // Prefer explicit amount fields
-        if (typeof it.amount === 'number') return sum + it.amount;
-        if (typeof it.remaining === 'number') return sum + it.remaining;
-        return sum;
-      }, 0);
+        if (!description) {
+          description = cleanDescription(it.message || '');
+        } else {
+          description = cleanDescription(description);
+        }
+
+        // If amount is still 0, try to extract "TSh X" from the message
+        if (!amount && it.message) {
+          const m = String(it.message).match(/TSh\s+([\d,]+)/i);
+          if (m) amount = Number(m[1].replace(/,/g, ''));
+        }
+
+        return {
+          id: it.id,
+          type: it.type,
+          description: description || 'Bidhaa',
+          amount,
+        };
+      });
+
+      const total = productLines.reduce((s: number, p: any) => s + (p.amount || 0), 0);
 
       rows.push({
         id: `group-${customerId}`,
@@ -128,11 +157,9 @@ export default function NotificationsView({
         total,
         count: items.length,
         isSingle: items.length === 1,
-        rawItems: items,
       });
     });
 
-    // Sort grouped rows by status priority
     rows.sort((a, b) => (STATUS_PRIORITY[a.type] ?? 99) - (STATUS_PRIORITY[b.type] ?? 99));
 
     return { groupedRows: rows, supplierRows: supplierItems };
@@ -162,7 +189,7 @@ export default function NotificationsView({
   ).length;
 
   // ============================================================
-  // SEND — ALL
+  // SEND ALL
   // ============================================================
   const handleSendAllReminders = async () => {
     if (todayDueCount === 0) {
@@ -176,20 +203,13 @@ export default function NotificationsView({
     setReminderResult(null);
 
     try {
-      const result = await api.reminders.send({
-        debts,
-        customers,
-        payments,
-        suppliers,
-      });
+      const result = await api.reminders.send({ debts, customers, payments, suppliers });
 
       if (result.success) {
         setReminderResult({
           success: true,
           message: `✅ Wateja: ${result.data.customerSent} | Wauzaji: ${result.data.supplierSent || 0}`,
         });
-
-        // Mark all underlying notification IDs as sent
         const ids = groupedRows
           .filter(n => n.type === 'Due Today' || n.type === 'Overdue')
           .flatMap(n => n.itemIds);
@@ -205,19 +225,17 @@ export default function NotificationsView({
   };
 
   // ============================================================
-  // SEND — SINGLE CUSTOMER (sends ALL their debts in one call)
+  // SEND SINGLE (all debts for that customer in one call)
   // ============================================================
   const handleSendSingleReminder = async (group: any) => {
     const groupKey = group.id;
     if (sendingIds.has(groupKey)) return;
-    // Already sent if every underlying id is in sentIds
     const allSent = group.itemIds.every((id: string) => sentIds.has(id));
     if (allSent) return;
 
     setSendingIds(prev => new Set(prev).add(groupKey));
 
     try {
-      // ✅ Send ALL debts for this customer (not just one)
       const relevantDebts = group.debtIds?.length
         ? debts.filter((d: any) => group.debtIds.includes(d.id))
         : [];
@@ -276,6 +294,27 @@ export default function NotificationsView({
     }
   };
 
+  // ✅ Human-readable lead line per status
+  const getLeadLine = (type: string, firstName: string) => {
+    switch (type) {
+      case 'Overdue':
+        return `Madeni yamepitisha muda ${firstName} —`;
+      case 'Due Today':
+        return `Leo ni siku ya mwisho ${firstName} —`;
+      case 'Due Tomorrow':
+        return `Kesho ni siku ya mwisho ${firstName} —`;
+      case 'Installment Halfway':
+        return `Nusu ya malipo imefikiwa ${firstName} —`;
+      case 'Installment Completed':
+        return `Malipo yamekamilika ${firstName} —`;
+      case 'Fully Paid':
+      case 'Payment Received':
+        return `Malipo yamepokelewa ${firstName} —`;
+      default:
+        return `Taarifa ${firstName} —`;
+    }
+  };
+
   const formatWhatsAppNumber = (phone: string): string => {
     let cleaned = phone.trim().replace(/\s+/g, '');
     if (cleaned.startsWith('0')) return '+255' + cleaned.slice(1);
@@ -284,18 +323,29 @@ export default function NotificationsView({
     return cleaned;
   };
 
-  // ✅ One consolidated WhatsApp message per customer
+  // ✅ Consolidated WhatsApp message — bullet list + Jumla + Asante
   const getWhatsAppMessage = (group: any): string => {
     const name = group.customerName?.split(' ')[0] || 'Mteja';
-    const lines = (group.productLines || []).map((p: any) => p.message).filter(Boolean);
+    const lead = getLeadLine(group.type, name).replace(/\s—$/, '');
 
     if (group.type === 'Installment Completed') {
-      return `Habari ${name}, Hongera kwa kumaliza malipo yote ya bidhaa zako:\n${lines.map((l: string) => '• ' + l).join('\n')}\n\nAsante kwa kuaminiana nasi!`;
+      return `${lead}:\n` +
+        group.productLines.map((p: any) => `  • ${p.description} - TSh ${p.amount.toLocaleString()}`).join('\n') +
+        `\nJumla: TSh ${group.total.toLocaleString()}.\n\nAsante kwa kuaminiana nasi!`;
     }
     if (group.type === 'Installment Halfway') {
-      return `Habari ${name}, umefika nusu ya malipo ya bidhaa zako:\n${lines.map((l: string) => '• ' + l).join('\n')}\n\nEndelea hivyo hivyo!`;
+      return `${lead}:\n` +
+        group.productLines.map((p: any) => `  • ${p.description} - TSh ${p.amount.toLocaleString()}`).join('\n') +
+        `\nJumla: TSh ${group.total.toLocaleString()}.\n\nEndelea hivyo hivyo!`;
     }
-    return `Habari ${name}, Tunakukumbusha Madeni ya\n${lines.map((l: string) => '• ' + l).join('\n')}\n\nAsante`;
+    if (group.type === 'Overdue') {
+      return `${lead}:\n` +
+        group.productLines.map((p: any) => `  • ${p.description} - TSh ${p.amount.toLocaleString()}`).join('\n') +
+        `\nJumla: TSh ${group.total.toLocaleString()}.\n\nTafadhali lipa haraka iwezekanavyo.\nAsante`;
+    }
+    return `${lead}:\n` +
+      group.productLines.map((p: any) => `  • ${p.description} - TSh ${p.amount.toLocaleString()}`).join('\n') +
+      `\nJumla: TSh ${group.total.toLocaleString()}.\n\nAsante`;
   };
 
   // ============================================================
@@ -377,6 +427,10 @@ export default function NotificationsView({
               : sentIds.has(item.id);
             const canSend = isGrouped && (item.type === 'Due Today' || item.type === 'Overdue') && !isSent;
 
+            // ✅ First name for the lead line
+            const firstName = (item.customerName || 'Mteja').split(' ')[0];
+            const leadLine = isGrouped ? getLeadLine(item.type, firstName) : '';
+
             return (
               <div key={item.id} className={`p-4 rounded-2xl border flex items-start gap-3.5 transition-all shadow-sm ${bgClass}`}>
                 <div className={`p-2 rounded-xl bg-white shadow-sm mt-0.5 ${iconColor}`}>
@@ -404,27 +458,47 @@ export default function NotificationsView({
                     )}
                   </div>
 
-                  {/* Customer name (only for grouped) */}
+                  {/* ============================================ */}
+                  {/* GROUPED CUSTOMER CARD (with products list) */}
+                  {/* ============================================ */}
                   {isGrouped && (
-                    <p className="text-[11px] font-bold text-slate-700">{item.customerName}</p>
+                    <div className="mt-1 space-y-1.5">
+                      {/* Lead line — appears ONCE */}
+                      <p className="text-[12px] font-extrabold text-slate-900">
+                        {leadLine}
+                      </p>
+
+                      {/* Numbered product list */}
+                      {item.productLines.length > 0 && (
+                        <ol className="list-decimal list-inside space-y-0.5 pl-1">
+                          {item.productLines.map((p: any, i: number) => (
+                            <li key={i} className="text-xs font-medium leading-relaxed text-slate-700">
+                              {p.description}
+                              {p.amount > 0 && (
+                                <span className="text-slate-500"> — TSh {p.amount.toLocaleString()}</span>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+
+                      {/* Total */}
+                      {item.total > 0 && item.count > 1 && (
+                        <p className="text-xs font-extrabold text-slate-900 pt-0.5">
+                          Jumla: TSh {item.total.toLocaleString()}.
+                        </p>
+                      )}
+
+                      {/* Closing */}
+                      <p className="text-[11px] font-semibold text-slate-500 italic pt-0.5">
+                        Asante
+                      </p>
+                    </div>
                   )}
 
-                  {/* Body — bullet list if multiple, single message if one */}
-                  {isGrouped && item.count > 1 ? (
-                    <ul className="list-disc list-inside space-y-0.5 mt-1">
-                      {item.productLines.map((line: any, i: number) => (
-                        <li key={i} className="text-xs font-medium leading-relaxed text-slate-700">{line.message}</li>
-                      ))}
-                      {item.total > 0 && (
-                        <li className="list-none mt-1 text-xs font-bold text-slate-900">
-                          Jumla: TSh {item.total.toLocaleString()}
-                        </li>
-                      )}
-                    </ul>
-                  ) : (
-                    <p className="text-xs font-semibold leading-relaxed text-slate-800">
-                      {isGrouped ? item.productLines[0]?.message : item.message}
-                    </p>
+                  {/* SUPPLIER (unchanged — plain message) */}
+                  {isSupplier && (
+                    <p className="text-xs font-semibold leading-relaxed text-slate-800">{item.message}</p>
                   )}
 
                   {/* Grouped customer action row */}
