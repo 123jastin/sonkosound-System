@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { NotificationItem, Customer } from '../types';
 import { api } from '../services/api';
 import { 
@@ -51,55 +51,9 @@ export default function NotificationsView({
   const [reminderResult, setReminderResult] = useState<{ success: boolean; message: string } | null>(null);
   const [sendingIds, setSendingIds] = useState<Set<string>>(new Set());
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
-  const autoSentRef = useRef(false);
-  const initializedRef = useRef(false);
 
   // Combine all notifications
   const allNotifications = [...notifications, ...installmentNotifications];
-
-  // Auto-send ONCE per day
-  useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
-
-    const lastSentDate = localStorage.getItem('ledger_last_auto_send_date');
-    const today = new Date().toISOString().split('T')[0];
-    
-    const todayNotifications = allNotifications.filter(n => n.type === 'Due Today');
-    
-    if (lastSentDate !== today && todayNotifications.length > 0 && !autoSentRef.current) {
-      autoSentRef.current = true;
-      handleAutoSend(today);
-    } else if (lastSentDate === today && todayNotifications.length > 0) {
-      setSentIds(new Set(todayNotifications.map(n => n.id)));
-    }
-  }, []);
-
-  const handleAutoSend = async (today: string) => {
-    setIsSendingAll(true);
-    try {
-      const result = await api.reminders.send({
-        debts,
-        customers,
-        payments,
-        suppliers,
-      });
-
-      if (result.success) {
-        localStorage.setItem('ledger_last_auto_send_date', today);
-        setReminderResult({
-          success: true,
-          message: `✅ Vikumbusho vya leo vimetumwa kiotomatiki (Wateja: ${result.data.customerSent}, Wauzaji: ${result.data.supplierSent || 0}).`,
-        });
-        const todayIds = allNotifications.filter(n => n.type === 'Due Today').map(n => n.id);
-        setSentIds(new Set(todayIds));
-      }
-    } catch (err: any) {
-      console.error('Auto-send failed:', err);
-    } finally {
-      setIsSendingAll(false);
-    }
-  };
 
   const filteredNotifications = allNotifications.filter(item => {
     if (filterType === 'All') return true;
@@ -133,9 +87,6 @@ export default function NotificationsView({
       });
 
       if (result.success) {
-        const today = new Date().toISOString().split('T')[0];
-        localStorage.setItem('ledger_last_auto_send_date', today);
-        
         setReminderResult({
           success: true,
           message: `✅ Wateja: ${result.data.customerSent} | Wauzaji: ${result.data.supplierSent || 0}`,
