@@ -141,15 +141,29 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const customerPhone = normalizePhone(customer.phoneNumber);
       const ownerPhone = normalizePhone(MY_PHONE);
 
-      // Customer message — one SMS, bullet list + Jumla + Asante
       const firstName = (customer.fullName || '').split(' ')[0] || 'Mteja';
-      const lines = unpaidDebts.map(d => `- ${d.description} - TSh ${d.remaining.toLocaleString()}`);
       const totalRemaining = unpaidDebts.reduce((s, d) => s + d.remaining, 0);
 
-      const customerMessage =
-        `Habari ${firstName}, Tunakukumbusha Madeni ya\n` +
-        lines.join('\n') +
-        `\nJumla: TSh ${totalRemaining.toLocaleString()}.\n\nAsante`;
+      // ============================================
+      // ✅ CUSTOMER MESSAGE — single vs multiple
+      // ============================================
+      let customerMessage = '';
+
+      if (unpaidDebts.length === 1) {
+        // Single product
+        const item = unpaidDebts[0];
+        customerMessage =
+          `Habari ${firstName}, Tungependa kukumbusha Juu ya Deni la ${item.description}, Sh ${item.remaining.toLocaleString()}.\n\nAsante`;
+      } else {
+        // Multiple products — numbered list
+        const lines = unpaidDebts.map(
+          (d, i) => `${i + 1}. ${d.description} - Sh ${d.remaining.toLocaleString()}`
+        );
+        customerMessage =
+          `Habari ${firstName}, Tungependa kukumbusha Juu ya Madeni ya;\n` +
+          lines.join('\n') +
+          `\nJumla: Sh ${totalRemaining.toLocaleString()}.\n\nAsante`;
+      }
 
       const custResult = await sendSingleSMS({
         apiKey: BEEM_API_KEY,
@@ -172,10 +186,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       if (custResult.success) customerSent++;
       else customerFailed++;
 
-      // Admin message — plain text, no emoji
-      const ownerMsg =
-        `${customer.fullName} amekumbushwa Madeni yake leo:\n` +
-        `Jumla: TSh ${totalRemaining.toLocaleString()}.`;
+      // ============================================
+      // ✅ ADMIN MESSAGE — mirrors the customer format
+      // ============================================
+      let ownerMsg = '';
+      if (unpaidDebts.length === 1) {
+        ownerMsg =
+          `${customer.fullName} amekumbushwa Deni la ${unpaidDebts[0].description}:\n` +
+          `Sh ${totalRemaining.toLocaleString()}.`;
+      } else {
+        ownerMsg =
+          `${customer.fullName} amekumbushwa Madeni yake leo:\n` +
+          `Jumla: Sh ${totalRemaining.toLocaleString()}.`;
+      }
 
       const ownerResult = await sendSingleSMS({
         apiKey: BEEM_API_KEY,
@@ -200,8 +223,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       const ownerPhone = normalizePhone(MY_PHONE);
 
-      // No emoji
-      const ownerMessage = `Leo ni siku ya mwisho kumlipa ${supplier.name}. Deni: TSh ${remaining.toLocaleString()} ya "${supplier.notes || 'Bidhaa'}". Simu: ${supplier.phoneNumber || 'Haina'}.`;
+      const ownerMessage = `Leo ni siku ya mwisho kumlipa ${supplier.name}. Deni: Sh ${remaining.toLocaleString()} ya "${supplier.notes || 'Bidhaa'}". Simu: ${supplier.phoneNumber || 'Haina'}.`;
 
       const result = await sendSingleSMS({
         apiKey: BEEM_API_KEY,
@@ -248,17 +270,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       let ownerMessage = '';
 
       if (isCompleted) {
-        customerMessage = `Hongera ${customer.full_name}! Umemaliza malipo ya ${product.product_name} ya TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!`;
-        // No emoji
-        ownerMessage = `${customer.full_name} amekamilisha malipo ya ${product.product_name} TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa.`;
+        customerMessage = `Hongera ${customer.full_name}! Umemaliza malipo ya ${product.product_name} ya Sh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!`;
+        ownerMessage = `${customer.full_name} amekamilisha malipo ya ${product.product_name} Sh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa.`;
       } else if (progressPercentage >= 45 && progressPercentage <= 55) {
-        customerMessage = `Habari ${customer.full_name}, umefika nusu ya malipo ya ${product.product_name} (${progressPercentage}%). Umelipa TSh ${paidAmount.toLocaleString()}, baki TSh ${remaining.toLocaleString()}. Endelea hivyo hivyo!`;
-        // No emoji
-        ownerMessage = `${customer.full_name} amefika ${progressPercentage}% ya malipo ya ${product.product_name}. Amelipa TSh ${paidAmount.toLocaleString()}, baki TSh ${remaining.toLocaleString()}.`;
+        customerMessage = `Habari ${customer.full_name}, umefika nusu ya malipo ya ${product.product_name} (${progressPercentage}%). Umelipa Sh ${paidAmount.toLocaleString()}, baki Sh ${remaining.toLocaleString()}. Endelea hivyo hivyo!`;
+        ownerMessage = `${customer.full_name} amefika ${progressPercentage}% ya malipo ya ${product.product_name}. Amelipa Sh ${paidAmount.toLocaleString()}, baki Sh ${remaining.toLocaleString()}.`;
       } else {
-        customerMessage = `Habari ${customer.full_name}, malipo ya TSh ${paidAmount.toLocaleString()} ya ${product.product_name} yamepokelewa. Kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
-        // No emoji
-        ownerMessage = `${customer.full_name} amelipa TSh ${paidAmount.toLocaleString()} ya ${product.product_name}. Kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
+        customerMessage = `Habari ${customer.full_name}, malipo ya Sh ${paidAmount.toLocaleString()} ya ${product.product_name} yamepokelewa. Kiwango kilicho baki ni Sh ${remaining.toLocaleString()}.`;
+        ownerMessage = `${customer.full_name} amelipa Sh ${paidAmount.toLocaleString()} ya ${product.product_name}. Kiwango kilicho baki ni Sh ${remaining.toLocaleString()}.`;
       }
 
       const custResult = await sendSingleSMS({
