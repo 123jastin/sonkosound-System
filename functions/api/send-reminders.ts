@@ -107,23 +107,51 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     let ownerSent = 0;
 
     // ============================================
-    // 1. CUSTOMER DEBTS
+    // 1. CUSTOMER DEBTS — GROUPED BY CUSTOMER
     // ============================================
+    // Build a map: customerId -> [debts...]
+    const debtsByCustomer = new Map<string, any[]>();
     for (const debt of debts) {
-      const customer = customers.find((c: any) => c.id === debt.customerId);
+      if (!debt.customerId) continue;
+      if (debt.dueDate !== today) continue;   // only today's due debts
+      if (!debtsByCustomer.has(debt.customerId)) {
+        debtsByCustomer.set(debt.customerId, []);
+      }
+      debtsByCustomer.get(debt.customerId)!.push(debt);
+    }
+
+    for (const [customerId, customerDebts] of debtsByCustomer) {
+      const customer = customers.find((c: any) => c.id === customerId);
       if (!customer || !customer.phoneNumber) continue;
 
-      const debtPayments = payments.filter((p: any) => p.debtId === debt.id);
-      const totalPaid = debtPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
-      const remaining = (debt.amount || 0) - totalPaid;
+      // Compute remaining per debt, skip fully-paid
+      const unpaidDebts: { description: string; remaining: number }[] = [];
+      for (const debt of customerDebts) {
+        const debtPayments = payments.filter((p: any) => p.debtId === debt.id);
+        const totalPaid = debtPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+        const remaining = (debt.amount || 0) - totalPaid;
+        if (remaining > 0) {
+          unpaidDebts.push({
+            description: debt.description || 'Bidhaa',
+            remaining,
+          });
+        }
+      }
 
-      if (remaining <= 0) continue;
-      if (debt.dueDate !== today) continue;
+      if (unpaidDebts.length === 0) continue;
 
       const customerPhone = normalizePhone(customer.phoneNumber);
+      const ownerPhone = normalizePhone(MY_PHONE);
 
-      // Message to Customer
-      const customerMessage = `Habari ${customer.fullName}, leo ni siku ya mwisho kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}". Asante.`;
+      // ✅ Customer message — one SMS, bullet list + Jumla + Asante
+      const firstName = (customer.fullName || '').split(' ')[0] || 'Mteja';
+      const lines = unpaidDebts.map(d => `• ${d.description} - TSh ${d.remaining.toLocaleString()}`);
+      const totalRemaining = unpaidDebts.reduce((s, d) => s + d.remaining, 0);
+
+      const customerMessage =
+        `Habari ${firstName}, Tunakukumbusha Madeni ya\n` +
+        lines.join('\n') +
+        `\nJumla: TSh ${totalRemaining.toLocaleString()}.\n\nAsante`;
 
       // Send to Customer
       const custResult = await sendSingleSMS({
@@ -138,6 +166,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         type: 'customer',
         name: customer.fullName,
         phone: customerPhone,
+        products: unpaidDebts.length,
+        total: totalRemaining,
         message: customerMessage,
         success: custResult.success,
       });
@@ -145,13 +175,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       if (custResult.success) customerSent++;
       else customerFailed++;
 
-      // Owner copy
-      const ownerMsg = `Imemkumbusha ${customer.fullName} (${customer.phoneNumber}) kulipa TSh ${remaining.toLocaleString()} ya "${debt.description}".`;
+      // ✅ Admin message — one SMS confirming reminder was sent
+      const ownerMsg =
+        `${customer.fullName} amekumbushwa Madeni yake leo:\n` +
+        `Jumla: TSh ${totalRemaining.toLocaleString()}.`;
+
       const ownerResult = await sendSingleSMS({
         apiKey: BEEM_API_KEY,
         secretKey: BEEM_SECRET_KEY,
         message: ownerMsg,
-        phone: normalizePhone(MY_PHONE),
+        phone: ownerPhone,
         source_addr: 'Sonko Sound',
       });
       if (ownerResult.success) ownerSent++;
@@ -160,7 +193,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     // ============================================
-    // 2. SUPPLIER PAYMENTS
+    // 2. SUPPLIER PAYMENTS (unchanged — one per supplier)
     // ============================================
     for (const supplier of suppliers) {
       const remaining = (supplier.amount || 0) - (supplier.paidAmount || 0);
@@ -170,7 +203,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       const ownerPhone = normalizePhone(MY_PHONE);
 
-      // Message to Owner ONLY (not to supplier)
       const ownerMessage = `⏰ Leo ni siku ya mwisho kumlipa ${supplier.name}. Deni: TSh ${remaining.toLocaleString()} ya "${supplier.notes || 'Bidhaa'}". Simu: ${supplier.phoneNumber || 'Haina'}.`;
 
       const result = await sendSingleSMS({
@@ -196,7 +228,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     // ============================================
-    // 3. INSTALLMENT PAYMENT NOTIFICATIONS
+    // 3. INSTALLMENT PAYMENT NOTIFICATIONS (unchanged)
     // ============================================
     for (const product of installmentProducts) {
       const customer = installmentCustomers.find((c: any) => c.id === product.customer_id);
@@ -208,7 +240,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       if (totalAmount <= 0) continue;
 
-      // Check if this is a payment notification or completion
       const isCompleted = paidAmount >= totalAmount;
       const progressPercentage = Math.round((paidAmount / totalAmount) * 100);
 
@@ -219,20 +250,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       let ownerMessage = '';
 
       if (isCompleted) {
-        // Completion messages
         customerMessage = `Hongera ${customer.full_name}! Umemaliza malipo ya ${product.product_name} ya TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!`;
         ownerMessage = `🎉 ${customer.full_name} amekamilisha malipo ya ${product.product_name} TSh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa.`;
       } else if (progressPercentage >= 45 && progressPercentage <= 55) {
-        // Halfway milestone
         customerMessage = `Habari ${customer.full_name}, umefika nusu ya malipo ya ${product.product_name} (${progressPercentage}%). Umelipa TSh ${paidAmount.toLocaleString()}, baki TSh ${remaining.toLocaleString()}. Endelea hivyo hivyo!`;
         ownerMessage = `📊 ${customer.full_name} amefika ${progressPercentage}% ya malipo ya ${product.product_name}. Amelipa TSh ${paidAmount.toLocaleString()}, baki TSh ${remaining.toLocaleString()}.`;
       } else {
-        // Regular payment notification
         customerMessage = `Habari ${customer.full_name}, malipo ya TSh ${paidAmount.toLocaleString()} ya ${product.product_name} yamepokelewa. Kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
         ownerMessage = `💰 ${customer.full_name} amelipa TSh ${paidAmount.toLocaleString()} ya ${product.product_name}. Kiwango kilicho baki ni TSh ${remaining.toLocaleString()}.`;
       }
 
-      // Send to Customer
       const custResult = await sendSingleSMS({
         apiKey: BEEM_API_KEY,
         secretKey: BEEM_SECRET_KEY,
@@ -254,7 +281,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       if (custResult.success) installmentSent++;
       else installmentFailed++;
 
-      // Send to Owner
       const ownerResult = await sendSingleSMS({
         apiKey: BEEM_API_KEY,
         secretKey: BEEM_SECRET_KEY,
