@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { NotificationItem, Customer } from '../types';
 import { api } from '../services/api';
 import { 
@@ -45,19 +45,37 @@ const STATUS_PRIORITY: Record<string, number> = {
   'Payment Received': 6,
 };
 
-// ✅ Clean up a description: strip any leading "Habari X, ..." or
+// ✅ localStorage key for send counts
+const SEND_COUNT_KEY = 'ledger_send_counts_v1';
+
+// ✅ Load send counts from localStorage
+const loadSendCounts = (): Record<string, number> => {
+  try {
+    const raw = localStorage.getItem(SEND_COUNT_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+// ✅ Save send counts to localStorage
+const saveSendCounts = (counts: Record<string, number>) => {
+  try {
+    localStorage.setItem(SEND_COUNT_KEY, JSON.stringify(counts));
+  } catch {}
+};
+
+// Clean up a description: strip any leading "Habari X, ..." or
 // "Leo ni siku ya mwisho kwa X kulipa TSh ... ya" sentence if present.
 const cleanDescription = (raw: string): string => {
   let d = String(raw || '').trim();
-  // Remove trailing period
   d = d.replace(/\.$/, '');
-  // If it contains `ya "..."` extract inside quotes
   const quoted = d.match(/ya\s+"([^"]+)"/i);
   if (quoted) return quoted[1].trim();
-  // If it contains `ya '...'` extract inside single quotes
   const singleQuoted = d.match(/ya\s+'([^']+)'/i);
   if (singleQuoted) return singleQuoted[1].trim();
-  // If it starts with "Leo ni siku..." strip the preamble
   d = d.replace(/^Leo ni siku ya mwisho kwa .+? kulipa\s+TSh\s+[\d,]+\.?\s*ya\s*/i, '');
   d = d.replace(/^Habari\s+\S+,?\s*/i, '');
   d = d.replace(/^Tunakukumbusha Madeni ya\s*/i, '');
@@ -80,6 +98,14 @@ export default function NotificationsView({
   const [reminderResult, setReminderResult] = useState<{ success: boolean; message: string } | null>(null);
   const [sendingIds, setSendingIds] = useState<Set<string>>(new Set());
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+
+  // ✅ Send counts persisted in localStorage
+  const [sendCounts, setSendCounts] = useState<Record<string, number>>(() => loadSendCounts());
+
+  // Persist on every change
+  useEffect(() => {
+    saveSendCounts(sendCounts);
+  }, [sendCounts]);
 
   const allNotifications = useMemo(
     () => [...notifications, ...installmentNotifications],
@@ -114,9 +140,7 @@ export default function NotificationsView({
       );
       const dominant = sorted[0];
 
-      // ✅ Build clean product lines: description + amount
       const productLines = items.map((it: any) => {
-        // Prefer explicit structured fields, fall back to parsing message
         let description = it.description || it.productName || '';
         let amount = typeof it.amount === 'number' ? it.amount
                    : typeof it.remaining === 'number' ? it.remaining
@@ -128,7 +152,6 @@ export default function NotificationsView({
           description = cleanDescription(description);
         }
 
-        // If amount is still 0, try to extract "TSh X" from the message
         if (!amount && it.message) {
           const m = String(it.message).match(/TSh\s+([\d,]+)/i);
           if (m) amount = Number(m[1].replace(/,/g, ''));
@@ -208,12 +231,23 @@ export default function NotificationsView({
       if (result.success) {
         setReminderResult({
           success: true,
-          message: `✅ Wateja: ${result.data.customerSent} | Wauzaji: ${result.data.supplierSent || 0}`,
+          message: `✅ Wateja: ${result.data.customerSent} | 🚚 Wauzaji: ${result.data.supplierSent || 0}`,
         });
         const ids = groupedRows
           .filter(n => n.type === 'Due Today' || n.type === 'Overdue')
           .flatMap(n => n.itemIds);
         setSentIds(new Set(ids));
+
+        // ✅ Bump send count for each customer in the "sent" group
+        setSendCounts(prev => {
+          const next = { ...prev };
+          groupedRows
+            .filter(n => n.type === 'Due Today' || n.type === 'Overdue')
+            .forEach(n => {
+              next[n.customerId] = (next[n.customerId] || 0) + 1;
+            });
+          return next;
+        });
       } else {
         setReminderResult({ success: false, message: `❌ ${result.error || 'Imeshindwa kutuma.'}` });
       }
@@ -251,6 +285,13 @@ export default function NotificationsView({
         setSentIds(prev => {
           const next = new Set(prev);
           group.itemIds.forEach((id: string) => next.add(id));
+          return next;
+        });
+
+        // ✅ Increment send count for this customer
+        setSendCounts(prev => {
+          const next = { ...prev };
+          next[group.customerId] = (next[group.customerId] || 0) + 1;
           return next;
         });
       }
@@ -294,24 +335,24 @@ export default function NotificationsView({
     }
   };
 
-  // ✅ Human-readable lead line per status
-  const getLeadLine = (type: string, firstName: string) => {
+  // Human-readable lead line per status
+  const getLeadLine = (type: string, fullName: string) => {
     switch (type) {
       case 'Overdue':
-        return `Madeni yamepitisha muda ${firstName} —`;
+        return `Madeni yamepitisha muda ${fullName} —`;
       case 'Due Today':
-        return `Leo ni siku ya mwisho ${firstName} —`;
+        return `Leo ni siku ya mwisho ${fullName} —`;
       case 'Due Tomorrow':
-        return `Kesho ni siku ya mwisho ${firstName} —`;
+        return `Kesho ni siku ya mwisho ${fullName} —`;
       case 'Installment Halfway':
-        return `Nusu ya malipo imefikiwa ${firstName} —`;
+        return `Nusu ya malipo imefikiwa ${fullName} —`;
       case 'Installment Completed':
-        return `Malipo yamekamilika ${firstName} —`;
+        return `Malipo yamekamilika ${fullName} —`;
       case 'Fully Paid':
       case 'Payment Received':
-        return `Malipo yamepokelewa ${firstName} —`;
+        return `Malipo yamepokelewa ${fullName} —`;
       default:
-        return `Taarifa ${firstName} —`;
+        return `Taarifa ${fullName} —`;
     }
   };
 
@@ -323,29 +364,25 @@ export default function NotificationsView({
     return cleaned;
   };
 
-  // ✅ Consolidated WhatsApp message — bullet list + Jumla + Asante
+  // Consolidated WhatsApp message — bullet list + Jumla
   const getWhatsAppMessage = (group: any): string => {
-    const name = group.customerName?.split(' ')[0] || 'Mteja';
-    const lead = getLeadLine(group.type, name).replace(/\s—$/, '');
+    const fullName = group.customerName || 'Mteja';
+    const lead = getLeadLine(group.type, fullName).replace(/\s—$/, '');
+
+    const list = group.productLines
+      .map((p: any) => `  • ${p.description} - TSh ${p.amount.toLocaleString()}`)
+      .join('\n');
 
     if (group.type === 'Installment Completed') {
-      return `${lead}:\n` +
-        group.productLines.map((p: any) => `  • ${p.description} - TSh ${p.amount.toLocaleString()}`).join('\n') +
-        `\nJumla: TSh ${group.total.toLocaleString()}.\n\nAsante kwa kuaminiana nasi!`;
+      return `${lead}:\n${list}\nJumla: TSh ${group.total.toLocaleString()}.\n\nAsante kwa kuaminiana nasi!`;
     }
     if (group.type === 'Installment Halfway') {
-      return `${lead}:\n` +
-        group.productLines.map((p: any) => `  • ${p.description} - TSh ${p.amount.toLocaleString()}`).join('\n') +
-        `\nJumla: TSh ${group.total.toLocaleString()}.\n\nEndelea hivyo hivyo!`;
+      return `${lead}:\n${list}\nJumla: TSh ${group.total.toLocaleString()}.\n\nEndelea hivyo hivyo!`;
     }
     if (group.type === 'Overdue') {
-      return `${lead}:\n` +
-        group.productLines.map((p: any) => `  • ${p.description} - TSh ${p.amount.toLocaleString()}`).join('\n') +
-        `\nJumla: TSh ${group.total.toLocaleString()}.\n\nTafadhali lipa haraka iwezekanavyo.\nAsante`;
+      return `${lead}:\n${list}\nJumla: TSh ${group.total.toLocaleString()}.\n\nTafadhali lipa haraka iwezekanavyo.\nAsante`;
     }
-    return `${lead}:\n` +
-      group.productLines.map((p: any) => `  • ${p.description} - TSh ${p.amount.toLocaleString()}`).join('\n') +
-      `\nJumla: TSh ${group.total.toLocaleString()}.\n\nAsante`;
+    return `${lead}:\n${list}\nJumla: TSh ${group.total.toLocaleString()}.\n\nAsante`;
   };
 
   // ============================================================
@@ -427,9 +464,12 @@ export default function NotificationsView({
               : sentIds.has(item.id);
             const canSend = isGrouped && (item.type === 'Due Today' || item.type === 'Overdue') && !isSent;
 
-            // ✅ First name for the lead line
-            const firstName = (item.customerName || 'Mteja').split(' ')[0];
-            const leadLine = isGrouped ? getLeadLine(item.type, firstName) : '';
+            // ✅ Full name for the lead line
+            const fullName = item.customerName || 'Mteja';
+            const leadLine = isGrouped ? getLeadLine(item.type, fullName) : '';
+
+            // ✅ Send count for this customer (from localStorage)
+            const sendCount = item.customerId ? (sendCounts[item.customerId] || 0) : 0;
 
             return (
               <div key={item.id} className={`p-4 rounded-2xl border flex items-start gap-3.5 transition-all shadow-sm ${bgClass}`}>
@@ -443,11 +483,6 @@ export default function NotificationsView({
                     <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded ${badgeClass}`}>{badgeText}</span>
                     {label && <span className="text-[9px] text-slate-500 font-medium">{label}</span>}
                     <span className="text-[10px] text-slate-400 font-mono">{item.date}</span>
-                    {isGrouped && item.count > 1 && (
-                      <span className="text-[9px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded-full">
-                        Bidhaa {item.count}
-                      </span>
-                    )}
                     {isSent && (
                       <span className="text-[9px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full flex items-center gap-1">
                         <Check size={10} /> Imetumwa
@@ -463,7 +498,7 @@ export default function NotificationsView({
                   {/* ============================================ */}
                   {isGrouped && (
                     <div className="mt-1 space-y-1.5">
-                      {/* Lead line — appears ONCE */}
+                      {/* Lead line — full name */}
                       <p className="text-[12px] font-extrabold text-slate-900">
                         {leadLine}
                       </p>
@@ -488,11 +523,6 @@ export default function NotificationsView({
                           Jumla: TSh {item.total.toLocaleString()}.
                         </p>
                       )}
-
-                      {/* Closing */}
-                      <p className="text-[11px] font-semibold text-slate-500 italic pt-0.5">
-                        Asante
-                      </p>
                     </div>
                   )}
 
@@ -523,11 +553,19 @@ export default function NotificationsView({
                           </>
                         )}
                         {canSend && (
-                          <button onClick={() => handleSendSingleReminder(item)} disabled={isSending}
-                            className={`p-1.5 rounded-xl transition border ${isSending ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-200'}`}
-                            title="Tuma SMS moja kwa mteja (bidhaa zake zote)">
-                            {isSending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-                          </button>
+                          <div className="relative">
+                            <button onClick={() => handleSendSingleReminder(item)} disabled={isSending}
+                              className={`p-1.5 rounded-xl transition border ${isSending ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-200'}`}
+                              title={`Tuma SMS (imetumwa ${sendCount} mara)`}>
+                              {isSending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                            </button>
+                            {/* ✅ Red send-count badge */}
+                            {sendCount > 0 && (
+                              <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[9px] font-extrabold flex items-center justify-center shadow-md">
+                                {sendCount}
+                              </span>
+                            )}
+                          </div>
                         )}
                         <button
                           onClick={() => { setSelectedCustomerId(item.customerId!); setCurrentTab('customers'); }}
