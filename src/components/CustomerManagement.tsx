@@ -60,12 +60,17 @@ export default function CustomerManagement({
   const [isDeleteDebtConfirmOpen, setIsDeleteDebtConfirmOpen] = useState(false);
   const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
 
-  // ✅ NEW: Extension modal states
+  // Single-debt extension modal states
   const [isExtendDebtOpen, setIsExtendDebtOpen] = useState(false);
   const [extendingDebtId, setExtendingDebtId] = useState<string | null>(null);
   const [newDueDate, setNewDueDate] = useState('');
   const [extensionReason, setExtensionReason] = useState('');
   const [expandedExtensions, setExpandedExtensions] = useState<Record<string, boolean>>({});
+
+  // ✅ NEW: Bulk extend-all modal states
+  const [isExtendAllOpen, setIsExtendAllOpen] = useState(false);
+  const [bulkNewDueDate, setBulkNewDueDate] = useState('');
+  const [bulkExtensionReason, setBulkExtensionReason] = useState('');
 
   // Form states - Customer
   const [fullName, setFullName] = useState('');
@@ -363,14 +368,14 @@ export default function CustomerManagement({
           amount: totalAmount,
           dateBorrowed: today,
           dueDate: debtDueDate,
-          originalDueDate: debtDueDate, // ✅ NEW: track original
+          originalDueDate: debtDueDate,
           description: quantity > 1 
             ? `${product.product_name} (${quantity} x TSh ${unitPrice.toLocaleString()})`
             : product.product_name,
           category: debtCategory,
           notes: debtNotes,
           status: 'Active',
-          extensions: [] // ✅ NEW
+          extensions: []
         });
       }
       
@@ -423,7 +428,7 @@ export default function CustomerManagement({
       return;
     }
 
-    // ✅ NEW: Prevent reducing below amount already paid
+    // Prevent reducing below amount already paid
     const currentDebt = activeCustomerHistory.debts.find(d => d.id === editingDebtId);
     if (currentDebt) {
       const alreadyPaid = activeCustomerHistory.payments
@@ -465,7 +470,7 @@ export default function CustomerManagement({
     }
   };
 
-  // ✅ DELETE DEBT
+  // DELETE DEBT
   const openDeleteDebtConfirm = (debtId: string) => {
     setEditingDebtId(debtId);
     setIsDeleteDebtConfirmOpen(true);
@@ -502,7 +507,7 @@ export default function CustomerManagement({
   };
 
   // ============================================
-  // ✅ NEW: EXTEND DEBT HANDLERS
+  // SINGLE-DEBT EXTENSION HANDLERS
   // ============================================
   const openExtendDebtModal = (debt: Debt) => {
     setExtendingDebtId(debt.id);
@@ -518,7 +523,6 @@ export default function CustomerManagement({
     const debt = activeCustomerHistory.debts.find(d => d.id === extendingDebtId);
     if (!debt) return;
 
-    // Validation: new date must be AFTER current due date
     if (new Date(newDueDate) <= new Date(debt.dueDate)) {
       setError('Tarehe mpya lazima iwe baada ya tarehe ya sasa ya ukomo');
       setTimeout(() => setError(null), 4000);
@@ -541,7 +545,7 @@ export default function CustomerManagement({
         dueDate: newDueDate,
         originalDueDate: debt.originalDueDate || debt.dueDate,
         extensions: [...(debt.extensions || []), extension],
-        status: 'Active', // reset overdue → active after extension
+        status: 'Active',
       });
 
       onUpdate();
@@ -549,6 +553,74 @@ export default function CustomerManagement({
       setExtendingDebtId(null);
       setSuccessMessage(`Ukomo umeongezwa hadi ${new Date(newDueDate).toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })}`);
       setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err: any) {
+      setError('Imeshindwa kuongeza muda: ' + (err?.message || 'Jaribu tena'));
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ============================================
+  // ✅ NEW: BULK EXTEND-ALL HANDLERS
+  // ============================================
+  const openExtendAllModal = () => {
+    if (unpaidDebts.length === 0) return;
+    setBulkNewDueDate('');
+    setBulkExtensionReason('');
+    setIsExtendAllOpen(true);
+  };
+
+  const handleExtendAllDebts = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bulkNewDueDate || unpaidDebts.length === 0) return;
+
+    // New date must be after the LATEST current due date among unpaid debts
+    const maxCurrentDue = unpaidDebts.reduce((latest, d) => {
+      return new Date(d.dueDate) > new Date(latest) ? d.dueDate : latest;
+    }, unpaidDebts[0].dueDate);
+
+    if (new Date(bulkNewDueDate) <= new Date(maxCurrentDue)) {
+      setError(`Tarehe mpya lazima iwe baada ya ${maxCurrentDue}`);
+      setTimeout(() => setError(null), 4000);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const now = new Date().toISOString();
+      let updatedCount = 0;
+
+      for (const debt of unpaidDebts) {
+        // Skip if the new date equals current due date
+        if (debt.dueDate === bulkNewDueDate) continue;
+
+        const extension: DebtExtension = {
+          id: 'ext-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          oldDueDate: debt.dueDate,
+          newDueDate: bulkNewDueDate,
+          reason: bulkExtensionReason.trim() || `Umeongezwa kwa madeni yote (${unpaidDebts.length})`,
+          extendedAt: now,
+        };
+
+        await api.debts.update(debt.id, {
+          dueDate: bulkNewDueDate,
+          originalDueDate: debt.originalDueDate || debt.dueDate,
+          extensions: [...(debt.extensions || []), extension],
+          status: 'Active',
+        });
+
+        updatedCount++;
+      }
+
+      onUpdate();
+      setIsExtendAllOpen(false);
+      setSuccessMessage(
+        `Ukomo umeongezwa kwa madeni ${updatedCount} hadi ${new Date(bulkNewDueDate).toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })}`
+      );
+      setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err: any) {
       setError('Imeshindwa kuongeza muda: ' + (err?.message || 'Jaribu tena'));
       setTimeout(() => setError(null), 5000);
@@ -945,14 +1017,33 @@ export default function CustomerManagement({
                 <p className="text-xs text-slate-600 leading-relaxed bg-slate-50/50 p-3 rounded-xl border border-slate-100 min-h-[60px]">{activeCustomer.notes || 'Hakuna maelezo yoyote yaliyoandikwa.'}</p>
                 {activeCustomer.address && <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-2"><MapPin size={11} /> Mahali: {activeCustomer.address}</p>}
               </div>
-              <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate-100">
-                <button onClick={() => { resetProductForm(); setIsAddDebtOpen(true); }} disabled={isLoading} className="bg-slate-900 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-4 border-t border-slate-100">
+                <button
+                  onClick={() => { resetProductForm(); setIsAddDebtOpen(true); }}
+                  disabled={isLoading}
+                  className="bg-slate-900 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50"
+                >
                   <Plus size={14} /> Deni Jipya
                 </button>
-                <button onClick={openPaymentModal} disabled={isLoading || unpaidDebts.length === 0} className="bg-emerald-600 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                <button
+                  onClick={openPaymentModal}
+                  disabled={isLoading || unpaidDebts.length === 0}
+                  className="bg-emerald-600 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
                   <CreditCard size={14} /> Lipisha Deni
                 </button>
-                <button onClick={handlePrintStatement} className="border border-slate-200 text-slate-700 font-bold py-2.5 px-3 rounded-xl hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5">
+                <button
+                  onClick={openExtendAllModal}
+                  disabled={isLoading || unpaidDebts.length === 0}
+                  className="bg-amber-600 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-amber-700 transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Ongeza muda kwa madeni yote yaliyobaki"
+                >
+                  <CalendarClock size={14} /> Ongeza Muda Zote
+                </button>
+                <button
+                  onClick={handlePrintStatement}
+                  className="border border-slate-200 text-slate-700 font-bold py-2.5 px-3 rounded-xl hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5"
+                >
                   <Printer size={14} /> Taarifa
                 </button>
               </div>
@@ -961,7 +1052,7 @@ export default function CustomerManagement({
 
           {/* History section */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* DEBTS LIST WITH EDIT/DELETE/EXTEND */}
+            {/* DEBTS LIST WITH EDIT / EXTEND / DELETE */}
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
               <h4 className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5 border-b border-slate-100 pb-2">
                 <FileText size={14} className="text-amber-500" /> Madeni ({activeCustomerHistory.debts.length})
@@ -971,7 +1062,6 @@ export default function CustomerManagement({
                   const dPayments = activeCustomerHistory.payments.filter(p => p.debtId === debt.id);
                   const paidSum = dPayments.reduce((acc, p) => acc + p.amount, 0);
                   const bal = debt.amount - paidSum;
-                  const isFullyPaid = bal <= 0;
                   const extCount = debt.extensions?.length || 0;
                   const isExtended = extCount > 0;
                   
@@ -985,7 +1075,7 @@ export default function CustomerManagement({
                           </div>
                         </div>
                         
-                        {/* ✅ EDIT / EXTEND / DELETE BUTTONS */}
+                        {/* EDIT / EXTEND / DELETE BUTTONS */}
                         <div className="flex gap-1 shrink-0">
                           <button
                             onClick={() => openExtendDebtModal(debt)}
@@ -1027,7 +1117,7 @@ export default function CustomerManagement({
                         </span>
                       </div>
 
-                      {/* ✅ Extension history */}
+                      {/* Extension history */}
                       {isExtended && (
                         <div className="mt-2">
                           <button
@@ -1295,7 +1385,7 @@ export default function CustomerManagement({
         </div>
       )}
 
-      {/* ✅ NEW MODAL: EXTEND DEBT DUE DATE */}
+      {/* MODAL: EXTEND SINGLE DEBT DUE DATE */}
       {isExtendDebtOpen && extendingDebtId && (() => {
         const debt = activeCustomerHistory.debts.find(d => d.id === extendingDebtId);
         if (!debt) return null;
@@ -1410,6 +1500,113 @@ export default function CustomerManagement({
           </div>
         );
       })()}
+
+      {/* ✅ MODAL: EXTEND ALL DEBTS AT ONCE */}
+      {isExtendAllOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
+            <button
+              onClick={() => setIsExtendAllOpen(false)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition"
+            >
+              <X size={18} />
+            </button>
+
+            <h3 className="text-md font-bold text-slate-850 flex items-center gap-1.5">
+              <CalendarClock className="text-amber-600" size={18} />
+              Ongeza Muda kwa Madeni Yote
+            </h3>
+
+            <p className="text-xs text-slate-500">
+              Utabadilisha ukomo wa madeni yote <strong>{unpaidDebts.length}</strong> kwa mteja{' '}
+              <strong>{activeCustomer?.fullName}</strong> kwa wakati mmoja.
+            </p>
+
+            {/* Preview of all debts being extended */}
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 space-y-2 max-h-56 overflow-y-auto">
+              <div className="text-[10px] font-bold text-amber-800 uppercase tracking-wide mb-1">
+                Madeni Yatakayoongezwa ({unpaidDebts.length})
+              </div>
+              {unpaidDebts.map(d => (
+                <div key={d.id} className="flex justify-between items-center text-[11px] bg-white rounded-lg p-2 gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-slate-700 truncate">{d.description}</div>
+                    <div className="text-[10px] text-slate-400 flex items-center gap-2 flex-wrap">
+                      <span>Ukomo wa sasa: <strong className={
+                        new Date(d.dueDate) < new Date() ? 'text-rose-600' : 'text-slate-600'
+                      }>{d.dueDate}</strong></span>
+                      {(d.extensions?.length || 0) > 0 && (
+                        <span className="text-amber-600 font-bold">(+{d.extensions!.length} mara)</span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="font-bold text-rose-600 shrink-0">TSh {d.remaining.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+
+            <form onSubmit={handleExtendAllDebts} className="space-y-4 text-xs text-left">
+              <div>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                  Ukomo Mpya kwa Zote *
+                </label>
+                <input
+                  type="date"
+                  required
+                  min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
+                  value={bulkNewDueDate}
+                  onChange={(e) => setBulkNewDueDate(e.target.value)}
+                  className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-amber-500 focus:border-amber-500"
+                />
+                <p className="mt-1 text-[10px] text-slate-400">
+                  Lazima iwe baada ya ukomo wa sasa wa kila deni
+                </p>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                  Sababu ya Kuongeza Muda
+                </label>
+                <textarea
+                  value={bulkExtensionReason}
+                  onChange={(e) => setBulkExtensionReason(e.target.value)}
+                  placeholder="Mf. Mteja ameomba muda wa ziada kwa madeni yote..."
+                  className="w-full p-2.5 border border-slate-200 rounded-xl h-20 focus:ring-amber-500 focus:border-amber-500"
+                />
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  <strong>Kumbuka:</strong> Kila deni litapata rekodi yake ya kuongeza muda.
+                  Historia ya awali ya kila deni haitafutwa.
+                </p>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsExtendAllOpen(false)}
+                  disabled={isLoading}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50"
+                >
+                  Ghairi
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading || !bulkNewDueDate}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isLoading ? (
+                    <><Loader2 size={14} className="animate-spin" /> Inahifadhi...</>
+                  ) : (
+                    <><CalendarClock size={14} /> Ongeza Muda Zote</>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: DELETE DEBT CONFIRM */}
       {isDeleteDebtConfirmOpen && editingDebtId && (
