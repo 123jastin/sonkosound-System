@@ -1,7 +1,7 @@
 // functions/api/debts/[id].ts
 
 // ============================================
-// PUT - Update debt
+// PUT - Update debt (also handles due-date extension)
 // ============================================
 export const onRequestPut = async (context: any) => {
   try {
@@ -38,9 +38,9 @@ export const onRequestPut = async (context: any) => {
       );
     }
 
-    // Verify debt exists
-    const existing = await context.env.DB.prepare(
-      `SELECT id FROM debts WHERE id = ? LIMIT 1`
+    // Verify debt exists (need original_due_date + extensions for merge logic)
+    const existing: any = await context.env.DB.prepare(
+      `SELECT id, original_due_date, extensions FROM debts WHERE id = ? LIMIT 1`
     ).bind(id).first();
 
     if (!existing) {
@@ -49,6 +49,17 @@ export const onRequestPut = async (context: any) => {
         { status: 404 }
       );
     }
+
+    // ✅ NEW: original_due_date — only set on first ever update
+    const originalDueDate =
+      existing.original_due_date ||
+      data.originalDueDate ||
+      data.dueDate;
+
+    // ✅ NEW: extensions — array in, JSON string stored
+    const extensionsJson = Array.isArray(data.extensions)
+      ? JSON.stringify(data.extensions)
+      : (existing.extensions || '[]');
 
     // Update all fields
     await context.env.DB.prepare(
@@ -60,6 +71,8 @@ export const onRequestPut = async (context: any) => {
         category = ?, 
         notes = ?, 
         status = ?,
+        original_due_date = ?,
+        extensions = ?,
         updated_at = datetime('now')
       WHERE id = ?`
     ).bind(
@@ -70,6 +83,8 @@ export const onRequestPut = async (context: any) => {
       data.category || 'Mizigo/Products',
       data.notes || '',
       data.status || 'Active',
+      originalDueDate,           // ✅ NEW
+      extensionsJson,            // ✅ NEW
       id
     ).run();
 
@@ -88,13 +103,18 @@ export const onRequestPut = async (context: any) => {
       console.error('⚠️ Transaction log failed:', e);
     }
 
-    const updated = await context.env.DB.prepare(
+    const updated: any = await context.env.DB.prepare(
       `SELECT * FROM debts WHERE id = ? LIMIT 1`
     ).bind(id).first();
 
+    // ✅ NEW: parse extensions back to array for the response
     return Response.json({
       success: true,
-      debt: updated,
+      debt: {
+        ...updated,
+        originalDueDate: updated.original_due_date || updated.due_date,
+        extensions: updated.extensions ? JSON.parse(updated.extensions) : [],
+      },
       message: 'Deni limehaririwa'
     });
   } catch (error: any) {
