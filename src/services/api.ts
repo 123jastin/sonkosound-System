@@ -101,7 +101,23 @@ export const api = {
     
     delete: (id: string) => safeFetch(`${API_BASE}/debts/${id}`, {
       method: 'DELETE'
-    })
+    }),
+
+    // ✅ NEW: Extend a single debt's due date
+    // Calls dedicated endpoint that derives original_due_date from DB
+    extend: (id: string, data: { newDueDate: string; reason?: string }) =>
+      safeFetch(`${API_BASE}/debts/${id}/extend`, {
+        method: 'POST',
+        body: JSON.stringify(data)
+      }),
+
+    // ✅ NEW: Extend due date for multiple debts at once
+    // One request instead of looping N times
+    bulkExtend: (data: { debtIds: string[]; newDueDate: string; reason?: string }) =>
+      safeFetch(`${API_BASE}/debts/bulk-extend`, {
+        method: 'POST',
+        body: JSON.stringify(data)
+      })
   },
 
   // ============================================
@@ -118,13 +134,11 @@ export const api = {
       body: JSON.stringify(data)
     }),
     
-    // ✅ NEW: Update payment (fix Zilizolipwa typos)
     update: (id: string, data: any) => safeFetch(`${API_BASE}/payments/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
     }),
     
-    // ✅ NEW: Delete payment
     delete: (id: string) => safeFetch(`${API_BASE}/payments/${id}`, {
       method: 'DELETE'
     })
