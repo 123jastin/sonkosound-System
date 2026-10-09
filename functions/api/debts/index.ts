@@ -24,11 +24,11 @@ export const onRequestGet = async (context: any) => {
 
     const { results } = await stmt.all();
 
-    // ✅ NEW: parse extensions + normalize originalDueDate
+    // ✅ Parse extensions (JSON string → array) + normalize originalDueDate
     const debts = (results || []).map((row: any) => ({
       ...row,
       originalDueDate: row.original_due_date || row.due_date,
-      extensions: row.extensions ? safeParseJSON(row.extensions, []) : [],
+      extensions: safeParseJSON(row.extensions, []),
     }));
 
     return Response.json(debts);
@@ -81,10 +81,10 @@ export const onRequestPost = async (context: any) => {
 
     const debtId = debt.id || `debt-${Date.now()}`;
 
-    // ✅ NEW: original_due_date defaults to dueDate on create
+    // ✅ original_due_date defaults to dueDate on create
     const originalDueDate = debt.originalDueDate || debt.dueDate;
 
-    // ✅ NEW: extensions starts empty (or whatever was sent)
+    // ✅ extensions starts empty (or whatever was sent)
     const extensionsJson = Array.isArray(debt.extensions)
       ? JSON.stringify(debt.extensions)
       : '[]';
@@ -102,12 +102,12 @@ export const onRequestPost = async (context: any) => {
       Number(debt.amount),
       debt.dateBorrowed || new Date().toISOString().split('T')[0],
       debt.dueDate,
-      originalDueDate,                          // ✅ NEW
+      originalDueDate,
       debt.description.trim(),
       debt.category || 'Mizigo/Products',
       debt.notes || '',
       debt.status || 'Active',
-      extensionsJson                            // ✅ NEW
+      extensionsJson
     ).run();
 
     // Log transaction
@@ -128,7 +128,7 @@ export const onRequestPost = async (context: any) => {
       debt: {
         ...created,
         originalDueDate: created.original_due_date || created.due_date,
-        extensions: created.extensions ? safeParseJSON(created.extensions, []) : [],
+        extensions: safeParseJSON(created.extensions, []),
       },
       message: 'Deni limeongezwa'
     });
