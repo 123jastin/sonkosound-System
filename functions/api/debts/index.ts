@@ -24,7 +24,14 @@ export const onRequestGet = async (context: any) => {
 
     const { results } = await stmt.all();
 
-    return Response.json(results || []);
+    // ✅ NEW: parse extensions + normalize originalDueDate
+    const debts = (results || []).map((row: any) => ({
+      ...row,
+      originalDueDate: row.original_due_date || row.due_date,
+      extensions: row.extensions ? safeParseJSON(row.extensions, []) : [],
+    }));
+
+    return Response.json(debts);
   } catch (error: any) {
     console.error('❌ Failed to list debts:', error);
     return Response.json(
@@ -74,22 +81,33 @@ export const onRequestPost = async (context: any) => {
 
     const debtId = debt.id || `debt-${Date.now()}`;
 
+    // ✅ NEW: original_due_date defaults to dueDate on create
+    const originalDueDate = debt.originalDueDate || debt.dueDate;
+
+    // ✅ NEW: extensions starts empty (or whatever was sent)
+    const extensionsJson = Array.isArray(debt.extensions)
+      ? JSON.stringify(debt.extensions)
+      : '[]';
+
     await context.env.DB.prepare(
       `INSERT INTO debts (
-        id, customer_id, amount, date_borrowed, due_date, 
-        description, category, notes, status, created_at, updated_at
+        id, customer_id, amount, date_borrowed, due_date,
+        original_due_date, description, category, notes, status, extensions,
+        created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
     ).bind(
       debtId,
       debt.customerId,
       Number(debt.amount),
       debt.dateBorrowed || new Date().toISOString().split('T')[0],
       debt.dueDate,
+      originalDueDate,                          // ✅ NEW
       debt.description.trim(),
       debt.category || 'Mizigo/Products',
       debt.notes || '',
-      debt.status || 'Active'
+      debt.status || 'Active',
+      extensionsJson                            // ✅ NEW
     ).run();
 
     // Log transaction
@@ -101,13 +119,17 @@ export const onRequestPost = async (context: any) => {
     );
 
     // Return created debt
-    const created = await context.env.DB.prepare(
+    const created: any = await context.env.DB.prepare(
       `SELECT * FROM debts WHERE id = ? LIMIT 1`
     ).bind(debtId).first();
 
     return Response.json({
       success: true,
-      debt: created,
+      debt: {
+        ...created,
+        originalDueDate: created.original_due_date || created.due_date,
+        extensions: created.extensions ? safeParseJSON(created.extensions, []) : [],
+      },
       message: 'Deni limeongezwa'
     });
   } catch (error: any) {
@@ -118,6 +140,19 @@ export const onRequestPost = async (context: any) => {
     );
   }
 };
+
+// ============================================
+// Helper: Safe JSON parse
+// ============================================
+function safeParseJSON(raw: string | null, fallback: any) {
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 // ============================================
 // Helper: Log transaction
