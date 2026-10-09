@@ -28,7 +28,7 @@ export const onRequestGet = async (context: any) => {
     return Response.json({
       ...debt,
       originalDueDate: debt.original_due_date || debt.due_date,
-      extensions: debt.extensions ? safeParseJSON(debt.extensions, []) : [],
+      extensions: safeParseJSON(debt.extensions, []),
     });
   } catch (error: any) {
     console.error('❌ Failed to fetch debt:', error);
@@ -56,7 +56,7 @@ export const onRequestPut = async (context: any) => {
       );
     }
 
-    // ✅ Verify debt exists + fetch current values for merge
+    // Fetch current debt (needed for original_due_date + extensions merge)
     const existing: any = await context.env.DB.prepare(
       `SELECT * FROM debts WHERE id = ? LIMIT 1`
     ).bind(id).first();
@@ -94,7 +94,7 @@ export const onRequestPut = async (context: any) => {
       );
     }
 
-    // ✅ Build dynamic UPDATE — only touch fields that were sent
+    // Build dynamic UPDATE
     const fields: string[] = [];
     const values: any[] = [];
 
@@ -133,10 +133,12 @@ export const onRequestPut = async (context: any) => {
       values.push(data.status);
     }
 
-    // ✅ original_due_date — only set on first-ever extension
-    if (data.originalDueDate !== undefined && !existing.original_due_date) {
+    // ✅ CRITICAL FIX: derive original_due_date from DB, not from request
+    // This guarantees the ORIGINAL due date is preserved across multiple extensions.
+    // Only set it once (first time), using the CURRENT due_date as the original.
+    if (!existing.original_due_date && data.dueDate && data.dueDate !== existing.due_date) {
       fields.push('original_due_date = ?');
-      values.push(data.originalDueDate);
+      values.push(existing.due_date);  // ← use DB value (pre-extension due date)
     }
 
     // ✅ extensions — replace whole array if frontend sent it
@@ -152,7 +154,7 @@ export const onRequestPut = async (context: any) => {
         debt: {
           ...existing,
           originalDueDate: existing.original_due_date || existing.due_date,
-          extensions: existing.extensions ? safeParseJSON(existing.extensions, []) : [],
+          extensions: safeParseJSON(existing.extensions, []),
         },
         message: 'Hakuna mabadiliko',
       });
@@ -166,14 +168,15 @@ export const onRequestPut = async (context: any) => {
 
     // Log transaction
     try {
+      const isExtension = Array.isArray(data.extensions) && data.dueDate !== existing.due_date;
       await context.env.DB.prepare(
         `INSERT INTO transactions (id, action_type, description, amount, timestamp)
          VALUES (?, ?, ?, ?, datetime('now'))`
       ).bind(
         `tx-${Date.now()}`,
-        data.extensions ? 'Debt Extended' : 'Debt Updated',
-        data.extensions
-          ? `Extended due date for debt ${id}`
+        isExtension ? 'Debt Extended' : 'Debt Updated',
+        isExtension
+          ? `Extended due date for ${existing.description}: ${existing.due_date} → ${data.dueDate}`
           : `Updated debt: ${existing.description}`,
         Number(existing.amount) || 0
       ).run();
@@ -190,9 +193,9 @@ export const onRequestPut = async (context: any) => {
       debt: {
         ...updated,
         originalDueDate: updated.original_due_date || updated.due_date,
-        extensions: updated.extensions ? safeParseJSON(updated.extensions, []) : [],
+        extensions: safeParseJSON(updated.extensions, []),
       },
-      message: data.extensions ? 'Ukomo umeongezwa' : 'Deni limehaririwa',
+      message: Array.isArray(data.extensions) ? 'Ukomo umeongezwa' : 'Deni limehaririwa',
     });
   } catch (error: any) {
     console.error('❌ Failed to update debt:', error);
