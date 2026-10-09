@@ -25,7 +25,6 @@ export const onRequestGet = async (context: any) => {
       );
     }
 
-    // ✅ NEW: parse extensions + normalize originalDueDate
     return Response.json({
       ...debt,
       originalDueDate: debt.original_due_date || debt.due_date,
@@ -41,7 +40,7 @@ export const onRequestGet = async (context: any) => {
 };
 
 // ============================================
-// PUT - Update debt (also handles due-date extension)
+// PUT - Update debt (partial — supports edit AND extend)
 // ============================================
 export const onRequestPut = async (context: any) => {
   try {
@@ -57,30 +56,9 @@ export const onRequestPut = async (context: any) => {
       );
     }
 
-    if (!data.amount || Number(data.amount) <= 0) {
-      return Response.json(
-        { success: false, error: 'Kiasi cha deni kinahitajika' },
-        { status: 400 }
-      );
-    }
-
-    if (!data.dueDate) {
-      return Response.json(
-        { success: false, error: 'Tarehe ya ukomo inahitajika' },
-        { status: 400 }
-      );
-    }
-
-    if (!data.description || !data.description.trim()) {
-      return Response.json(
-        { success: false, error: 'Maelezo ya deni yanahitajika' },
-        { status: 400 }
-      );
-    }
-
-    // Verify debt exists + grab current extensions/original_due_date for merge
+    // ✅ Verify debt exists + fetch current values for merge
     const existing: any = await context.env.DB.prepare(
-      `SELECT id, original_due_date, extensions FROM debts WHERE id = ? LIMIT 1`
+      `SELECT * FROM debts WHERE id = ? LIMIT 1`
     ).bind(id).first();
 
     if (!existing) {
@@ -90,44 +68,101 @@ export const onRequestPut = async (context: any) => {
       );
     }
 
-    // ✅ NEW: original_due_date — preserve if already set, never overwrite
-    const originalDueDate =
-      existing.original_due_date ||    // keep first-ever date
-      data.originalDueDate ||          // fallback: what frontend sent
-      data.dueDate;                    // fallback: current due date
+    // ✅ Only validate fields that were actually sent
+    if (data.amount !== undefined) {
+      if (!data.amount || Number(data.amount) <= 0) {
+        return Response.json(
+          { success: false, error: 'Kiasi cha deni kinahitajika' },
+          { status: 400 }
+        );
+      }
+    }
 
-    // ✅ NEW: extensions — array in, JSON string stored
-    // If frontend sends extensions → use it. Otherwise keep existing.
-    const extensionsJson = Array.isArray(data.extensions)
-      ? JSON.stringify(data.extensions)
-      : (existing.extensions || '[]');
+    if (data.description !== undefined) {
+      if (!data.description || !data.description.trim()) {
+        return Response.json(
+          { success: false, error: 'Maelezo ya deni yanahitajika' },
+          { status: 400 }
+        );
+      }
+    }
 
-    // Update all fields
-    await context.env.DB.prepare(
-      `UPDATE debts SET 
-        amount = ?, 
-        date_borrowed = ?, 
-        due_date = ?, 
-        description = ?, 
-        category = ?, 
-        notes = ?, 
-        status = ?,
-        original_due_date = ?,
-        extensions = ?,
-        updated_at = datetime('now')
-      WHERE id = ?`
-    ).bind(
-      Number(data.amount),
-      data.dateBorrowed || null,
-      data.dueDate,
-      data.description.trim(),
-      data.category || 'Mizigo/Products',
-      data.notes || '',
-      data.status || 'Active',
-      originalDueDate,                 // ✅ NEW
-      extensionsJson,                  // ✅ NEW
-      id
-    ).run();
+    if (data.dueDate !== undefined && !data.dueDate) {
+      return Response.json(
+        { success: false, error: 'Tarehe ya ukomo inahitajika' },
+        { status: 400 }
+      );
+    }
+
+    // ✅ Build dynamic UPDATE — only touch fields that were sent
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (data.amount !== undefined) {
+      fields.push('amount = ?');
+      values.push(Number(data.amount));
+    }
+
+    if (data.dateBorrowed !== undefined) {
+      fields.push('date_borrowed = ?');
+      values.push(data.dateBorrowed);
+    }
+
+    if (data.dueDate !== undefined) {
+      fields.push('due_date = ?');
+      values.push(data.dueDate);
+    }
+
+    if (data.description !== undefined) {
+      fields.push('description = ?');
+      values.push(data.description.trim());
+    }
+
+    if (data.category !== undefined) {
+      fields.push('category = ?');
+      values.push(data.category);
+    }
+
+    if (data.notes !== undefined) {
+      fields.push('notes = ?');
+      values.push(data.notes);
+    }
+
+    if (data.status !== undefined) {
+      fields.push('status = ?');
+      values.push(data.status);
+    }
+
+    // ✅ original_due_date — only set on first-ever extension
+    if (data.originalDueDate !== undefined && !existing.original_due_date) {
+      fields.push('original_due_date = ?');
+      values.push(data.originalDueDate);
+    }
+
+    // ✅ extensions — replace whole array if frontend sent it
+    if (Array.isArray(data.extensions)) {
+      fields.push('extensions = ?');
+      values.push(JSON.stringify(data.extensions));
+    }
+
+    // If nothing to update, return existing
+    if (fields.length === 0) {
+      return Response.json({
+        success: true,
+        debt: {
+          ...existing,
+          originalDueDate: existing.original_due_date || existing.due_date,
+          extensions: existing.extensions ? safeParseJSON(existing.extensions, []) : [],
+        },
+        message: 'Hakuna mabadiliko',
+      });
+    }
+
+    fields.push(`updated_at = datetime('now')`);
+    values.push(id);
+
+    const sql = `UPDATE debts SET ${fields.join(', ')} WHERE id = ?`;
+    await context.env.DB.prepare(sql).bind(...values).run();
 
     // Log transaction
     try {
@@ -136,9 +171,11 @@ export const onRequestPut = async (context: any) => {
          VALUES (?, ?, ?, ?, datetime('now'))`
       ).bind(
         `tx-${Date.now()}`,
-        'Debt Updated',
-        `Updated debt: ${data.description}`,
-        Number(data.amount)
+        data.extensions ? 'Debt Extended' : 'Debt Updated',
+        data.extensions
+          ? `Extended due date for debt ${id}`
+          : `Updated debt: ${existing.description}`,
+        Number(existing.amount) || 0
       ).run();
     } catch (e) {
       console.error('⚠️ Transaction log failed:', e);
@@ -148,7 +185,6 @@ export const onRequestPut = async (context: any) => {
       `SELECT * FROM debts WHERE id = ? LIMIT 1`
     ).bind(id).first();
 
-    // ✅ NEW: parse extensions back to array for the response
     return Response.json({
       success: true,
       debt: {
@@ -156,7 +192,7 @@ export const onRequestPut = async (context: any) => {
         originalDueDate: updated.original_due_date || updated.due_date,
         extensions: updated.extensions ? safeParseJSON(updated.extensions, []) : [],
       },
-      message: 'Deni limehaririwa'
+      message: data.extensions ? 'Ukomo umeongezwa' : 'Deni limehaririwa',
     });
   } catch (error: any) {
     console.error('❌ Failed to update debt:', error);
@@ -224,7 +260,7 @@ export const onRequestDelete = async (context: any) => {
     return Response.json({
       success: true,
       message: 'Deni limefutwa',
-      deletedPayments: paymentsResult.meta?.changes || 0
+      deletedPayments: paymentsResult.meta?.changes || 0,
     });
   } catch (error: any) {
     console.error('❌ Failed to delete debt:', error);
