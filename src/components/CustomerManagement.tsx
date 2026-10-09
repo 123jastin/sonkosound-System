@@ -67,7 +67,7 @@ export default function CustomerManagement({
   const [extensionReason, setExtensionReason] = useState('');
   const [expandedExtensions, setExpandedExtensions] = useState<Record<string, boolean>>({});
 
-  // ✅ NEW: Bulk extend-all modal states
+  // Bulk extend-all modal states
   const [isExtendAllOpen, setIsExtendAllOpen] = useState(false);
   const [bulkNewDueDate, setBulkNewDueDate] = useState('');
   const [bulkExtensionReason, setBulkExtensionReason] = useState('');
@@ -195,6 +195,7 @@ export default function CustomerManagement({
       }
 
       const hasExtensions = customerDebts.some(d => (d.extensions?.length || 0) > 0);
+      const totalExtensions = customerDebts.reduce((sum, d) => sum + (d.extensions?.length || 0), 0);
 
       return {
         ...c,
@@ -204,7 +205,8 @@ export default function CustomerManagement({
           remainingBalance, 
           status, 
           percentagePaid: totalDebt > 0 ? (totalPaid / totalDebt) * 100 : 0,
-          hasExtensions
+          hasExtensions,
+          totalExtensions,
         }
       };
     });
@@ -562,7 +564,7 @@ export default function CustomerManagement({
   };
 
   // ============================================
-  // ✅ NEW: BULK EXTEND-ALL HANDLERS
+  // BULK EXTEND-ALL HANDLERS
   // ============================================
   const openExtendAllModal = () => {
     if (unpaidDebts.length === 0) return;
@@ -788,8 +790,134 @@ export default function CustomerManagement({
     tbody tr:last-child td { border-bottom: none; }
     .empty-row { text-align: center !important; padding: 20px !important; color: #94a3b8; font-style: italic; }
     .payment-amount { color: #059669; font-weight: bold; }
-    .ext-badge { display: inline-block; background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 6px; font-size: 8px; font-weight: bold; margin-left: 4px; }
-    .ext-old { text-decoration: line-through; color: #94a3b8; font-size: 9px; }
+    .ext-badge { display: inline-block; background: #d97706; color: white; padding: 2px 7px; border-radius: 10px; font-size: 8px; font-weight: 800; margin-left: 5px; letter-spacing: 0.3px; }
+    .ext-old-cell { color: #94a3b8; text-decoration: line-through; font-style: italic; }
+    .ext-new-cell { color: #d97706; font-weight: bold; }
+
+    /* ✅ Extension block — prominent card design */
+    .ext-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 800;
+      color: #92400e;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 12px 16px;
+      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+      border-left: 4px solid #d97706;
+      border-radius: 8px;
+      margin-bottom: 14px;
+    }
+    .ext-header-icon { font-size: 18px; }
+
+    .ext-debt-card {
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+
+    .ext-debt-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 10px;
+      margin-bottom: 10px;
+      border-bottom: 1px dashed #fcd34d;
+    }
+    .ext-debt-name { font-size: 13px; font-weight: 800; color: #78350f; }
+    .ext-count-badge {
+      font-size: 9px;
+      font-weight: 800;
+      background: #d97706;
+      color: white;
+      padding: 3px 10px;
+      border-radius: 12px;
+      letter-spacing: 0.3px;
+    }
+
+    .ext-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px;
+      background: white;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      border: 1px solid #fef3c7;
+    }
+    .ext-item:last-child { margin-bottom: 0; }
+
+    .ext-item-num {
+      font-size: 11px;
+      font-weight: 900;
+      color: #92400e;
+      background: #fde68a;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .ext-item-dates {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .ext-date-from, .ext-date-to {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .ext-date-label {
+      font-size: 8px;
+      font-weight: 800;
+      color: #94a3b8;
+      letter-spacing: 0.5px;
+    }
+    .ext-date-value {
+      font-size: 12px;
+      font-weight: 700;
+      color: #334155;
+    }
+    .ext-strikethrough {
+      text-decoration: line-through;
+      color: #94a3b8;
+    }
+    .ext-highlight {
+      color: #059669;
+      font-weight: 900;
+    }
+    .ext-arrow {
+      font-size: 18px;
+      color: #d97706;
+      font-weight: 900;
+    }
+
+    .ext-item-meta {
+      flex: 1;
+      min-width: 0;
+      text-align: right;
+    }
+    .ext-reason {
+      font-size: 10px;
+      color: #64748b;
+      font-style: italic;
+      margin-bottom: 2px;
+    }
+    .ext-timestamp {
+      font-size: 9px;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+
     .summary-box { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
     .summary-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center; }
     .summary-item.total { background: #fef2f2; border-color: #fecaca; }
@@ -844,47 +972,64 @@ export default function CustomerManagement({
     <div class="section">
       <div class="section-title">Historia ya Madeni (${activeCustomerHistory.debts.length})</div>
       <table>
-        <thead><tr><th>Maelezo</th><th>Tarehe</th><th>Ukomo</th><th>Kiasi (TSh)</th></tr></thead>
+        <thead><tr><th>Maelezo</th><th>Tarehe</th><th>Ukomo wa Awali</th><th>Ukomo wa Sasa</th><th>Kiasi (TSh)</th></tr></thead>
         <tbody>
           ${activeCustomerHistory.debts.length > 0 
             ? activeCustomerHistory.debts.map(debt => {
                 const extCount = debt.extensions?.length || 0;
-                const dueDisplay = extCount > 0
-                  ? `${debt.dueDate} <span class="ext-old">(ilikuwa ${debt.originalDueDate || '—'})</span><span class="ext-badge">+${extCount}</span>`
-                  : debt.dueDate;
+                const isExtended = extCount > 0;
+                const originalDate = debt.originalDueDate || debt.dueDate;
                 return `
                   <tr>
-                    <td>${debt.description}</td>
+                    <td>${debt.description}${isExtended ? `<span class="ext-badge">+${extCount}</span>` : ''}</td>
                     <td>${debt.dateBorrowed}</td>
-                    <td>${dueDisplay}</td>
+                    <td class="${isExtended ? 'ext-old-cell' : ''}">${originalDate}</td>
+                    <td class="${isExtended ? 'ext-new-cell' : ''}">${debt.dueDate}</td>
                     <td>TSh ${debt.amount.toLocaleString()}</td>
                   </tr>
                 `;
               }).join('')
-            : '<tr><td colspan="4" class="empty-row">Hakuna madeni bado</td></tr>'
+            : '<tr><td colspan="5" class="empty-row">Hakuna madeni bado</td></tr>'
           }
         </tbody>
       </table>
     </div>
     ${hasAnyExtension ? `
     <div class="section">
-      <div class="section-title">Historia ya Kuongeza Muda</div>
-      <table>
-        <thead><tr><th>Deni</th><th>Ukomo wa Awali</th><th>Ukomo Mpya</th><th>Sababu</th><th>Tarehe</th></tr></thead>
-        <tbody>
-          ${activeCustomerHistory.debts.flatMap(debt =>
-            (debt.extensions || []).map(ext => `
-              <tr>
-                <td>${debt.description}</td>
-                <td style="text-decoration:line-through;color:#94a3b8;">${ext.oldDueDate}</td>
-                <td style="color:#059669;font-weight:bold;">${ext.newDueDate}</td>
-                <td>${ext.reason || '—'}</td>
-                <td>${new Date(ext.extendedAt).toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
-              </tr>
-            `)
-          ).join('')}
-        </tbody>
-      </table>
+      <div class="ext-header">
+        <span class="ext-header-icon">⏰</span>
+        <span>Ukomo Uliosogezwa (Deadline Extensions)</span>
+      </div>
+      ${activeCustomerHistory.debts
+        .filter(debt => (debt.extensions?.length || 0) > 0)
+        .map(debt => `
+          <div class="ext-debt-card">
+            <div class="ext-debt-title">
+              <span class="ext-debt-name">${debt.description}</span>
+              <span class="ext-count-badge">Imesogezwa mara ${debt.extensions!.length}</span>
+            </div>
+            ${debt.extensions!.map((ext, idx) => `
+              <div class="ext-item">
+                <div class="ext-item-num">#${idx + 1}</div>
+                <div class="ext-item-dates">
+                  <div class="ext-date-from">
+                    <span class="ext-date-label">KUTOKA</span>
+                    <span class="ext-date-value ext-strikethrough">${ext.oldDueDate}</span>
+                  </div>
+                  <div class="ext-arrow">→</div>
+                  <div class="ext-date-to">
+                    <span class="ext-date-label">HADI</span>
+                    <span class="ext-date-value ext-highlight">${ext.newDueDate}</span>
+                  </div>
+                </div>
+                <div class="ext-item-meta">
+                  ${ext.reason ? `<div class="ext-reason">"${ext.reason}"</div>` : ''}
+                  <div class="ext-timestamp">${new Date(ext.extendedAt).toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `).join('')}
     </div>
     ` : ''}
     <div class="section">
@@ -998,6 +1143,33 @@ export default function CustomerManagement({
             </div>
           </div>
 
+          {/* ✅ Extension summary banner */}
+          {activeCustomerHistory.debts.some(d => (d.extensions?.length || 0) > 0) && (
+            <div className="bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border border-amber-200 rounded-3xl p-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-md flex-shrink-0">
+                <CalendarClock size={20} className="text-white" />
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-extrabold text-amber-900">
+                  Mteja huyu amesogezewa ukomo wa malipo
+                </p>
+                <p className="text-[10px] text-amber-700 font-medium mt-0.5">
+                  {activeCustomerHistory.debts.filter(d => (d.extensions?.length || 0) > 0).length} ya madeni •{' '}
+                  {activeCustomerHistory.debts.reduce((sum, d) => sum + (d.extensions?.length || 0), 0)} marekebisho jumla
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  const first = activeCustomerHistory.debts.find(d => (d.extensions?.length || 0) > 0);
+                  if (first && !expandedExtensions[first.id]) toggleExtensions(first.id);
+                }}
+                className="text-[10px] font-bold text-amber-800 bg-white border border-amber-300 px-3 py-1.5 rounded-lg hover:bg-amber-50 transition"
+              >
+                Angalia
+              </button>
+            </div>
+          )}
+
           {/* Info Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-1 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
@@ -1103,13 +1275,20 @@ export default function CustomerManagement({
                       
                       <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400 flex-wrap">
                         <span><Calendar size={10} /> {debt.dateBorrowed}</span>
-                        <span className="flex items-center gap-1">
+                        <span className="flex items-center gap-1.5">
                           <Calendar size={10} className="text-rose-500" />
-                          <span className={isExtended ? 'text-amber-700 font-bold' : ''}>{debt.dueDate}</span>
-                          {isExtended && (
-                            <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-                              ILIONGEZWA
-                            </span>
+                          {isExtended && debt.originalDueDate && debt.originalDueDate !== debt.dueDate ? (
+                            <>
+                              <span className="line-through text-slate-400 text-[10px]">{debt.originalDueDate}</span>
+                              <ChevronRight size={10} className="text-amber-500" />
+                              <span className="text-amber-700 font-bold">{debt.dueDate}</span>
+                              <span className="text-[9px] font-extrabold text-amber-800 bg-gradient-to-r from-amber-100 to-amber-200 border border-amber-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <CalendarClock size={9} />
+                                IMESOGEZWA
+                              </span>
+                            </>
+                          ) : (
+                            <span>{debt.dueDate}</span>
                           )}
                         </span>
                         <span className={bal > 0 ? 'text-rose-600 font-bold' : 'text-emerald-600 font-bold'}>
@@ -1117,36 +1296,120 @@ export default function CustomerManagement({
                         </span>
                       </div>
 
-                      {/* Extension history */}
+                      {/* ✅ Extension history — professional design */}
                       {isExtended && (
-                        <div className="mt-2">
+                        <div className="mt-3">
                           <button
                             onClick={() => toggleExtensions(debt.id)}
-                            className="flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg transition"
+                            className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl transition-all border ${
+                              expandedExtensions[debt.id]
+                                ? 'bg-amber-100 border-amber-300 shadow-sm'
+                                : 'bg-amber-50 border-amber-200 hover:bg-amber-100'
+                            }`}
                           >
-                            <CalendarClock size={10} />
-                            Umeongezwa mara {extCount}
-                            {expandedExtensions[debt.id] ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-lg bg-amber-500 flex items-center justify-center shadow-sm">
+                                <CalendarClock size={12} className="text-white" />
+                              </div>
+                              <div className="text-left">
+                                <p className="text-[10px] font-extrabold text-amber-900 uppercase tracking-wide">
+                                  Ukomo Ulisogezwa
+                                </p>
+                                <p className="text-[9px] text-amber-700 font-semibold">
+                                  Mara {extCount} • Bonyeza kuona historia
+                                </p>
+                              </div>
+                            </div>
+                            <div className={`transition-transform ${expandedExtensions[debt.id] ? 'rotate-180' : ''}`}>
+                              <ChevronDown size={14} className="text-amber-700" />
+                            </div>
                           </button>
 
                           {expandedExtensions[debt.id] && (
-                            <div className="mt-2 pl-2 border-l-2 border-amber-200 space-y-1.5">
+                            <div className="mt-2 space-y-2">
                               {debt.extensions!.map((ext, i) => (
-                                <div key={ext.id} className="text-[10px] text-slate-600">
-                                  <div className="flex items-center gap-1 flex-wrap">
-                                    <span className="font-bold text-amber-700">#{i + 1}</span>
-                                    <span className="line-through text-slate-400">{ext.oldDueDate}</span>
-                                    <ChevronRight size={10} className="text-slate-400" />
-                                    <span className="font-bold text-emerald-700">{ext.newDueDate}</span>
+                                <div
+                                  key={ext.id}
+                                  className="relative bg-white rounded-xl border border-amber-100 shadow-sm overflow-hidden"
+                                >
+                                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-400 to-amber-600" />
+
+                                  <div className="pl-4 pr-3 py-3">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-[9px] font-black flex items-center justify-center shadow-sm">
+                                          {i + 1}
+                                        </span>
+                                        <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wide">
+                                          Marekebisho #{i + 1}
+                                        </span>
+                                      </div>
+                                      <span className="text-[9px] text-slate-400 font-medium">
+                                        {new Date(ext.extendedAt).toLocaleDateString('sw-TZ', {
+                                          day: 'numeric',
+                                          month: 'short',
+                                          year: 'numeric',
+                                        })}
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 mb-2 bg-slate-50 rounded-lg p-2">
+                                      <div className="flex-1">
+                                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">
+                                          Kutoka
+                                        </p>
+                                        <p className="text-[11px] font-bold text-slate-400 line-through">
+                                          {ext.oldDueDate}
+                                        </p>
+                                      </div>
+                                      <div className="flex items-center justify-center">
+                                        <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center">
+                                          <ChevronRight size={12} className="text-amber-600" />
+                                        </div>
+                                      </div>
+                                      <div className="flex-1 text-right">
+                                        <p className="text-[8px] font-bold text-emerald-600 uppercase tracking-wide mb-0.5">
+                                          Hadi
+                                        </p>
+                                        <p className="text-[11px] font-extrabold text-emerald-700">
+                                          {ext.newDueDate}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    {ext.reason && (
+                                      <div className="flex items-start gap-1.5 mt-2">
+                                        <div className="mt-0.5 w-1 h-1 rounded-full bg-amber-500 flex-shrink-0" />
+                                        <p className="text-[10px] text-slate-600 italic leading-relaxed">
+                                          "{ext.reason}"
+                                        </p>
+                                      </div>
+                                    )}
                                   </div>
-                                  {ext.reason && (
-                                    <p className="italic text-slate-500 mt-0.5">"{ext.reason}"</p>
-                                  )}
-                                  <p className="text-slate-400">
-                                    {new Date(ext.extendedAt).toLocaleString('sw-TZ', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                  </p>
                                 </div>
                               ))}
+
+                              {debt.originalDueDate && debt.originalDueDate !== debt.dueDate && (
+                                <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-2.5 flex items-center justify-between">
+                                  <div>
+                                    <p className="text-[8px] font-bold text-amber-700 uppercase tracking-wide">
+                                      Ukomo wa Awali
+                                    </p>
+                                    <p className="text-[10px] font-bold text-slate-500 line-through">
+                                      {debt.originalDueDate}
+                                    </p>
+                                  </div>
+                                  <ChevronRight size={14} className="text-amber-500" />
+                                  <div className="text-right">
+                                    <p className="text-[8px] font-bold text-emerald-700 uppercase tracking-wide">
+                                      Ukomo wa Sasa
+                                    </p>
+                                    <p className="text-[11px] font-extrabold text-emerald-700">
+                                      {debt.dueDate}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1230,7 +1493,7 @@ export default function CustomerManagement({
                         <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${customer.stats.status === 'Overdue' ? 'bg-rose-100 text-rose-700' : customer.stats.status === 'Active' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{customer.stats.status}</span>
                         {customer.stats.hasExtensions && (
                           <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 flex items-center gap-0.5">
-                            <CalendarClock size={9} /> Muda+
+                            <CalendarClock size={9} /> Muda+{customer.stats.totalExtensions > 1 ? ` (${customer.stats.totalExtensions})` : ''}
                           </span>
                         )}
                       </div>
@@ -1501,7 +1764,7 @@ export default function CustomerManagement({
         );
       })()}
 
-      {/* ✅ MODAL: EXTEND ALL DEBTS AT ONCE */}
+      {/* MODAL: EXTEND ALL DEBTS AT ONCE */}
       {isExtendAllOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
@@ -1522,7 +1785,6 @@ export default function CustomerManagement({
               <strong>{activeCustomer?.fullName}</strong> kwa wakati mmoja.
             </p>
 
-            {/* Preview of all debts being extended */}
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 space-y-2 max-h-56 overflow-y-auto">
               <div className="text-[10px] font-bold text-amber-800 uppercase tracking-wide mb-1">
                 Madeni Yatakayoongezwa ({unpaidDebts.length})
