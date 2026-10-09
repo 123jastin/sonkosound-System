@@ -1,6 +1,46 @@
 // functions/api/debts/[id].ts
 
 // ============================================
+// GET - Fetch single debt
+// ============================================
+export const onRequestGet = async (context: any) => {
+  try {
+    const id = context.params.id;
+
+    if (!id) {
+      return Response.json(
+        { success: false, error: 'Debt ID required' },
+        { status: 400 }
+      );
+    }
+
+    const debt: any = await context.env.DB.prepare(
+      `SELECT * FROM debts WHERE id = ? LIMIT 1`
+    ).bind(id).first();
+
+    if (!debt) {
+      return Response.json(
+        { success: false, error: 'Deni halikupatikana' },
+        { status: 404 }
+      );
+    }
+
+    // ✅ NEW: parse extensions + normalize originalDueDate
+    return Response.json({
+      ...debt,
+      originalDueDate: debt.original_due_date || debt.due_date,
+      extensions: debt.extensions ? safeParseJSON(debt.extensions, []) : [],
+    });
+  } catch (error: any) {
+    console.error('❌ Failed to fetch debt:', error);
+    return Response.json(
+      { success: false, error: error?.message || 'Imeshindwa kupata deni' },
+      { status: 500 }
+    );
+  }
+};
+
+// ============================================
 // PUT - Update debt (also handles due-date extension)
 // ============================================
 export const onRequestPut = async (context: any) => {
@@ -38,7 +78,7 @@ export const onRequestPut = async (context: any) => {
       );
     }
 
-    // Verify debt exists (need original_due_date + extensions for merge logic)
+    // Verify debt exists + grab current extensions/original_due_date for merge
     const existing: any = await context.env.DB.prepare(
       `SELECT id, original_due_date, extensions FROM debts WHERE id = ? LIMIT 1`
     ).bind(id).first();
@@ -50,13 +90,14 @@ export const onRequestPut = async (context: any) => {
       );
     }
 
-    // ✅ NEW: original_due_date — only set on first ever update
+    // ✅ NEW: original_due_date — preserve if already set, never overwrite
     const originalDueDate =
-      existing.original_due_date ||
-      data.originalDueDate ||
-      data.dueDate;
+      existing.original_due_date ||    // keep first-ever date
+      data.originalDueDate ||          // fallback: what frontend sent
+      data.dueDate;                    // fallback: current due date
 
     // ✅ NEW: extensions — array in, JSON string stored
+    // If frontend sends extensions → use it. Otherwise keep existing.
     const extensionsJson = Array.isArray(data.extensions)
       ? JSON.stringify(data.extensions)
       : (existing.extensions || '[]');
@@ -83,8 +124,8 @@ export const onRequestPut = async (context: any) => {
       data.category || 'Mizigo/Products',
       data.notes || '',
       data.status || 'Active',
-      originalDueDate,           // ✅ NEW
-      extensionsJson,            // ✅ NEW
+      originalDueDate,                 // ✅ NEW
+      extensionsJson,                  // ✅ NEW
       id
     ).run();
 
@@ -113,7 +154,7 @@ export const onRequestPut = async (context: any) => {
       debt: {
         ...updated,
         originalDueDate: updated.original_due_date || updated.due_date,
-        extensions: updated.extensions ? JSON.parse(updated.extensions) : [],
+        extensions: updated.extensions ? safeParseJSON(updated.extensions, []) : [],
       },
       message: 'Deni limehaririwa'
     });
@@ -193,3 +234,16 @@ export const onRequestDelete = async (context: any) => {
     );
   }
 };
+
+// ============================================
+// Helper: Safe JSON parse
+// ============================================
+function safeParseJSON(raw: string | null, fallback: any) {
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
