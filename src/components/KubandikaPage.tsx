@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
-  Plus, Download, Calendar, Filter, X, Check, AlertCircle,
-  Loader2, TrendingUp, DollarSign, Wallet, ArrowLeft, Trash2,
-  ChevronRight, CalendarClock, ListChecks
+  Plus, Download, Calendar, X, Check, AlertCircle,
+  Loader2, TrendingUp, Wallet, ArrowLeft, Trash2,
+  ChevronRight, CalendarClock
 } from 'lucide-react';
+import { api } from '../services/api';
 
 // ============================================================
 // TYPES
@@ -22,7 +23,7 @@ interface ReceivedPayment {
   amount: number;
   date: string;
   method: string;
-  receivedFrom?: string;   // ✅ Optional now
+  receivedFrom?: string;
   notes?: string;
   createdAt: string;
 }
@@ -64,7 +65,6 @@ function getDateRange(mode: FilterMode, customStart?: string, customEnd?: string
     };
   }
 
-  // custom
   return {
     start: customStart || today,
     end: customEnd || today,
@@ -77,126 +77,101 @@ function getDateRange(mode: FilterMode, customStart?: string, customEnd?: string
 function RegionMenu({
   onSelect,
   totals,
+  isLoading,
 }: {
   onSelect: (region: KubandikaRegion) => void;
   totals: Record<KubandikaRegion, { today: number; month: number; allTime: number }>;
+  isLoading?: boolean;
 }) {
+  const renderCard = (
+    region: KubandikaRegion,
+    title: string,
+    subtitle: string,
+    code: string,
+    isTz: boolean
+  ) => {
+    const accent = isTz ? 'emerald' : 'rose';
+    const stats = totals[region];
+
+    return (
+      <button
+        onClick={() => onSelect(region)}
+        disabled={isLoading}
+        className={`group relative bg-white rounded-3xl p-6 md:p-8 border-2 border-slate-100 hover:border-${accent}-400 hover:shadow-xl transition-all text-left overflow-hidden disabled:opacity-60`}
+      >
+        <div
+          className={`absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-${accent}-100 to-${accent}-50 rounded-full blur-3xl opacity-60 -mr-10 -mt-10 group-hover:opacity-90 transition-opacity`}
+        />
+
+        <div className="relative">
+          <div className="flex items-center justify-between mb-4">
+            <div
+              className={`w-14 h-14 rounded-2xl bg-gradient-to-br from-${accent}-500 to-${accent}-600 flex items-center justify-center shadow-lg shadow-${accent}-500/30`}
+            >
+              <span className="text-2xl font-black text-white">{code}</span>
+            </div>
+            <ChevronRight
+              size={24}
+              className={`text-slate-300 group-hover:text-${accent}-500 group-hover:translate-x-1 transition-all`}
+            />
+          </div>
+
+          <h2 className="text-lg md:text-xl font-extrabold text-slate-800 mb-1">{title}</h2>
+          <p className="text-xs text-slate-500 font-medium mb-5">{subtitle}</p>
+
+          <div className="grid grid-cols-3 gap-2 pt-4 border-t border-slate-100">
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Leo</p>
+              <p className={`text-sm font-extrabold text-${accent}-700 mt-0.5`}>
+                TSh {stats.today.toLocaleString()}
+              </p>
+            </div>
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Mwezi</p>
+              <p className="text-sm font-extrabold text-slate-700 mt-0.5">
+                TSh {stats.month.toLocaleString()}
+              </p>
+            </div>
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Jumla</p>
+              <p className="text-sm font-extrabold text-slate-900 mt-0.5">
+                TSh {stats.allTime.toLocaleString()}
+              </p>
+            </div>
+          </div>
+        </div>
+      </button>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-3xl p-6 md:p-8 text-white shadow-lg">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center">
-            <Wallet size={24} className="text-amber-400" />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center">
+              <Wallet size={24} className="text-amber-400" />
+            </div>
+            <div>
+              <h1 className="text-xl md:text-2xl font-extrabold tracking-tight">
+                Kubandika Pesa
+              </h1>
+              <p className="text-xs text-slate-400 font-medium mt-0.5">
+                Chagua eneo la fedha zilizopokelewa
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl md:text-2xl font-extrabold tracking-tight">
-              Kubandika Pesa
-            </h1>
-            <p className="text-xs text-slate-400 font-medium mt-0.5">
-              Chagua eneo la fedha zilizopokelewa
-            </p>
-          </div>
+          {isLoading && (
+            <Loader2 size={20} className="text-amber-400 animate-spin" />
+          )}
         </div>
       </div>
 
-      {/* Two big region cards */}
+      {/* Two region cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* TZ */}
-        <button
-          onClick={() => onSelect('Tz')}
-          className="group relative bg-white rounded-3xl p-6 md:p-8 border-2 border-slate-100 hover:border-emerald-400 hover:shadow-xl transition-all text-left overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-emerald-100 to-emerald-50 rounded-full blur-3xl opacity-60 -mr-10 -mt-10 group-hover:opacity-90 transition-opacity" />
-
-          <div className="relative">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/30">
-                <span className="text-2xl font-black text-white">TZ</span>
-              </div>
-              <ChevronRight
-                size={24}
-                className="text-slate-300 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all"
-              />
-            </div>
-
-            <h2 className="text-lg md:text-xl font-extrabold text-slate-800 mb-1">
-              Kubandika Pesa ya Tz
-            </h2>
-            <p className="text-xs text-slate-500 font-medium mb-5">
-              Fedha zilizopokelewa Tanzania
-            </p>
-
-            <div className="grid grid-cols-3 gap-2 pt-4 border-t border-slate-100">
-              <div>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Leo</p>
-                <p className="text-sm font-extrabold text-emerald-700 mt-0.5">
-                  TSh {totals.Tz.today.toLocaleString()}
-                </p>
-              </div>
-              <div>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Mwezi</p>
-                <p className="text-sm font-extrabold text-slate-700 mt-0.5">
-                  TSh {totals.Tz.month.toLocaleString()}
-                </p>
-              </div>
-              <div>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Jumla</p>
-                <p className="text-sm font-extrabold text-slate-900 mt-0.5">
-                  TSh {totals.Tz.allTime.toLocaleString()}
-                </p>
-              </div>
-            </div>
-          </div>
-        </button>
-
-        {/* China */}
-        <button
-          onClick={() => onSelect('China')}
-          className="group relative bg-white rounded-3xl p-6 md:p-8 border-2 border-slate-100 hover:border-rose-400 hover:shadow-xl transition-all text-left overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-rose-100 to-rose-50 rounded-full blur-3xl opacity-60 -mr-10 -mt-10 group-hover:opacity-90 transition-opacity" />
-
-          <div className="relative">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-600 flex items-center justify-center shadow-lg shadow-rose-500/30">
-                <span className="text-2xl font-black text-white">CN</span>
-              </div>
-              <ChevronRight
-                size={24}
-                className="text-slate-300 group-hover:text-rose-500 group-hover:translate-x-1 transition-all"
-              />
-            </div>
-
-            <h2 className="text-lg md:text-xl font-extrabold text-slate-800 mb-1">
-              Kubandika Pesa ya China
-            </h2>
-            <p className="text-xs text-slate-500 font-medium mb-5">
-              Fedha zilizopokelewa China
-            </p>
-
-            <div className="grid grid-cols-3 gap-2 pt-4 border-t border-slate-100">
-              <div>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Leo</p>
-                <p className="text-sm font-extrabold text-rose-700 mt-0.5">
-                  TSh {totals.China.today.toLocaleString()}
-                </p>
-              </div>
-              <div>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Mwezi</p>
-                <p className="text-sm font-extrabold text-slate-700 mt-0.5">
-                  TSh {totals.China.month.toLocaleString()}
-                </p>
-              </div>
-              <div>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Jumla</p>
-                <p className="text-sm font-extrabold text-slate-900 mt-0.5">
-                  TSh {totals.China.allTime.toLocaleString()}
-                </p>
-              </div>
-            </div>
-          </div>
-        </button>
+        {renderCard('Tz', 'Kubandika Pesa ya Tz', 'Fedha zilizopokelewa Tanzania', 'TZ', true)}
+        {renderCard('China', 'Kubandika Pesa ya China', 'Fedha zilizopokelewa China', 'CN', false)}
       </div>
     </div>
   );
@@ -286,13 +261,11 @@ function AddPaymentModal({
   const [error, setError] = useState<string | null>(null);
 
   const isTz = region === 'Tz';
-  const themeColor = isTz ? 'emerald' : 'rose';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    // ✅ Only amount is required now — receivedFrom is optional
     if (!amount || Number(amount) <= 0) {
       setError('Kiasi kinahitajika');
       return;
@@ -303,7 +276,7 @@ function AddPaymentModal({
       amount: Number(amount),
       date,
       method,
-      receivedFrom: receivedFrom.trim() || undefined,   // ✅ optional
+      receivedFrom: receivedFrom.trim() || undefined,
       notes: notes.trim(),
     });
   };
@@ -357,7 +330,11 @@ function AddPaymentModal({
               value={amount}
               onChange={e => setAmount(e.target.value)}
               placeholder="0"
-              className={`w-full p-3 border-2 border-slate-200 rounded-xl text-lg font-extrabold focus:ring-2 focus:ring-${themeColor}-500/30 focus:border-${themeColor}-500 transition`}
+              className={`w-full p-3 border-2 border-slate-200 rounded-xl text-lg font-extrabold focus:ring-2 transition ${
+                isTz
+                  ? 'focus:ring-emerald-500/30 focus:border-emerald-500'
+                  : 'focus:ring-rose-500/30 focus:border-rose-500'
+              }`}
             />
           </div>
 
@@ -396,7 +373,6 @@ function AddPaymentModal({
             </div>
           </div>
 
-          {/* ✅ OPTIONAL — no longer required */}
           <div>
             <label className="block font-bold text-slate-500 uppercase tracking-wide mb-1.5">
               Imetoka kwa (Aliyetuma){' '}
@@ -475,29 +451,65 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
   );
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Load from localStorage on mount
-  useEffect(() => {
+  // ============================================================
+  // ✅ LOAD FROM BACKEND
+  // ============================================================
+  const loadPayments = useCallback(async () => {
     try {
-      const raw = localStorage.getItem('kubandika_payments');
-      if (raw) setPayments(JSON.parse(raw));
-    } catch (e) {
+      setIsInitialLoading(true);
+      setErrorMsg(null);
+
+      const data: any = await api.kubandika.list();
+      const list = Array.isArray(data) ? data : (data?.payments || []);
+
+      const mapped: ReceivedPayment[] = list.map((p: any) => ({
+        id: p.id,
+        region: p.region,
+        amount: Number(p.amount) || 0,
+        date: p.date,
+        method: p.method || 'Cash',
+        receivedFrom: p.receivedFrom || p.received_from || '',
+        notes: p.notes || '',
+        createdAt: p.createdAt || p.created_at || new Date().toISOString(),
+      }));
+
+      setPayments(mapped);
+    } catch (e: any) {
       console.error('Failed to load kubandika payments:', e);
+      setErrorMsg(e?.message || 'Imeshindwa kupata rekodi kutoka kwenye seva');
+
+      // Fallback: try localStorage
+      try {
+        const raw = localStorage.getItem('kubandika_payments');
+        if (raw) {
+          setPayments(JSON.parse(raw));
+        }
+      } catch {}
+    } finally {
+      setIsInitialLoading(false);
     }
   }, []);
 
-  // Save to localStorage
-  const persist = (next: ReceivedPayment[]) => {
-    setPayments(next);
-    try {
-      localStorage.setItem('kubandika_payments', JSON.stringify(next));
-    } catch (e) {
-      console.error('Failed to persist kubandika payments:', e);
-    }
-  };
+  useEffect(() => {
+    loadPayments();
+  }, [loadPayments]);
 
-  // Region totals
+  // ✅ Cache to localStorage for offline resilience
+  useEffect(() => {
+    if (!isInitialLoading && payments.length >= 0) {
+      try {
+        localStorage.setItem('kubandika_payments', JSON.stringify(payments));
+      } catch {}
+    }
+  }, [payments, isInitialLoading]);
+
+  // ============================================================
+  // TOTALS
+  // ============================================================
   const regionTotals = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
     const monthStart = new Date();
@@ -520,7 +532,9 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
     return { Tz: calc('Tz'), China: calc('China') };
   }, [payments]);
 
-  // Filtered payments for active region
+  // ============================================================
+  // FILTERED PAYMENTS
+  // ============================================================
   const filteredPayments = useMemo(() => {
     if (!activeRegion) return [];
     const { start, end } = getDateRange(filterMode, customStart, customEnd);
@@ -531,13 +545,11 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
       .sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [payments, activeRegion, filterMode, customStart, customEnd]);
 
-  // Filtered total
   const filteredTotal = useMemo(
     () => filteredPayments.reduce((s, p) => s + p.amount, 0),
     [filteredPayments]
   );
 
-  // Group by day
   const groupedByDay = useMemo(() => {
     const groups: Record<string, ReceivedPayment[]> = {};
     filteredPayments.forEach(p => {
@@ -550,37 +562,79 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
   const activeRegionTotals = activeRegion ? regionTotals[activeRegion] : null;
   const isTz = activeRegion === 'Tz';
 
-  // Add payment
+  // ============================================================
+  // ✅ ADD PAYMENT — calls POST /api/kubandika
+  // ============================================================
   const handleSavePayment = async (
     payment: Omit<ReceivedPayment, 'id' | 'createdAt'>
   ) => {
     setIsLoading(true);
     try {
-      const newPayment: ReceivedPayment = {
-        ...payment,
-        id: `kub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        createdAt: new Date().toISOString(),
-      };
-      persist([newPayment, ...payments]);
+      const result: any = await api.kubandika.create({
+        region: payment.region,
+        amount: payment.amount,
+        date: payment.date,
+        method: payment.method,
+        receivedFrom: payment.receivedFrom || '',
+        notes: payment.notes || '',
+      });
+
+      if (result?.success && result.payment) {
+        // ✅ Optimistic: prepend new payment
+        const newPayment: ReceivedPayment = {
+          id: result.payment.id,
+          region: result.payment.region,
+          amount: result.payment.amount,
+          date: result.payment.date,
+          method: result.payment.method,
+          receivedFrom: result.payment.receivedFrom || '',
+          notes: result.payment.notes || '',
+          createdAt: result.payment.createdAt,
+        };
+        setPayments(prev => [newPayment, ...prev]);
+      } else {
+        // Fallback: refetch
+        await loadPayments();
+      }
+
       setIsAddOpen(false);
       setSuccessMsg('Pesa imeongezwa kikamilifu!');
       setTimeout(() => setSuccessMsg(null), 3000);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to save:', e);
+      setErrorMsg(e?.message || 'Imeshindwa kuongeza pesa. Jaribu tena.');
+      setTimeout(() => setErrorMsg(null), 4000);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Delete payment
-  const handleDelete = (id: string) => {
+  // ============================================================
+  // ✅ DELETE — calls DELETE /api/kubandika/:id
+  // ============================================================
+  const handleDelete = async (id: string) => {
     if (!confirm('Futa rekodi hii?')) return;
-    persist(payments.filter(p => p.id !== id));
+
+    // Optimistic remove
+    const previous = payments;
+    setPayments(prev => prev.filter(p => p.id !== id));
+
+    try {
+      await api.kubandika.delete(id);
+      setSuccessMsg('Rekodi imefutwa');
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (e: any) {
+      console.error('Failed to delete:', e);
+      // Rollback on failure
+      setPayments(previous);
+      setErrorMsg(e?.message || 'Imeshindwa kufuta. Jaribu tena.');
+      setTimeout(() => setErrorMsg(null), 4000);
+    }
   };
 
-  // ============================================
+  // ============================================================
   // PDF EXPORT
-  // ============================================
+  // ============================================================
   const handleDownloadPDF = () => {
     if (!activeRegion || !activeRegionTotals) return;
 
@@ -611,160 +665,40 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
     @page { size: A4; margin: 12mm; }
     body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #fff; color: #1e293b; padding: 20px; }
     .container { max-width: 190mm; margin: 0 auto; }
-
-    .header {
-      background: linear-gradient(135deg, ${primaryDark} 0%, ${primaryColor} 100%);
-      color: white;
-      padding: 24px 28px;
-      border-radius: 14px;
-      margin-bottom: 24px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 20px;
-    }
+    .header { background: linear-gradient(135deg, ${primaryDark} 0%, ${primaryColor} 100%); color: white; padding: 24px 28px; border-radius: 14px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
     .header-title { font-size: 24px; font-weight: 900; letter-spacing: 0.5px; }
     .header-sub { font-size: 12px; opacity: 0.9; margin-top: 4px; }
-    .header-badge {
-      background: rgba(255,255,255,0.2);
-      border: 1px solid rgba(255,255,255,0.3);
-      padding: 8px 16px;
-      border-radius: 20px;
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-    }
+    .header-badge { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); padding: 8px 16px; border-radius: 20px; font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
     .header-right { text-align: right; }
     .header-date { font-size: 10px; opacity: 0.85; margin-top: 6px; font-family: monospace; }
-
-    .filter-badge {
-      display: inline-block;
-      background: ${primaryLight};
-      color: ${primaryDark};
-      padding: 8px 16px;
-      border-radius: 10px;
-      font-size: 12px;
-      font-weight: 800;
-      margin-bottom: 16px;
-      border-left: 4px solid ${primaryColor};
-    }
-
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-      margin-bottom: 24px;
-    }
-    .stat-card {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      padding: 14px 16px;
-    }
-    .stat-card.primary {
-      background: ${primaryLight};
-      border-color: ${primaryColor};
-    }
-    .stat-label {
-      font-size: 9px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: #64748b;
-      margin-bottom: 4px;
-    }
+    .filter-badge { display: inline-block; background: ${primaryLight}; color: ${primaryDark}; padding: 8px 16px; border-radius: 10px; font-size: 12px; font-weight: 800; margin-bottom: 16px; border-left: 4px solid ${primaryColor}; }
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+    .stat-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; }
+    .stat-card.primary { background: ${primaryLight}; border-color: ${primaryColor}; }
+    .stat-label { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 4px; }
     .stat-card.primary .stat-label { color: ${primaryDark}; }
     .stat-value { font-size: 18px; font-weight: 900; color: #1e293b; }
     .stat-card.primary .stat-value { color: ${primaryDark}; }
-
     table { width: 100%; border-collapse: collapse; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
-    thead th {
-      background: ${primaryDark};
-      color: white;
-      padding: 12px 14px;
-      text-align: left;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      font-weight: 800;
-    }
+    thead th { background: ${primaryDark}; color: white; padding: 12px 14px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 800; }
     thead th:last-child { text-align: right; }
-    tbody td {
-      padding: 11px 14px;
-      border-bottom: 1px solid #f1f5f9;
-      font-size: 11px;
-      color: #334155;
-    }
+    tbody td { padding: 11px 14px; border-bottom: 1px solid #f1f5f9; font-size: 11px; color: #334155; }
     tbody tr:nth-child(even) { background: #f8fafc; }
     tbody tr:last-child td { border-bottom: none; }
     tbody td:last-child { text-align: right; font-weight: 800; color: ${primaryColor}; }
     .date-cell { font-weight: 700; color: #475569; white-space: nowrap; }
     .from-cell { font-weight: 600; color: #64748b; font-style: italic; }
-    .method-cell {
-      display: inline-block;
-      background: ${primaryLight};
-      color: ${primaryDark};
-      padding: 2px 8px;
-      border-radius: 6px;
-      font-size: 9px;
-      font-weight: 800;
-      text-transform: uppercase;
-    }
-
-    .day-separator {
-      background: linear-gradient(135deg, ${primaryLight} 0%, #f8fafc 100%);
-      border-left: 4px solid ${primaryColor};
-      padding: 10px 16px;
-      border-radius: 8px;
-      margin: 16px 0 8px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
+    .method-cell { display: inline-block; background: ${primaryLight}; color: ${primaryDark}; padding: 2px 8px; border-radius: 6px; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+    .day-separator { background: linear-gradient(135deg, ${primaryLight} 0%, #f8fafc 100%); border-left: 4px solid ${primaryColor}; padding: 10px 16px; border-radius: 8px; margin: 16px 0 8px; display: flex; justify-content: space-between; align-items: center; }
     .day-separator-date { font-size: 13px; font-weight: 900; color: ${primaryDark}; }
     .day-separator-total { font-size: 13px; font-weight: 900; color: ${primaryColor}; }
-
-    .grand-total {
-      background: linear-gradient(135deg, ${primaryDark} 0%, ${primaryColor} 100%);
-      color: white;
-      padding: 18px 24px;
-      border-radius: 12px;
-      margin-top: 20px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 15px;
-      font-weight: 800;
-    }
+    .grand-total { background: linear-gradient(135deg, ${primaryDark} 0%, ${primaryColor} 100%); color: white; padding: 18px 24px; border-radius: 12px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 800; }
     .grand-total-label { letter-spacing: 0.5px; }
     .grand-total-value { font-size: 22px; font-weight: 900; }
-
-    .footer {
-      margin-top: 30px;
-      padding: 14px;
-      background: #f8fafc;
-      border-radius: 10px;
-      text-align: center;
-      font-size: 10px;
-      color: #64748b;
-      border: 1px solid #e2e8f0;
-    }
-
+    .footer { margin-top: 30px; padding: 14px; background: #f8fafc; border-radius: 10px; text-align: center; font-size: 10px; color: #64748b; border: 1px solid #e2e8f0; }
     .no-print { text-align: center; padding: 20px; margin-top: 10px; }
-    .no-print button {
-      background: ${primaryColor};
-      color: white;
-      border: none;
-      padding: 12px 28px;
-      border-radius: 22px;
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-      margin: 0 5px;
-    }
+    .no-print button { background: ${primaryColor}; color: white; border: none; padding: 12px 28px; border-radius: 22px; font-size: 13px; font-weight: bold; cursor: pointer; margin: 0 5px; }
     .no-print button.close { background: #64748b; }
-
     @media print { .no-print { display: none !important; } body { padding: 0; } }
   </style>
 </head>
@@ -883,9 +817,9 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
     }
   };
 
-  // ============================================
+  // ============================================================
   // RENDER: REGION MENU
-  // ============================================
+  // ============================================================
   if (!activeRegion) {
     return (
       <div className="space-y-6">
@@ -895,20 +829,37 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
             <span>{successMsg}</span>
           </div>
         )}
-        <RegionMenu onSelect={setActiveRegion} totals={regionTotals} />
+        {errorMsg && (
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-center gap-2 text-rose-700 text-xs">
+            <AlertCircle size={16} />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+        <RegionMenu
+          onSelect={setActiveRegion}
+          totals={regionTotals}
+          isLoading={isInitialLoading}
+        />
       </div>
     );
   }
 
-  // ============================================
+  // ============================================================
   // RENDER: FULL PAGE
-  // ============================================
+  // ============================================================
   return (
     <div className="space-y-5 text-xs">
       {successMsg && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-2 text-emerald-700 text-xs">
           <Check size={16} />
           <span>{successMsg}</span>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-center gap-2 text-rose-700 text-xs">
+          <AlertCircle size={16} />
+          <span>{errorMsg}</span>
         </div>
       )}
 
@@ -1035,7 +986,17 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
 
       {/* Payments list */}
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-        {filteredPayments.length === 0 ? (
+        {isInitialLoading ? (
+          <div className="p-12 text-center">
+            <Loader2
+              size={28}
+              className={`animate-spin mx-auto mb-3 ${
+                isTz ? 'text-emerald-500' : 'text-rose-500'
+              }`}
+            />
+            <p className="text-sm font-bold text-slate-600">Inapakia rekodi...</p>
+          </div>
+        ) : filteredPayments.length === 0 ? (
           <div className="p-12 text-center">
             <div
               className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${
