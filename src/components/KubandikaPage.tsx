@@ -22,7 +22,7 @@ interface ReceivedPayment {
   amount: number;
   date: string;
   method: string;
-  receivedFrom: string;
+  receivedFrom?: string;   // ✅ Optional now
   notes?: string;
   createdAt: string;
 }
@@ -72,7 +72,7 @@ function getDateRange(mode: FilterMode, customStart?: string, customEnd?: string
 }
 
 // ============================================================
-// COMPONENT: Region Menu (initial view — two buttons)
+// COMPONENT: Region Menu
 // ============================================================
 function RegionMenu({
   onSelect,
@@ -127,7 +127,6 @@ function RegionMenu({
               Fedha zilizopokelewa Tanzania
             </p>
 
-            {/* Stats */}
             <div className="grid grid-cols-3 gap-2 pt-4 border-t border-slate-100">
               <div>
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Leo</p>
@@ -176,7 +175,6 @@ function RegionMenu({
               Fedha zilizopokelewa China
             </p>
 
-            {/* Stats */}
             <div className="grid grid-cols-3 gap-2 pt-4 border-t border-slate-100">
               <div>
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Leo</p>
@@ -294,12 +292,9 @@ function AddPaymentModal({
     e.preventDefault();
     setError(null);
 
+    // ✅ Only amount is required now — receivedFrom is optional
     if (!amount || Number(amount) <= 0) {
       setError('Kiasi kinahitajika');
-      return;
-    }
-    if (!receivedFrom.trim()) {
-      setError('Andika jina la aliyetuma');
       return;
     }
 
@@ -308,7 +303,7 @@ function AddPaymentModal({
       amount: Number(amount),
       date,
       method,
-      receivedFrom: receivedFrom.trim(),
+      receivedFrom: receivedFrom.trim() || undefined,   // ✅ optional
       notes: notes.trim(),
     });
   };
@@ -401,16 +396,19 @@ function AddPaymentModal({
             </div>
           </div>
 
+          {/* ✅ OPTIONAL — no longer required */}
           <div>
             <label className="block font-bold text-slate-500 uppercase tracking-wide mb-1.5">
-              Imetoka kwa (Aliyetuma) *
+              Imetoka kwa (Aliyetuma){' '}
+              <span className="text-slate-400 font-medium normal-case tracking-normal">
+                — hiari
+              </span>
             </label>
             <input
               type="text"
-              required
               value={receivedFrom}
               onChange={e => setReceivedFrom(e.target.value)}
-              placeholder="Mf. Juma Hassan"
+              placeholder="Mf. Juma Hassan (si lazima)"
               className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-accent/30 focus:border-accent"
             />
           </div>
@@ -539,7 +537,7 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
     [filteredPayments]
   );
 
-  // Group by day (for day mode display)
+  // Group by day
   const groupedByDay = useMemo(() => {
     const groups: Record<string, ReceivedPayment[]> = {};
     filteredPayments.forEach(p => {
@@ -549,7 +547,6 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
     return Object.entries(groups).sort((a, b) => (a[0] < b[0] ? 1 : -1));
   }, [filteredPayments]);
 
-  // Active customer totals (all regions)
   const activeRegionTotals = activeRegion ? regionTotals[activeRegion] : null;
   const isTz = activeRegion === 'Tz';
 
@@ -703,7 +700,7 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
     tbody tr:last-child td { border-bottom: none; }
     tbody td:last-child { text-align: right; font-weight: 800; color: ${primaryColor}; }
     .date-cell { font-weight: 700; color: #475569; white-space: nowrap; }
-    .from-cell { font-weight: 600; }
+    .from-cell { font-weight: 600; color: #64748b; font-style: italic; }
     .method-cell {
       display: inline-block;
       background: ${primaryLight};
@@ -818,7 +815,7 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
             ${filteredPayments.map(p => `
               <tr>
                 <td class="date-cell">${p.date}</td>
-                <td class="from-cell">${p.receivedFrom}</td>
+                <td class="from-cell">${p.receivedFrom || '—'}</td>
                 <td><span class="method-cell">${p.method}</span></td>
                 <td>${p.notes || '—'}</td>
                 <td>TSh ${p.amount.toLocaleString()}</td>
@@ -845,7 +842,7 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
               <tbody>
                 ${items.map(p => `
                   <tr>
-                    <td class="from-cell">${p.receivedFrom}</td>
+                    <td class="from-cell">${p.receivedFrom || '—'}</td>
                     <td><span class="method-cell">${p.method}</span></td>
                     <td>${p.notes || '—'}</td>
                     <td>TSh ${p.amount.toLocaleString()}</td>
@@ -887,7 +884,7 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
   };
 
   // ============================================
-  // RENDER: REGION MENU (no region selected)
+  // RENDER: REGION MENU
   // ============================================
   if (!activeRegion) {
     return (
@@ -904,7 +901,7 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
   }
 
   // ============================================
-  // RENDER: FULL PAGE (region selected)
+  // RENDER: FULL PAGE
   // ============================================
   return (
     <div className="space-y-5 text-xs">
@@ -1055,7 +1052,6 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
             </p>
           </div>
         ) : filterMode === 'day' ? (
-          // DAY MODE — flat table
           <div>
             <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
@@ -1108,8 +1104,8 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
                       <td className="px-5 py-3 font-bold text-slate-700 whitespace-nowrap">
                         {p.date}
                       </td>
-                      <td className="px-5 py-3 font-semibold text-slate-800">
-                        {p.receivedFrom}
+                      <td className="px-5 py-3 font-semibold text-slate-700">
+                        {p.receivedFrom || <span className="text-slate-400 italic font-normal">—</span>}
                       </td>
                       <td className="px-5 py-3">
                         <span
@@ -1148,13 +1144,11 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
             </div>
           </div>
         ) : (
-          // WEEK / MONTH / CUSTOM — grouped by day
           <div className="p-5 space-y-5">
             {groupedByDay.map(([date, items]) => {
               const dayTotal = items.reduce((s, p) => s + p.amount, 0);
               return (
                 <div key={date}>
-                  {/* Day header */}
                   <div
                     className={`flex items-center justify-between px-4 py-3 rounded-xl mb-3 ${
                       isTz
@@ -1189,7 +1183,6 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
                     </span>
                   </div>
 
-                  {/* Day's payments table */}
                   <div className="rounded-xl overflow-hidden border border-slate-100">
                     <table className="w-full">
                       <thead>
@@ -1212,8 +1205,8 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
                       <tbody>
                         {items.map(p => (
                           <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50/50">
-                            <td className="px-4 py-2.5 font-semibold text-slate-800">
-                              {p.receivedFrom}
+                            <td className="px-4 py-2.5 font-semibold text-slate-700">
+                              {p.receivedFrom || <span className="text-slate-400 italic font-normal">—</span>}
                             </td>
                             <td className="px-4 py-2.5">
                               <span
