@@ -22,11 +22,12 @@ import ReportsView from './components/ReportsView';
 import SettingsView from './components/SettingsView';
 import NotificationsView from './components/NotificationsView';
 import MemoryPage from './components/MemoryPage';
+import KubandikaPage from './components/KubandikaPage';
 import { 
   LayoutDashboard, Users, BookOpen, Truck, Calendar, 
   FileSpreadsheet, Settings, LogOut, Menu, X, Shield, 
   MapPin, Phone, Bell, Loader2, AlertTriangle, RefreshCw,
-  FolderOpen, Download, Wallet, ShoppingCart, Package
+  FolderOpen, Download, Wallet, ShoppingCart, Package, Globe
 } from 'lucide-react';
 
 // Utility: Get days difference
@@ -280,7 +281,12 @@ export default function App() {
         dateBorrowed: d.date_borrowed || '', dueDate: d.due_date || '',
         description: d.description || '', category: d.category || 'Mizigo/Products',
         notes: d.notes || '', status: d.status || 'Active',
-        createdAt: d.created_at || new Date().toISOString()
+        createdAt: d.created_at || new Date().toISOString(),
+        // ✅ Preserve extension fields from API
+        originalDueDate: d.originalDueDate || d.original_due_date || d.due_date || '',
+        extensions: Array.isArray(d.extensions)
+          ? d.extensions
+          : (typeof d.extensions === 'string' ? safeParseExtensions(d.extensions) : []),
       }));
 
       const transformedPayments: Payment[] = (Array.isArray(paymentsData) ? paymentsData : []).map((p: any) => ({
@@ -337,6 +343,18 @@ export default function App() {
     }
   }, [cacheDataToLocalStorage]);
 
+  // ✅ Safe parse extensions JSON string → array
+  function safeParseExtensions(raw: any): any[] {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
   useEffect(() => {
     if (isAuthenticated && !isWorkerUrl) {
       tryLoadFromLocalStorage();
@@ -378,6 +396,13 @@ export default function App() {
     { id: 'debts', label: 'Madeni ya Wateja (All)', icon: BookOpen },
     { id: 'suppliers', label: 'Ma Suppliers (Wanaotudai)', icon: Truck },
     { id: 'installments', label: 'Kubandika (Installments)', icon: Wallet },
+    {
+      id: 'kubandika',
+      label: 'Kubandika Tz/China',
+      icon: Globe,
+      isNew: true,
+      highlight: 'kubandika',
+    },
     { id: 'orders', label: 'Oda (Orders)', icon: ShoppingCart },
     { id: 'stock', label: 'Bidhaa Zisizokuepo', icon: Package },
     { id: 'calendar', label: 'Kalenda (Calendar)', icon: Calendar },
@@ -504,10 +529,37 @@ export default function App() {
           <nav className="space-y-1.5">
             {navigationItems.map(item => {
               const Icon = item.icon;
+              const isKubandika = (item as any).highlight === 'kubandika';
+              const isActive = currentTab === item.id;
+
               return (
-                <button key={item.id} onClick={() => { setCurrentTab(item.id); if (item.id !== 'customers') setSelectedCustomerId(null); }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all border-l-3 ${currentTab === item.id ? 'bg-white/5 border-accent text-white shadow-sm' : 'border-transparent hover:bg-slate-800 hover:text-white text-slate-400'}`}>
-                  <Icon size={16} /><span>{item.label}</span>
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setCurrentTab(item.id);
+                    if (item.id !== 'customers') setSelectedCustomerId(null);
+                  }}
+                  className={`w-full relative flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all border-l-3 ${
+                    isActive
+                      ? isKubandika
+                        ? 'bg-gradient-to-r from-amber-500/25 to-orange-500/10 border-amber-400 text-amber-100 shadow-sm'
+                        : 'bg-white/5 border-accent text-white shadow-sm'
+                      : isKubandika
+                        ? 'border-transparent bg-gradient-to-r from-amber-500/8 to-transparent hover:from-amber-500/20 text-amber-300 hover:text-amber-100'
+                        : 'border-transparent hover:bg-slate-800 hover:text-white text-slate-400'
+                  }`}
+                >
+                  <Icon
+                    size={16}
+                    className={isKubandika ? 'text-amber-400' : ''}
+                  />
+                  <span className="flex-1 text-left">{item.label}</span>
+
+                  {isKubandika && (item as any).isNew && (
+                    <span className="shrink-0 text-[8px] font-black tracking-wider bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 px-1.5 py-0.5 rounded-md shadow-sm animate-pulse">
+                      NEW
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -556,14 +608,42 @@ export default function App() {
 
       {/* MOBILE DRAWER */}
       {isMobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 top-[57px] bg-slate-900 z-30 flex flex-col p-5 justify-between animate-fade-in select-none">
+        <div className="md:hidden fixed inset-0 top-[57px] bg-slate-900 z-30 flex flex-col p-5 justify-between animate-fade-in select-none overflow-y-auto">
           <nav className="space-y-2">
             {navigationItems.map(item => {
               const Icon = item.icon;
+              const isKubandika = (item as any).highlight === 'kubandika';
+              const isActive = currentTab === item.id;
+
               return (
-                <button key={item.id} onClick={() => { setCurrentTab(item.id); setIsMobileMenuOpen(false); if (item.id !== 'customers') setSelectedCustomerId(null); }}
-                  className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all border-l-3 ${currentTab === item.id ? 'bg-white/5 border-accent text-white' : 'border-transparent hover:bg-slate-800 hover:text-white text-slate-400'}`}>
-                  <Icon size={18} /><span>{item.label}</span>
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setCurrentTab(item.id);
+                    setIsMobileMenuOpen(false);
+                    if (item.id !== 'customers') setSelectedCustomerId(null);
+                  }}
+                  className={`w-full relative flex items-center gap-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all border-l-3 ${
+                    isActive
+                      ? isKubandika
+                        ? 'bg-gradient-to-r from-amber-500/25 to-orange-500/10 border-amber-400 text-amber-100'
+                        : 'bg-white/5 border-accent text-white'
+                      : isKubandika
+                        ? 'border-transparent bg-gradient-to-r from-amber-500/8 to-transparent text-amber-300 hover:text-amber-100'
+                        : 'border-transparent hover:bg-slate-800 hover:text-white text-slate-400'
+                  }`}
+                >
+                  <Icon
+                    size={18}
+                    className={isKubandika ? 'text-amber-400' : ''}
+                  />
+                  <span className="flex-1 text-left">{item.label}</span>
+
+                  {isKubandika && (item as any).isNew && (
+                    <span className="shrink-0 text-[8px] font-black tracking-wider bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 px-1.5 py-0.5 rounded-md shadow-sm animate-pulse">
+                      NEW
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -575,7 +655,7 @@ export default function App() {
               <span>Download App (APK)</span>
             </button>
           </nav>
-          <button onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 transition-all">
+          <button onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 transition-all mt-4">
             <LogOut size={16} /><span>Ondoka kwenye Mfumo (Logout)</span>
           </button>
         </div>
@@ -600,6 +680,9 @@ export default function App() {
             onUpdate={() => syncDatabaseStates(false)} 
             onNotificationsGenerated={handleInstallmentNotifications}
           />
+        )}
+        {currentTab === 'kubandika' && (
+          <KubandikaPage />
         )}
         {currentTab === 'orders' && (
           <OrdersPage onUpdate={() => {
