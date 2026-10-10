@@ -103,14 +103,14 @@ export const api = {
       method: 'DELETE'
     }),
 
-    // ✅ NEW: Extend a single debt's due date
+    // ✅ Extend a single debt's due date
     extend: (id: string, data: { newDueDate: string; reason?: string }) =>
       safeFetch(`${API_BASE}/debts/${id}/extend`, {
         method: 'POST',
         body: JSON.stringify(data)
       }),
 
-    // ✅ NEW: Extend due date for multiple debts at once
+    // ✅ Extend due date for multiple debts at once
     bulkExtend: (data: { debtIds: string[]; newDueDate: string; reason?: string }) =>
       safeFetch(`${API_BASE}/debts/bulk-extend`, {
         method: 'POST',
@@ -275,6 +275,51 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data)
       })
+  },
+
+  // ============================================
+  // KUBANDIKA (Received Payments — Tz/China)
+  // ============================================
+  kubandika: {
+    // ✅ List all (with optional filters)
+    list: (params?: { region?: 'Tz' | 'China' | string; start?: string; end?: string }) => {
+      const query = new URLSearchParams();
+      if (params?.region) query.append('region', params.region);
+      if (params?.start) query.append('start', params.start);
+      if (params?.end) query.append('end', params.end);
+      const qs = query.toString();
+      return safeFetch(`${API_BASE}/kubandika${qs ? `?${qs}` : ''}`);
+    },
+
+    // ✅ Get single record
+    get: (id: string) => safeFetch(`${API_BASE}/kubandika/${id}`),
+
+    // ✅ Create new payment
+    create: (data: {
+      region: 'Tz' | 'China' | string;
+      amount: number;
+      date: string;
+      method?: string;
+      receivedFrom?: string;
+      notes?: string;
+    }) => safeFetch(`${API_BASE}/kubandika`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+
+    // ✅ Update existing
+    update: (id: string, data: any) => safeFetch(`${API_BASE}/kubandika/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    }),
+
+    // ✅ Delete
+    delete: (id: string) => safeFetch(`${API_BASE}/kubandika/${id}`, {
+      method: 'DELETE'
+    }),
+
+    // ✅ Aggregated stats (today/month/allTime for both regions)
+    stats: () => safeFetch(`${API_BASE}/kubandika/stats`)
   },
 
   // ============================================
