@@ -4,14 +4,14 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Customer, Debt, Payment, CustomerStatus, DebtExtension } from '../types';
+import { Customer, Debt, Payment, CustomerStatus, DebtExtension, CustomerContact } from '../types';
 import FormAIOCR from './FormAIOCR';
 import { api } from '../services/api';
 import { 
   Users, Search, Plus, Filter, Phone, MapPin, 
   Building, UserPlus, CreditCard, ChevronRight, ChevronDown, FileText, 
   History, Calendar, Check, AlertCircle, Printer, X, Trash2, Edit2, 
-  ArrowLeft, Loader2, ListChecks, Package, CalendarClock
+  ArrowLeft, Loader2, ListChecks, Package, CalendarClock, User, Briefcase
 } from 'lucide-react';
 
 interface CustomerManagementProps {
@@ -78,6 +78,11 @@ export default function CustomerManagement({
   const [businessName, setBusinessName] = useState('');
   const [notes, setNotes] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
+
+  // ✅ NEW: Additional contacts (Mwenyekiti, Katibu, etc.)
+  const [contacts, setContacts] = useState<CustomerContact[]>([
+    { id: 'contact-' + Date.now(), role: '', name: '', phone: '' }
+  ]);
 
   // Form states - Multi-Product Debt creation
   const [productItems, setProductItems] = useState<ProductItem[]>([
@@ -147,7 +152,7 @@ export default function CustomerManagement({
     return { debts: custDebts, payments: custPayments };
   }, [selectedCustomerId, debts, payments]);
 
-  // ✅ NEW: All extensions across all debts (chronological timeline)
+  // All extensions across all debts (chronological timeline)
   const allExtensions = useMemo(() => {
     return activeCustomerHistory.debts
       .flatMap(debt =>
@@ -291,6 +296,31 @@ export default function CustomerManagement({
   };
 
   // ============================================
+  // ✅ NEW: MULTI-CONTACT HANDLERS
+  // ============================================
+  const updateContact = (index: number, field: keyof CustomerContact, value: string) => {
+    const updated = [...contacts];
+    updated[index] = { ...updated[index], [field]: value };
+    setContacts(updated);
+  };
+
+  const addContact = () => {
+    setContacts([
+      ...contacts,
+      { id: 'contact-' + Date.now() + '-' + Math.random(), role: '', name: '', phone: '' }
+    ]);
+  };
+
+  const removeContact = (index: number) => {
+    if (contacts.length === 1) return;
+    setContacts(contacts.filter((_, i) => i !== index));
+  };
+
+  const resetContacts = () => {
+    setContacts([{ id: 'contact-' + Date.now(), role: '', name: '', phone: '' }]);
+  };
+
+  // ============================================
   // API HANDLERS
   // ============================================
   
@@ -301,6 +331,9 @@ export default function CustomerManagement({
     setIsLoading(true);
     setError(null);
     try {
+      // ✅ Filter contacts that have at least a name
+      const validContacts = contacts.filter(c => c.name.trim());
+
       await api.customers.create({
         id: 'cust-' + Date.now(),
         fullName,
@@ -308,7 +341,8 @@ export default function CustomerManagement({
         address,
         businessName: businessName || '',
         notes,
-        photoUrl: photoUrl || ''
+        photoUrl: photoUrl || '',
+        contacts: validContacts, // ✅ NEW
       });
       
       onUpdate();
@@ -328,13 +362,16 @@ export default function CustomerManagement({
     setIsLoading(true);
     setError(null);
     try {
+      const validContacts = contacts.filter(c => c.name.trim());
+
       await api.customers.update(selectedCustomerId, {
         fullName,
         phoneNumber,
         address,
         businessName: businessName || '',
         notes,
-        photoUrl: photoUrl || ''
+        photoUrl: photoUrl || '',
+        contacts: validContacts, // ✅ NEW
       });
       
       onUpdate();
@@ -528,7 +565,7 @@ export default function CustomerManagement({
   };
 
   // ============================================
-  // SINGLE-DEBT EXTENSION HANDLERS (uses new endpoint)
+  // SINGLE-DEBT EXTENSION HANDLERS
   // ============================================
   const openExtendDebtModal = (debt: Debt) => {
     setExtendingDebtId(debt.id);
@@ -554,7 +591,6 @@ export default function CustomerManagement({
     setError(null);
 
     try {
-      // ✅ Use dedicated extend endpoint (backend derives original_due_date)
       await api.debts.extend(extendingDebtId, {
         newDueDate,
         reason: extensionReason.trim(),
@@ -574,7 +610,7 @@ export default function CustomerManagement({
   };
 
   // ============================================
-  // BULK EXTEND-ALL HANDLERS (uses new endpoint)
+  // BULK EXTEND-ALL HANDLERS
   // ============================================
   const openExtendAllModal = () => {
     if (unpaidDebts.length === 0) return;
@@ -601,7 +637,6 @@ export default function CustomerManagement({
     setError(null);
 
     try {
-      // ✅ Use bulk endpoint — one request instead of N
       const result = await api.debts.bulkExtend({
         debtIds: unpaidDebts.map(d => d.id),
         newDueDate: bulkNewDueDate,
@@ -700,6 +735,7 @@ export default function CustomerManagement({
   const resetCustomerForm = () => {
     setFullName(''); setPhoneNumber(''); setAddress('');
     setBusinessName(''); setNotes(''); setPhotoUrl('');
+    resetContacts(); // ✅ NEW
   };
 
   const resetPaymentForm = () => {
@@ -714,6 +750,14 @@ export default function CustomerManagement({
     setBusinessName(activeCustomer.businessName || '');
     setNotes(activeCustomer.notes);
     setPhotoUrl(activeCustomer.photoUrl || '');
+
+    // ✅ Load existing contacts (or reset)
+    if (activeCustomer.contacts && activeCustomer.contacts.length > 0) {
+      setContacts(activeCustomer.contacts);
+    } else {
+      setContacts([{ id: 'contact-' + Date.now(), role: '', name: '', phone: '' }]);
+    }
+
     setIsEditModalOpen(true);
   };
 
@@ -736,7 +780,7 @@ export default function CustomerManagement({
   };
 
   // ============================================
-  // PRINT STATEMENT (with logo + full extension timeline)
+  // PRINT STATEMENT (with logo + extensions + contacts)
   // ============================================
   const handlePrintStatement = () => {
     if (!activeCustomer || !activeCustomerStats) return;
@@ -770,6 +814,15 @@ export default function CustomerManagement({
     .info-label { font-size: 9px; font-weight: 800; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px; }
     .info-value { font-size: 13px; font-weight: bold; color: #1e293b; }
     .info-value.highlight { color: #dc2626; font-size: 16px; }
+
+    /* ✅ Contacts table */
+    .contacts-table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+    .contacts-table thead th { background: #7c3aed; color: white; padding: 10px 12px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 800; }
+    .contacts-table tbody td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 11px; color: #334155; }
+    .contacts-table tbody tr:last-child td { border-bottom: none; }
+    .contacts-table tbody tr:nth-child(even) { background: #f8fafc; }
+    .role-badge { display: inline-block; background: #ede9fe; color: #6d28d9; padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; }
+
     table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
     thead th { background: #1e3a5f; color: white; padding: 10px 12px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 800; }
     thead th:last-child { text-align: right; }
@@ -782,135 +835,24 @@ export default function CustomerManagement({
     .ext-badge { display: inline-block; background: #d97706; color: white; padding: 2px 7px; border-radius: 10px; font-size: 8px; font-weight: 800; margin-left: 5px; letter-spacing: 0.3px; }
     .ext-old-cell { color: #94a3b8; text-decoration: line-through; font-style: italic; }
     .ext-new-cell { color: #d97706; font-weight: bold; }
-
-    /* ✅ Nyongeza ya Muda wa Malipo — section header */
-    .ext-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 13px;
-      font-weight: 800;
-      color: #92400e;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      padding: 12px 16px;
-      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-      border-left: 4px solid #d97706;
-      border-radius: 8px;
-      margin-bottom: 12px;
-    }
+    .ext-header { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 800; color: #92400e; text-transform: uppercase; letter-spacing: 0.5px; padding: 12px 16px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-left: 4px solid #d97706; border-radius: 8px; margin-bottom: 12px; }
     .ext-header-icon { font-size: 18px; }
-
-    /* Stats bar */
-    .ext-stats {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-bottom: 12px;
-    }
-    .ext-stat-item {
-      background: #fef3c7;
-      border: 1px solid #fcd34d;
-      border-radius: 8px;
-      padding: 10px 14px;
-      text-align: center;
-    }
-    .ext-stat-label {
-      font-size: 9px;
-      font-weight: 800;
-      color: #92400e;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 3px;
-    }
-    .ext-stat-value {
-      font-size: 20px;
-      font-weight: 900;
-      color: #78350f;
-    }
-
-    /* Timeline table */
-    .ext-timeline-table {
-      width: 100%;
-      border-collapse: collapse;
-      background: white;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      overflow: hidden;
-    }
-    .ext-timeline-table thead th {
-      background: #92400e;
-      color: white;
-      padding: 9px 10px;
-      text-align: left;
-      font-size: 9px;
-      text-transform: uppercase;
-      letter-spacing: 0.4px;
-      font-weight: 800;
-    }
-    .ext-timeline-table tbody td {
-      padding: 10px;
-      border-bottom: 1px solid #fef3c7;
-      font-size: 11px;
-      color: #334155;
-      vertical-align: middle;
-    }
-    .ext-timeline-table tbody tr:nth-child(even) {
-      background: #fffbeb;
-    }
-    .ext-timeline-table tbody tr:last-child td {
-      border-bottom: none;
-    }
-    .ext-num-badge {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 24px;
-      height: 24px;
-      background: #f59e0b;
-      color: white;
-      border-radius: 50%;
-      font-size: 10px;
-      font-weight: 900;
-    }
-    .ext-debt-name {
-      font-weight: 800;
-      color: #1e293b;
-      font-size: 11px;
-    }
-    .ext-debt-amount {
-      font-size: 9px;
-      color: #94a3b8;
-      font-weight: 600;
-      margin-top: 1px;
-    }
-    .ext-old-date {
-      color: #94a3b8;
-      text-decoration: line-through;
-      font-weight: 700;
-      font-size: 11px;
-    }
-    .ext-new-date {
-      color: #059669;
-      font-weight: 900;
-      font-size: 11px;
-    }
-    .ext-reason {
-      color: #64748b;
-      font-size: 10px;
-      font-style: italic;
-    }
-    .ext-footer-note {
-      margin-top: 10px;
-      padding: 10px 14px;
-      background: #fffbeb;
-      border-left: 3px solid #f59e0b;
-      border-radius: 6px;
-      font-size: 10px;
-      color: #78350f;
-      line-height: 1.5;
-    }
-
+    .ext-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    .ext-stat-item { background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; padding: 10px 14px; text-align: center; }
+    .ext-stat-label { font-size: 9px; font-weight: 800; color: #92400e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+    .ext-stat-value { font-size: 20px; font-weight: 900; color: #78350f; }
+    .ext-timeline-table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+    .ext-timeline-table thead th { background: #92400e; color: white; padding: 9px 10px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 800; }
+    .ext-timeline-table tbody td { padding: 10px; border-bottom: 1px solid #fef3c7; font-size: 11px; color: #334155; vertical-align: middle; }
+    .ext-timeline-table tbody tr:nth-child(even) { background: #fffbeb; }
+    .ext-timeline-table tbody tr:last-child td { border-bottom: none; }
+    .ext-num-badge { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: #f59e0b; color: white; border-radius: 50%; font-size: 10px; font-weight: 900; }
+    .ext-debt-name { font-weight: 800; color: #1e293b; font-size: 11px; }
+    .ext-debt-amount { font-size: 9px; color: #94a3b8; font-weight: 600; margin-top: 1px; }
+    .ext-old-date { color: #94a3b8; text-decoration: line-through; font-weight: 700; font-size: 11px; }
+    .ext-new-date { color: #059669; font-weight: 900; font-size: 11px; }
+    .ext-reason { color: #64748b; font-size: 10px; font-style: italic; }
+    .ext-footer-note { margin-top: 10px; padding: 10px 14px; background: #fffbeb; border-left: 3px solid #f59e0b; border-radius: 6px; font-size: 10px; color: #78350f; line-height: 1.5; }
     .summary-box { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
     .summary-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center; }
     .summary-item.total { background: #fef2f2; border-color: #fecaca; }
@@ -963,6 +905,32 @@ export default function CustomerManagement({
         <div class="info-card"><span class="info-label">Salio la Sasa</span><span class="info-value highlight">TSh ${activeCustomerStats.remainingBalance.toLocaleString()}</span></div>
       </div>
     </div>
+
+    ${(activeCustomer.contacts && activeCustomer.contacts.length > 0) ? `
+    <div class="section">
+      <div class="section-title">Watu wa Karibu / Wawakilishi (${activeCustomer.contacts.length})</div>
+      <table class="contacts-table">
+        <thead>
+          <tr>
+            <th style="width:40px; text-align:center;">#</th>
+            <th style="width:30%;">Wadhifa / Role</th>
+            <th>Jina Kamili</th>
+            <th>Namba ya Simu</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${activeCustomer.contacts.map((contact, idx) => `
+            <tr>
+              <td style="text-align:center; font-weight:800; color:#7c3aed;">${idx + 1}</td>
+              <td>${contact.role ? `<span class="role-badge">${contact.role}</span>` : '<span style="color:#cbd5e1;">—</span>'}</td>
+              <td style="font-weight:700;">${contact.name}</td>
+              <td>${contact.phone || '<span style="color:#cbd5e1;">—</span>'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    ` : ''}
 
     <div class="section">
       <div class="section-title">Historia ya Madeni (${activeCustomerHistory.debts.length})</div>
@@ -1170,6 +1138,79 @@ export default function CustomerManagement({
             </div>
           </div>
 
+          {/* ✅ NEW: Contacts / Representatives Card */}
+          {activeCustomer.contacts && activeCustomer.contacts.length > 0 && (
+            <div className="bg-white rounded-3xl border border-purple-200 shadow-sm overflow-hidden">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-purple-500 via-violet-500 to-indigo-500 px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-white/25 backdrop-blur flex items-center justify-center border border-white/30">
+                    <Users size={20} className="text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-white uppercase tracking-wide">
+                      Watu wa Karibu / Wawakilishi
+                    </h3>
+                    <p className="text-[10px] text-white/90 font-medium mt-0.5">
+                      Taarifa za watu wanaohusiana na mteja
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-black text-white leading-none">{activeCustomer.contacts.length}</p>
+                  <p className="text-[9px] font-bold text-white/90 uppercase tracking-wider mt-0.5">
+                    Watu
+                  </p>
+                </div>
+              </div>
+
+              {/* Contacts list */}
+              <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+                {activeCustomer.contacts.map((contact, idx) => (
+                  <div
+                    key={contact.id || idx}
+                    className="relative bg-gradient-to-br from-purple-50 to-white rounded-xl border border-purple-100 p-3 shadow-sm"
+                  >
+                    {/* Left accent */}
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-purple-400 to-purple-600 rounded-l-xl" />
+
+                    <div className="pl-2">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-7 h-7 rounded-full bg-purple-500 text-white text-[10px] font-black flex items-center justify-center shadow-sm shrink-0">
+                            {idx + 1}
+                          </div>
+                          <div className="min-w-0">
+                            {contact.role && (
+                              <span className="inline-block text-[9px] font-extrabold text-purple-700 bg-purple-100 px-2 py-0.5 rounded uppercase tracking-wider mb-1">
+                                {contact.role}
+                              </span>
+                            )}
+                            <p className="text-[12px] font-extrabold text-slate-800 truncate">
+                              {contact.name}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {contact.phone && (
+                        <div className="flex items-center gap-1.5 mt-2 bg-white rounded-lg px-2 py-1.5 border border-purple-100">
+                          <Phone size={11} className="text-purple-600 shrink-0" />
+                          <a
+                            href={`tel:${contact.phone}`}
+                            className="text-[11px] font-bold text-purple-700 hover:text-purple-900 truncate"
+                          >
+                            {contact.phone}
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Info Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-1 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
@@ -1222,10 +1263,9 @@ export default function CustomerManagement({
             </div>
           </div>
 
-          {/* ✅ Nyongeza ya Muda wa Malipo — consolidated timeline card */}
+          {/* Nyongeza ya Muda wa Malipo — consolidated timeline card */}
           {hasAnyExtension && (
             <div className="bg-white rounded-3xl border border-amber-200 shadow-sm overflow-hidden">
-              {/* Header */}
               <div className="bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-2xl bg-white/25 backdrop-blur flex items-center justify-center border border-white/30">
@@ -1248,7 +1288,6 @@ export default function CustomerManagement({
                 </div>
               </div>
 
-              {/* Stats bar */}
               <div className="grid grid-cols-2 divide-x divide-amber-100 bg-amber-50/50 border-b border-amber-100">
                 <div className="px-4 py-2.5 text-center">
                   <p className="text-[9px] font-bold text-amber-700 uppercase tracking-wide">Madeni Yaliyoathirika</p>
@@ -1260,48 +1299,31 @@ export default function CustomerManagement({
                 </div>
               </div>
 
-              {/* Timeline */}
               <div className="p-5 max-h-96 overflow-y-auto">
                 <div className="relative">
-                  {/* Vertical timeline line */}
                   <div className="absolute left-[15px] top-2 bottom-2 w-0.5 bg-gradient-to-b from-amber-300 via-amber-200 to-transparent" />
-
                   <div className="space-y-3">
                     {allExtensions.map((ext, idx) => (
                       <div key={ext.id} className="relative pl-10">
-                        {/* Timeline dot */}
                         <div className="absolute left-0 top-1 w-8 h-8 rounded-full bg-white border-2 border-amber-400 flex items-center justify-center shadow-sm">
-                          <span className="text-[10px] font-black text-amber-700">
-                            {idx + 1}
-                          </span>
+                          <span className="text-[10px] font-black text-amber-700">{idx + 1}</span>
                         </div>
 
-                        {/* Card */}
                         <div className="bg-gradient-to-br from-amber-50 to-white rounded-xl border border-amber-100 p-3 shadow-sm">
-                          {/* Debt name */}
                           <div className="flex items-start justify-between gap-2 mb-2">
                             <div className="flex-1 min-w-0">
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
-                                Deni
-                              </p>
-                              <p className="text-[11px] font-extrabold text-slate-800 truncate mt-0.5">
-                                {ext.debtDescription}
-                              </p>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Deni</p>
+                              <p className="text-[11px] font-extrabold text-slate-800 truncate mt-0.5">{ext.debtDescription}</p>
                             </div>
                             <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md shrink-0">
                               TSh {ext.debtAmount.toLocaleString()}
                             </span>
                           </div>
 
-                          {/* From → To */}
                           <div className="flex items-center gap-2 bg-white rounded-lg p-2 border border-amber-100 mb-2">
                             <div className="flex-1">
-                              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">
-                                Kutoka
-                              </p>
-                              <p className="text-[11px] font-bold text-slate-400 line-through">
-                                {ext.oldDueDate}
-                              </p>
+                              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Kutoka</p>
+                              <p className="text-[11px] font-bold text-slate-400 line-through">{ext.oldDueDate}</p>
                             </div>
                             <div className="flex-shrink-0">
                               <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center">
@@ -1309,33 +1331,22 @@ export default function CustomerManagement({
                               </div>
                             </div>
                             <div className="flex-1 text-right">
-                              <p className="text-[8px] font-bold text-emerald-600 uppercase tracking-wide mb-0.5">
-                                Hadi
-                              </p>
-                              <p className="text-[11px] font-extrabold text-emerald-700">
-                                {ext.newDueDate}
-                              </p>
+                              <p className="text-[8px] font-bold text-emerald-600 uppercase tracking-wide mb-0.5">Hadi</p>
+                              <p className="text-[11px] font-extrabold text-emerald-700">{ext.newDueDate}</p>
                             </div>
                           </div>
 
-                          {/* Reason + date */}
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 min-w-0">
                               {ext.reason && (
                                 <div className="flex items-start gap-1.5">
                                   <div className="mt-1 w-1 h-1 rounded-full bg-amber-500 flex-shrink-0" />
-                                  <p className="text-[10px] text-slate-600 italic leading-relaxed">
-                                    "{ext.reason}"
-                                  </p>
+                                  <p className="text-[10px] text-slate-600 italic leading-relaxed">"{ext.reason}"</p>
                                 </div>
                               )}
                             </div>
                             <p className="text-[9px] text-slate-400 font-semibold whitespace-nowrap shrink-0">
-                              {new Date(ext.extendedAt).toLocaleDateString('sw-TZ', {
-                                day: 'numeric',
-                                month: 'short',
-                                year: 'numeric',
-                              })}
+                              {new Date(ext.extendedAt).toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short', year: 'numeric' })}
                             </p>
                           </div>
                         </div>
@@ -1349,7 +1360,6 @@ export default function CustomerManagement({
 
           {/* History section */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* DEBTS LIST WITH EDIT / EXTEND / DELETE */}
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
               <h4 className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5 border-b border-slate-100 pb-2">
                 <FileText size={14} className="text-amber-500" /> Madeni ({activeCustomerHistory.debts.length})
@@ -1373,25 +1383,13 @@ export default function CustomerManagement({
                         </div>
                         
                         <div className="flex gap-1 shrink-0">
-                          <button
-                            onClick={() => openExtendDebtModal(debt)}
-                            className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-600 transition"
-                            title="Ongeza muda wa ukomo"
-                          >
+                          <button onClick={() => openExtendDebtModal(debt)} className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-600 transition" title="Ongeza muda wa ukomo">
                             <CalendarClock size={12} />
                           </button>
-                          <button
-                            onClick={() => openEditDebtModal(debt)}
-                            className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition"
-                            title="Hariri deni"
-                          >
+                          <button onClick={() => openEditDebtModal(debt)} className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition" title="Hariri deni">
                             <Edit2 size={12} />
                           </button>
-                          <button
-                            onClick={() => openDeleteDebtConfirm(debt.id)}
-                            className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 transition"
-                            title="Futa deni"
-                          >
+                          <button onClick={() => openDeleteDebtConfirm(debt.id)} className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 transition" title="Futa deni">
                             <Trash2 size={12} />
                           </button>
                         </div>
@@ -1422,25 +1420,14 @@ export default function CustomerManagement({
 
                       {isExtended && (
                         <div className="mt-3">
-                          <button
-                            onClick={() => toggleExtensions(debt.id)}
-                            className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl transition-all border ${
-                              expandedExtensions[debt.id]
-                                ? 'bg-amber-100 border-amber-300 shadow-sm'
-                                : 'bg-amber-50 border-amber-200 hover:bg-amber-100'
-                            }`}
-                          >
+                          <button onClick={() => toggleExtensions(debt.id)} className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl transition-all border ${expandedExtensions[debt.id] ? 'bg-amber-100 border-amber-300 shadow-sm' : 'bg-amber-50 border-amber-200 hover:bg-amber-100'}`}>
                             <div className="flex items-center gap-2">
                               <div className="w-6 h-6 rounded-lg bg-amber-500 flex items-center justify-center shadow-sm">
                                 <CalendarClock size={12} className="text-white" />
                               </div>
                               <div className="text-left">
-                                <p className="text-[10px] font-extrabold text-amber-900 uppercase tracking-wide">
-                                  Ukomo Ulisogezwa
-                                </p>
-                                <p className="text-[9px] text-amber-700 font-semibold">
-                                  Mara {extCount} • Bonyeza kuona historia
-                                </p>
+                                <p className="text-[10px] font-extrabold text-amber-900 uppercase tracking-wide">Ukomo Ulisogezwa</p>
+                                <p className="text-[9px] text-amber-700 font-semibold">Mara {extCount} • Bonyeza kuona historia</p>
                               </div>
                             </div>
                             <div className={`transition-transform ${expandedExtensions[debt.id] ? 'rotate-180' : ''}`}>
@@ -1451,39 +1438,23 @@ export default function CustomerManagement({
                           {expandedExtensions[debt.id] && (
                             <div className="mt-2 space-y-2">
                               {debt.extensions!.map((ext, i) => (
-                                <div
-                                  key={ext.id}
-                                  className="relative bg-white rounded-xl border border-amber-100 shadow-sm overflow-hidden"
-                                >
+                                <div key={ext.id} className="relative bg-white rounded-xl border border-amber-100 shadow-sm overflow-hidden">
                                   <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-400 to-amber-600" />
-
                                   <div className="pl-4 pr-3 py-3">
                                     <div className="flex items-center justify-between mb-2">
                                       <div className="flex items-center gap-1.5">
-                                        <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-[9px] font-black flex items-center justify-center shadow-sm">
-                                          {i + 1}
-                                        </span>
-                                        <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wide">
-                                          Marekebisho #{i + 1}
-                                        </span>
+                                        <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-[9px] font-black flex items-center justify-center shadow-sm">{i + 1}</span>
+                                        <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wide">Marekebisho #{i + 1}</span>
                                       </div>
                                       <span className="text-[9px] text-slate-400 font-medium">
-                                        {new Date(ext.extendedAt).toLocaleDateString('sw-TZ', {
-                                          day: 'numeric',
-                                          month: 'short',
-                                          year: 'numeric',
-                                        })}
+                                        {new Date(ext.extendedAt).toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short', year: 'numeric' })}
                                       </span>
                                     </div>
 
                                     <div className="flex items-center gap-2 mb-2 bg-slate-50 rounded-lg p-2">
                                       <div className="flex-1">
-                                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">
-                                          Kutoka
-                                        </p>
-                                        <p className="text-[11px] font-bold text-slate-400 line-through">
-                                          {ext.oldDueDate}
-                                        </p>
+                                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Kutoka</p>
+                                        <p className="text-[11px] font-bold text-slate-400 line-through">{ext.oldDueDate}</p>
                                       </div>
                                       <div className="flex items-center justify-center">
                                         <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center">
@@ -1491,21 +1462,15 @@ export default function CustomerManagement({
                                         </div>
                                       </div>
                                       <div className="flex-1 text-right">
-                                        <p className="text-[8px] font-bold text-emerald-600 uppercase tracking-wide mb-0.5">
-                                          Hadi
-                                        </p>
-                                        <p className="text-[11px] font-extrabold text-emerald-700">
-                                          {ext.newDueDate}
-                                        </p>
+                                        <p className="text-[8px] font-bold text-emerald-600 uppercase tracking-wide mb-0.5">Hadi</p>
+                                        <p className="text-[11px] font-extrabold text-emerald-700">{ext.newDueDate}</p>
                                       </div>
                                     </div>
 
                                     {ext.reason && (
                                       <div className="flex items-start gap-1.5 mt-2">
                                         <div className="mt-0.5 w-1 h-1 rounded-full bg-amber-500 flex-shrink-0" />
-                                        <p className="text-[10px] text-slate-600 italic leading-relaxed">
-                                          "{ext.reason}"
-                                        </p>
+                                        <p className="text-[10px] text-slate-600 italic leading-relaxed">"{ext.reason}"</p>
                                       </div>
                                     )}
                                   </div>
@@ -1621,7 +1586,7 @@ export default function CustomerManagement({
       {/* MODAL: Add Customer */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in max-h-[92vh] overflow-y-auto">
             <button onClick={() => setIsAddModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition"><X size={18} /></button>
             <h3 className="text-md font-bold text-slate-850 flex items-center gap-1.5"><UserPlus className="text-emerald-600" size={18} /> Msajili Mteja Mpya</h3>
             <FormAIOCR label="Changanua Karatasi kwa AI Camera" onSuccess={(data) => {
@@ -1636,6 +1601,69 @@ export default function CustomerManagement({
                 <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Biashara</label><input type="text" value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Jalia Boutique" className="w-full p-2.5 border border-slate-200 rounded-xl" /></div>
               </div>
               <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Anuani</label><input type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Kariakoo, Dar" className="w-full p-2.5 border border-slate-200 rounded-xl" /></div>
+
+              {/* ✅ NEW: Additional Contacts Section */}
+              <div className="bg-purple-50 border border-purple-200 rounded-2xl p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Users size={14} className="text-purple-600" />
+                    <span className="text-[11px] font-extrabold text-purple-800 uppercase tracking-wide">
+                      Watu wa Karibu / Wawakilishi ({contacts.length})
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[10px] text-purple-600 -mt-1">
+                  Ongeza watu wengine muhimu (Mwenyekiti, Katibu, Mhazini, n.k.)
+                </p>
+
+                {contacts.map((contact, index) => (
+                  <div key={contact.id} className="p-3 bg-white rounded-2xl border border-purple-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-purple-400 uppercase">
+                        Mtu {index + 1}
+                      </span>
+                      {contacts.length > 1 && (
+                        <button type="button" onClick={() => removeContact(index)} className="text-rose-500 hover:text-rose-700 p-1">
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        placeholder="Wadhifa (Mf. Mwenyekiti)"
+                        value={contact.role}
+                        onChange={(e) => updateContact(index, 'role', e.target.value)}
+                        className="w-full p-2 border border-slate-200 rounded-lg bg-white text-[11px]"
+                      />
+                      <input
+                        type="tel"
+                        placeholder="Namba (0712...)"
+                        value={contact.phone}
+                        onChange={(e) => updateContact(index, 'phone', e.target.value)}
+                        className="w-full p-2 border border-slate-200 rounded-lg bg-white text-[11px]"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Jina kamili (Mf. Jastin Beda)"
+                      value={contact.name}
+                      onChange={(e) => updateContact(index, 'name', e.target.value)}
+                      className="w-full p-2 border border-slate-200 rounded-lg bg-white text-[11px]"
+                    />
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={addContact}
+                  className="w-full py-2 border-2 border-dashed border-purple-200 rounded-xl text-purple-500 hover:text-purple-700 hover:border-purple-400 transition font-bold flex items-center justify-center gap-1 text-[11px]"
+                >
+                  <Plus size={13} /> Ongeza Mtu Mwingine
+                </button>
+              </div>
+
               <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo/Notes</label><textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Kumbukumbu maalum..." className="w-full p-2.5 border border-slate-200 rounded-xl h-20" /></div>
               <div className="pt-2 flex justify-end gap-2">
                 <button type="button" onClick={() => setIsAddModalOpen(false)} disabled={isLoading} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50">Ghairi</button>
@@ -1649,7 +1677,7 @@ export default function CustomerManagement({
       {/* MODAL: Edit Customer */}
       {isEditModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in max-h-[92vh] overflow-y-auto">
             <button onClick={() => setIsEditModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition"><X size={18} /></button>
             <h3 className="text-md font-bold text-slate-850">Hariri Wasifu wa Mteja</h3>
             <form onSubmit={handleEditCustomer} className="space-y-4 text-xs">
@@ -1659,6 +1687,69 @@ export default function CustomerManagement({
                 <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Biashara</label><input type="text" value={businessName} onChange={(e) => setBusinessName(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl" /></div>
               </div>
               <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Anuani</label><input type="text" value={address} onChange={(e) => setAddress(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl" /></div>
+
+              {/* ✅ NEW: Additional Contacts Section (Edit) */}
+              <div className="bg-purple-50 border border-purple-200 rounded-2xl p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Users size={14} className="text-purple-600" />
+                    <span className="text-[11px] font-extrabold text-purple-800 uppercase tracking-wide">
+                      Watu wa Karibu / Wawakilishi ({contacts.length})
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[10px] text-purple-600 -mt-1">
+                  Ongeza au hariri watu wengine muhimu (Mwenyekiti, Katibu, Mhazini, n.k.)
+                </p>
+
+                {contacts.map((contact, index) => (
+                  <div key={contact.id} className="p-3 bg-white rounded-2xl border border-purple-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-purple-400 uppercase">
+                        Mtu {index + 1}
+                      </span>
+                      {contacts.length > 1 && (
+                        <button type="button" onClick={() => removeContact(index)} className="text-rose-500 hover:text-rose-700 p-1">
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        placeholder="Wadhifa (Mf. Mwenyekiti)"
+                        value={contact.role}
+                        onChange={(e) => updateContact(index, 'role', e.target.value)}
+                        className="w-full p-2 border border-slate-200 rounded-lg bg-white text-[11px]"
+                      />
+                      <input
+                        type="tel"
+                        placeholder="Namba (0712...)"
+                        value={contact.phone}
+                        onChange={(e) => updateContact(index, 'phone', e.target.value)}
+                        className="w-full p-2 border border-slate-200 rounded-lg bg-white text-[11px]"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Jina kamili (Mf. Jastin Beda)"
+                      value={contact.name}
+                      onChange={(e) => updateContact(index, 'name', e.target.value)}
+                      className="w-full p-2 border border-slate-200 rounded-lg bg-white text-[11px]"
+                    />
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={addContact}
+                  className="w-full py-2 border-2 border-dashed border-purple-200 rounded-xl text-purple-500 hover:text-purple-700 hover:border-purple-400 transition font-bold flex items-center justify-center gap-1 text-[11px]"
+                >
+                  <Plus size={13} /> Ongeza Mtu Mwingine
+                </button>
+              </div>
+
               <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Notes</label><textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl h-20" /></div>
               <div className="pt-2 flex justify-end gap-2">
                 <button type="button" onClick={() => setIsEditModalOpen(false)} disabled={isLoading} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50">Ghairi</button>
