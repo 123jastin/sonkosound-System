@@ -33,6 +33,16 @@ const normalizePhone = (value: any) => {
 
 const toBase64 = (value: string) => btoa(value);
 
+// ✅ Safe parse contacts (defensive — API may send array or JSON string)
+function parseContacts(raw: any): any[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  try {
+    const p = JSON.parse(raw);
+    return Array.isArray(p) ? p : [];
+  } catch { return []; }
+}
+
 async function sendSingleSMS(params: {
   apiKey: string;
   secretKey: string;
@@ -100,6 +110,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const results: any[] = [];
     let customerSent = 0;
     let customerFailed = 0;
+    let contactsSent = 0;         // ✅ NEW
+    let contactsFailed = 0;       // ✅ NEW
     let supplierSent = 0;
     let supplierFailed = 0;
     let installmentSent = 0;
@@ -144,18 +156,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const firstName = (customer.fullName || '').split(' ')[0] || 'Mteja';
       const totalRemaining = unpaidDebts.reduce((s, d) => s + d.remaining, 0);
 
-      // ============================================
-      // ✅ CUSTOMER MESSAGE — single vs multiple
-      // ============================================
+      // ── PRIMARY message (WITH name) ──
       let customerMessage = '';
-
       if (unpaidDebts.length === 1) {
-        // Single product
         const item = unpaidDebts[0];
         customerMessage =
           `Habari ${firstName}, Tungependa kukumbusha Juu ya Deni la ${item.description}, Sh ${item.remaining.toLocaleString()}.\n\nAsante`;
       } else {
-        // Multiple products — numbered list
         const lines = unpaidDebts.map(
           (d, i) => `${i + 1}. ${d.description} - Sh ${d.remaining.toLocaleString()}`
         );
@@ -165,6 +172,23 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           `\nJumla: Sh ${totalRemaining.toLocaleString()}.\n\nAsante`;
       }
 
+      // ── ✅ WAWAKILISHI message (SAME wording, name stripped) ──
+      let contactsMessage = '';
+      if (unpaidDebts.length === 1) {
+        const item = unpaidDebts[0];
+        contactsMessage =
+          `Habari, Tungependa kukumbusha Juu ya Deni la ${item.description}, Sh ${item.remaining.toLocaleString()}.\n\nAsante`;
+      } else {
+        const lines = unpaidDebts.map(
+          (d, i) => `${i + 1}. ${d.description} - Sh ${d.remaining.toLocaleString()}`
+        );
+        contactsMessage =
+          `Habari, Tungependa kukumbusha Juu ya Madeni ya;\n` +
+          lines.join('\n') +
+          `\nJumla: Sh ${totalRemaining.toLocaleString()}.\n\nAsante`;
+      }
+
+      // 1a. Primary customer
       const custResult = await sendSingleSMS({
         apiKey: BEEM_API_KEY,
         secretKey: BEEM_SECRET_KEY,
@@ -186,9 +210,41 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       if (custResult.success) customerSent++;
       else customerFailed++;
 
-      // ============================================
-      // ✅ ADMIN MESSAGE — mirrors the customer format
-      // ============================================
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // 1b. ✅ Wawakilishi — same message, no name
+      const contactList = parseContacts(customer.contacts);
+      for (const contact of contactList) {
+        const phone = normalizePhone(contact?.phone);
+        if (!phone) continue;
+
+        const contactResult = await sendSingleSMS({
+          apiKey: BEEM_API_KEY,
+          secretKey: BEEM_SECRET_KEY,
+          message: contactsMessage,
+          phone,
+          source_addr: 'Sonko Sound',
+        });
+
+        results.push({
+          type: 'contact',
+          name: customer.fullName,
+          contactName: contact?.name || '',
+          contactRole: contact?.role || '',
+          phone,
+          products: unpaidDebts.length,
+          total: totalRemaining,
+          message: contactsMessage,
+          success: contactResult.success,
+        });
+
+        if (contactResult.success) contactsSent++;
+        else contactsFailed++;
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      // 1c. Admin (unchanged)
       let ownerMsg = '';
       if (unpaidDebts.length === 1) {
         ownerMsg =
@@ -213,16 +269,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     // ============================================
-    // 2. SUPPLIER PAYMENTS
+    // 2. SUPPLIER PAYMENTS (unchanged — owner only)
     // ============================================
     for (const supplier of suppliers) {
       const remaining = (supplier.amount || 0) - (supplier.paidAmount || 0);
-
       if (remaining <= 0) continue;
       if (supplier.dueDate !== today) continue;
 
       const ownerPhone = normalizePhone(MY_PHONE);
-
       const ownerMessage = `Leo ni siku ya mwisho kumlipa ${supplier.name}. Deni: Sh ${remaining.toLocaleString()} ya "${supplier.notes || 'Bidhaa'}". Simu: ${supplier.phoneNumber || 'Haina'}.`;
 
       const result = await sendSingleSMS({
@@ -267,19 +321,24 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const ownerPhone = normalizePhone(MY_PHONE);
 
       let customerMessage = '';
+      let contactsMessage = '';   // ✅ NEW
       let ownerMessage = '';
 
       if (isCompleted) {
         customerMessage = `Hongera ${customer.full_name}! Umemaliza malipo ya ${product.product_name} ya Sh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!`;
+        contactsMessage = `Habari, Umemaliza malipo ya ${product.product_name} ya Sh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa. Asante kwa kuaminiana nasi!`;
         ownerMessage = `${customer.full_name} amekamilisha malipo ya ${product.product_name} Sh ${totalAmount.toLocaleString()}. Bidhaa iko tayari kukabidhiwa.`;
       } else if (progressPercentage >= 45 && progressPercentage <= 55) {
         customerMessage = `Habari ${customer.full_name}, umefika nusu ya malipo ya ${product.product_name} (${progressPercentage}%). Umelipa Sh ${paidAmount.toLocaleString()}, baki Sh ${remaining.toLocaleString()}. Endelea hivyo hivyo!`;
+        contactsMessage = `Habari, umefika nusu ya malipo ya ${product.product_name} (${progressPercentage}%). Umelipa Sh ${paidAmount.toLocaleString()}, baki Sh ${remaining.toLocaleString()}. Endelea hivyo hivyo!`;
         ownerMessage = `${customer.full_name} amefika ${progressPercentage}% ya malipo ya ${product.product_name}. Amelipa Sh ${paidAmount.toLocaleString()}, baki Sh ${remaining.toLocaleString()}.`;
       } else {
         customerMessage = `Habari ${customer.full_name}, malipo ya Sh ${paidAmount.toLocaleString()} ya ${product.product_name} yamepokelewa. Kiwango kilicho baki ni Sh ${remaining.toLocaleString()}.`;
+        contactsMessage = `Habari, malipo ya Sh ${paidAmount.toLocaleString()} ya ${product.product_name} yamepokelewa. Kiwango kilicho baki ni Sh ${remaining.toLocaleString()}.`;
         ownerMessage = `${customer.full_name} amelipa Sh ${paidAmount.toLocaleString()} ya ${product.product_name}. Kiwango kilicho baki ni Sh ${remaining.toLocaleString()}.`;
       }
 
+      // 3a. Primary
       const custResult = await sendSingleSMS({
         apiKey: BEEM_API_KEY,
         secretKey: BEEM_SECRET_KEY,
@@ -301,6 +360,40 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       if (custResult.success) installmentSent++;
       else installmentFailed++;
 
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // 3b. ✅ Wawakilishi
+      const contactList = parseContacts(customer.contacts);
+      for (const contact of contactList) {
+        const phone = normalizePhone(contact?.phone);
+        if (!phone) continue;
+
+        const contactResult = await sendSingleSMS({
+          apiKey: BEEM_API_KEY,
+          secretKey: BEEM_SECRET_KEY,
+          message: contactsMessage,
+          phone,
+          source_addr: 'Sonko Sound',
+        });
+
+        results.push({
+          type: 'installment_contact',
+          name: customer.full_name,
+          contactName: contact?.name || '',
+          contactRole: contact?.role || '',
+          product: product.product_name,
+          phone,
+          message: contactsMessage,
+          success: contactResult.success,
+        });
+
+        if (contactResult.success) contactsSent++;
+        else contactsFailed++;
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      // 3c. Admin
       const ownerResult = await sendSingleSMS({
         apiKey: BEEM_API_KEY,
         secretKey: BEEM_SECRET_KEY,
@@ -315,6 +408,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     console.log('========================================');
     console.log(`Customers: ${customerSent} | Failed: ${customerFailed}`);
+    console.log(`Contacts: ${contactsSent} | Failed: ${contactsFailed}`);   // ✅
     console.log(`Suppliers: ${supplierSent} | Failed: ${supplierFailed}`);
     console.log(`Installments: ${installmentSent} | Failed: ${installmentFailed}`);
     console.log(`Owner copies: ${ownerSent}`);
@@ -326,6 +420,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         date: today,
         customerSent,
         customerFailed,
+        contactsSent,          // ✅
+        contactsFailed,        // ✅
         supplierSent,
         supplierFailed,
         installmentSent,
@@ -333,7 +429,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         ownerSent,
         results,
       },
-      message: `Wateja: ${customerSent} | Wauzaji: ${supplierSent} | Mafungu: ${installmentSent} | Nakala: ${ownerSent}`,
+      message: `Wateja: ${customerSent} | Wawakilishi: ${contactsSent} | Wauzaji: ${supplierSent} | Mafungu: ${installmentSent} | Nakala: ${ownerSent}`,
     });
   } catch (error: any) {
     console.error('Error:', error);
