@@ -45,7 +45,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: 'No data provided' }, 400);
     }
 
-    const { customerName, customerPhone, paidAmount, remainingAmount } = body;
+    const { customerName, customerPhone, paidAmount, remainingAmount, contacts = [] } = body;
 
     if (!customerName || !customerPhone || !paidAmount) {
       return json({ success: false, error: 'Missing required fields' }, 400);
@@ -61,76 +61,101 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const numPaid = Number(paidAmount) || 0;
     const numRemaining = Number(remainingAmount) || 0;
 
-    // Customer message with NEW format
+    // ── PRIMARY customer message — WITH name (unchanged) ──
     let customerMessage = '';
-    
     if (numRemaining <= 0) {
-      // Fully paid - completion message
       customerMessage = `Habari, ${customerName} Malipo yako yamepokelewa Sh ${numPaid.toLocaleString()}. Umemaliza malipo yote. Asante Kwa kutuamini\n\nDuka la mziki Sonko Sound Morogoro\nKwa mawasiliano Piga: 0688423753`;
     } else {
-      // Partial payment
       customerMessage = `Habari, ${customerName} Malipo yako yamepokelewa Sh ${numPaid.toLocaleString()}. Bado sh ${numRemaining.toLocaleString()} Kukamilisha. Asante Kwa kutuamini\n\nDuka la mziki Sonko Sound Morogoro\nKwa mawasiliano Piga: 0688423753`;
     }
 
-    // Admin message
+    // ── ✅ WAWAKILISHI message — SAME wording, name stripped ──
+    let contactsMessage = '';
+    if (numRemaining <= 0) {
+      contactsMessage = `Habari, Malipo yako yamepokelewa Sh ${numPaid.toLocaleString()}. Umemaliza malipo yote. Asante Kwa kutuamini\n\nDuka la mziki Sonko Sound Morogoro\nKwa mawasiliano Piga: 0688423753`;
+    } else {
+      contactsMessage = `Habari, Malipo yako yamepokelewa Sh ${numPaid.toLocaleString()}. Bado sh ${numRemaining.toLocaleString()} Kukamilisha. Asante Kwa kutuamini\n\nDuka la mziki Sonko Sound Morogoro\nKwa mawasiliano Piga: 0688423753`;
+    }
+
+    // ── Admin message (unchanged) ──
     const adminMessage = `${customerName} Amepunguza sh ${numPaid.toLocaleString()} bado ${numRemaining.toLocaleString()}. Asante`;
 
     const auth = toBase64(`${BEEM_API_KEY}:${BEEM_SECRET_KEY}`);
 
-    // Send to Customer
-    console.log('Sending to customer:', customerPhoneNormalized);
-    console.log('Customer message:', customerMessage);
-    
-    const custPayload = {
-      source_addr: 'Sonko Sound',
-      schedule_time: '',
-      encoding: 0,
-      message: customerMessage,
-      recipients: [{ recipient_id: 1, dest_addr: customerPhoneNormalized }],
+    const sendOne = async (phone: string, message: string) => {
+      if (!phone) return { ok: false, skipped: true };
+      const payload = {
+        source_addr: 'Sonko Sound',
+        schedule_time: '',
+        encoding: 0,
+        message,
+        recipients: [{ recipient_id: 1, dest_addr: phone }],
+      };
+      const res = await fetch('https://apisms.beem.africa/v1/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
+        body: JSON.stringify(payload),
+      });
+      const text = await res.text();
+      console.log(`SMS to ${phone} →`, res.ok, text);
+      return { ok: res.ok, response: text };
     };
 
-    const custResponse = await fetch('https://apisms.beem.africa/v1/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
-      body: JSON.stringify(custPayload),
-    });
+    const results: any[] = [];
 
-    const custText = await custResponse.text();
-    console.log('Customer SMS Response:', custText);
+    // ── 1. Primary customer (name included) ──
+    console.log('Sending to customer:', customerPhoneNormalized);
+    const custRes = await sendOne(customerPhoneNormalized, customerMessage);
+    results.push({ to: customerPhoneNormalized, role: 'primary', ok: custRes.ok });
 
-    // Wait 1 second between messages
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Send to Admin
+    // ── 2. ✅ Wawakilishi — no name mentioned ──
+    if (Array.isArray(contacts) && contacts.length > 0) {
+      console.log(`Sending to ${contacts.length} wawakilishi (no name)...`);
+      for (const contact of contacts) {
+        const phone = normalizePhone(contact?.phone);
+        if (!phone) continue;
+
+        const res = await sendOne(phone, contactsMessage);   // 👈 no name
+        results.push({
+          to: phone,
+          role: contact?.role || 'wawakilishi',
+          name: contact?.name || '',
+          ok: res.ok,
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    // ── 3. Admin (unchanged) ──
     console.log('Sending to admin:', ownerPhoneNormalized);
-    console.log('Admin message:', adminMessage);
-    
-    const adminPayload = {
-      source_addr: 'Sonko Sound',
-      schedule_time: '',
-      encoding: 0,
-      message: adminMessage,
-      recipients: [{ recipient_id: 1, dest_addr: ownerPhoneNormalized }],
-    };
-
-    const adminResponse = await fetch('https://apisms.beem.africa/v1/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
-      body: JSON.stringify(adminPayload),
-    });
-
-    const adminText = await adminResponse.text();
-    console.log('Admin SMS Response:', adminText);
+    const adminRes = await sendOne(ownerPhoneNormalized, adminMessage);
+    results.push({ to: ownerPhoneNormalized, role: 'admin', ok: adminRes.ok });
 
     return json({
       success: true,
       data: {
-        customerSent: custResponse.ok,
-        adminSent: adminResponse.ok,
+        customerSent: custRes.ok,
+        adminSent: adminRes.ok,
+        contactsSent: results.filter(r => r.role !== 'primary' && r.role !== 'admin').length,
+        results,
         customerMessage,
+        wawakilishiMessage: contactsMessage,   // ✅ what wawakilishi received
         adminMessage,
+        sentLog: results.map(r => ({
+          to: r.to,
+          role: r.role,
+          name: r.name || '',
+          ok: r.ok,
+          message:
+            r.role === 'admin' ? adminMessage :
+            r.role === 'primary' ? customerMessage :
+            contactsMessage,
+        })),
       },
-      message: `Customer: ${custResponse.ok ? 'OK' : 'FAIL'} | Admin: ${adminResponse.ok ? 'OK' : 'FAIL'}`,
+      message: `Customer: ${custRes.ok ? 'OK' : 'FAIL'} | Wawakilishi: ${results.filter(r => r.role !== 'primary' && r.role !== 'admin').filter(r => r.ok).length}/${results.filter(r => r.role !== 'primary' && r.role !== 'admin').length} | Admin: ${adminRes.ok ? 'OK' : 'FAIL'}`,
     });
   } catch (error: any) {
     console.error('Payment SMS Error:', error);
