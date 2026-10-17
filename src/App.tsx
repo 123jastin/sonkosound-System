@@ -38,6 +38,18 @@ function getDaysDiff(currentDate: string, dueDate: string): number {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 }
 
+// Utility: Safe parse contacts JSON string → array
+function safeParseContacts(raw: any): any[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 // Utility: Generate notifications from data - WITH SUPPLIERS
 function generateNotificationsFromData(
   customers: Customer[],
@@ -229,7 +241,14 @@ export default function App() {
       const cached = localStorage.getItem('ledger_cached_data');
       if (cached) {
         const data = JSON.parse(cached);
-        if (data.customers && Array.isArray(data.customers)) setCustomers(data.customers);
+        if (data.customers && Array.isArray(data.customers)) {
+          // ✅ Ensure contacts is always an array when restoring from cache
+          const restoredCustomers: Customer[] = data.customers.map((c: any) => ({
+            ...c,
+            contacts: safeParseContacts(c.contacts),
+          }));
+          setCustomers(restoredCustomers);
+        }
         if (data.debts && Array.isArray(data.debts)) setDebts(data.debts);
         if (data.payments && Array.isArray(data.payments)) setPayments(data.payments);
         if (data.suppliers && Array.isArray(data.suppliers)) setSuppliers(data.suppliers);
@@ -269,11 +288,17 @@ export default function App() {
         api.settings.get()
       ]);
 
+      // ✅ contacts now preserved through the mapper
       const transformedCustomers: Customer[] = (Array.isArray(customersData) ? customersData : []).map((c: any) => ({
-        id: c.id, fullName: c.full_name || '', phoneNumber: c.phone_number || '',
-        address: c.address || '', businessName: c.business_name || '',
-        notes: c.notes || '', photoUrl: c.photo_url || '',
-        createdAt: c.created_at || new Date().toISOString().split('T')[0]
+        id: c.id,
+        fullName: c.full_name || '',
+        phoneNumber: c.phone_number || '',
+        address: c.address || '',
+        businessName: c.business_name || '',
+        notes: c.notes || '',
+        photoUrl: c.photo_url || '',
+        createdAt: c.created_at || new Date().toISOString().split('T')[0],
+        contacts: safeParseContacts(c.contacts),
       }));
 
       const transformedDebts: Debt[] = (Array.isArray(debtsData) ? debtsData : []).map((d: any) => ({
