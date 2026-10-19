@@ -43,6 +43,18 @@ function parseContacts(raw: any): any[] {
   } catch { return []; }
 }
 
+// ✅ Normalize date to YYYY-MM-DD for reliable comparison
+const toDateKey = (v: any): string => {
+  if (!v) return '';
+  const s = String(v).trim();
+  // already YYYY-MM-DD or YYYY-MM-DDTHH...
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  // try Date parse fallback
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return '';
+  return d.toISOString().split('T')[0];
+};
+
 async function sendSingleSMS(params: {
   apiKey: string;
   secretKey: string;
@@ -110,8 +122,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const results: any[] = [];
     let customerSent = 0;
     let customerFailed = 0;
-    let contactsSent = 0;         // ✅ NEW
-    let contactsFailed = 0;       // ✅ NEW
+    let contactsSent = 0;
+    let contactsFailed = 0;
     let supplierSent = 0;
     let supplierFailed = 0;
     let installmentSent = 0;
@@ -124,7 +136,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const debtsByCustomer = new Map<string, any[]>();
     for (const debt of debts) {
       if (!debt.customerId) continue;
-      if (debt.dueDate !== today) continue;
+
+      // ✅ Include: due today OR already overdue
+      // Skip: future dates (not yet due)
+      const dueKey = toDateKey(debt.dueDate);
+      if (!dueKey) continue;
+      if (dueKey > today) continue;   // future → skip
+      // dueKey <= today → overdue or due today → include
+
       if (!debtsByCustomer.has(debt.customerId)) {
         debtsByCustomer.set(debt.customerId, []);
       }
@@ -274,7 +293,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     for (const supplier of suppliers) {
       const remaining = (supplier.amount || 0) - (supplier.paidAmount || 0);
       if (remaining <= 0) continue;
-      if (supplier.dueDate !== today) continue;
+
+      // ✅ Same logic for suppliers: due today or overdue (not future)
+      const dueKey = toDateKey(supplier.dueDate);
+      if (!dueKey) continue;
+      if (dueKey > today) continue;
 
       const ownerPhone = normalizePhone(MY_PHONE);
       const ownerMessage = `Leo ni siku ya mwisho kumlipa ${supplier.name}. Deni: Sh ${remaining.toLocaleString()} ya "${supplier.notes || 'Bidhaa'}". Simu: ${supplier.phoneNumber || 'Haina'}.`;
@@ -321,7 +344,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const ownerPhone = normalizePhone(MY_PHONE);
 
       let customerMessage = '';
-      let contactsMessage = '';   // ✅ NEW
+      let contactsMessage = '';
       let ownerMessage = '';
 
       if (isCompleted) {
@@ -408,7 +431,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     console.log('========================================');
     console.log(`Customers: ${customerSent} | Failed: ${customerFailed}`);
-    console.log(`Contacts: ${contactsSent} | Failed: ${contactsFailed}`);   // ✅
+    console.log(`Contacts: ${contactsSent} | Failed: ${contactsFailed}`);
     console.log(`Suppliers: ${supplierSent} | Failed: ${supplierFailed}`);
     console.log(`Installments: ${installmentSent} | Failed: ${installmentFailed}`);
     console.log(`Owner copies: ${ownerSent}`);
@@ -420,8 +443,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         date: today,
         customerSent,
         customerFailed,
-        contactsSent,          // ✅
-        contactsFailed,        // ✅
+        contactsSent,
+        contactsFailed,
         supplierSent,
         supplierFailed,
         installmentSent,
