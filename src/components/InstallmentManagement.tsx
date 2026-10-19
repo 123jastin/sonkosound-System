@@ -49,6 +49,16 @@ interface InstallmentPayment {
   created_at: string;
 }
 
+// ✅ NEW: multi-product item shape
+interface ProductItem {
+  id: string;
+  product_name: string;
+  description: string;
+  total_amount: string;         // keep as string in form
+  expected_completion_date: string;
+  notes: string;
+}
+
 export interface InstallmentNotification {
   id: string;
   type: 'Installment Halfway' | 'Installment Completed';
@@ -71,6 +81,16 @@ interface InstallmentManagementProps {
 }
 
 const API_BASE_URL = '/api/installment';
+
+// ✅ Create a fresh empty product row
+const newProductItem = (): ProductItem => ({
+  id: 'item-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+  product_name: '',
+  description: '',
+  total_amount: '',
+  expected_completion_date: '',
+  notes: ''
+});
 
 export function generateInstallmentNotifications(
   products: InstallmentProduct[],
@@ -151,11 +171,10 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
   const [phoneNumber, setPhoneNumber] = useState('');
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
-  const [productName, setProductName] = useState('');
-  const [productDescription, setProductDescription] = useState('');
-  const [totalAmount, setTotalAmount] = useState('');
-  const [expectedCompletionDate, setExpectedCompletionDate] = useState('');
-  const [productNotes, setProductNotes] = useState('');
+
+  // ✅ MULTI-PRODUCT STATE — replaces single productName / totalAmount / etc.
+  const [productItems, setProductItems] = useState<ProductItem[]>([newProductItem()]);
+
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('Cash');
   const [payNotes, setPayNotes] = useState('');
@@ -176,19 +195,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     paymentMethod: string
   ) => {
     try {
-      console.log('📱 Sending SMS via /api/installment-send-sms');
-      console.log('📱 Data:', { 
-        customerName, 
-        customerPhone, 
-        productName, 
-        totalAmount, 
-        paidAmount, 
-        paymentAmount, 
-        isCompleted, 
-        progressPercentage, 
-        paymentMethod 
-      });
-      
       const response = await fetch('/api/installment-send-sms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -206,20 +212,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
       });
       
       const result = await response.json();
-      console.log('📱 SMS API Response:', result);
-      
-      if (result.success) {
-        console.log('✅ SMS sent successfully');
-        console.log('  Customer message:', result.data?.customerMessage);
-        console.log('  Owner message:', result.data?.ownerMessage);
-        console.log('  Customer sent:', result.data?.customerSent ? '✅' : '❌');
-        console.log('  Owner sent:', result.data?.ownerSent ? '✅' : '❌');
-        console.log('  Is Payment Complete:', result.data?.isPaymentComplete);
-        console.log('  Remaining:', result.data?.remaining);
-      } else {
-        console.error('❌ SMS failed:', result.error || 'Unknown error');
-      }
-      
       return result;
     } catch (error) {
       console.error('📱 Failed to send SMS:', error);
@@ -240,7 +232,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
       }
     } catch (err) {
       console.error('Failed to load installment data:', err);
-      // Try localStorage fallback
       const savedData = localStorage.getItem('installment_data');
       if (savedData) {
         try {
@@ -282,6 +273,13 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     return { totalExpected, totalCollected, totalRemaining, activeInstallments, completedInstallments, totalCustomers: customers.length };
   }, [products, customers]);
 
+  // ✅ MULTI-PRODUCT TOTAL for the modal footer
+  const productsTotal = useMemo(() => {
+    return productItems.reduce((sum, item) => {
+      return sum + (Number(item.total_amount) || 0);
+    }, 0);
+  }, [productItems]);
+
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName || !phoneNumber) return;
@@ -300,7 +298,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
       resetCustomerForm();
       onUpdate();
     } catch (err: any) {
-      // Fallback to localStorage
       const newCustomer: InstallmentCustomer = {
         id: 'icust-' + Date.now(),
         full_name: fullName,
@@ -336,7 +333,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
       setIsEditCustomerModalOpen(false);
       onUpdate();
     } catch (err: any) {
-      // Fallback
       setCustomers(prev => prev.map(c => c.id === selectedCustomerId ? { ...c, full_name: fullName, phone_number: phoneNumber, address, notes } : c));
       setIsEditCustomerModalOpen(false);
       onUpdate();
@@ -364,52 +360,96 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     }
   };
 
+  // ✅ Multi-product handlers
+  const updateProductItem = (index: number, field: keyof ProductItem, value: string) => {
+    setProductItems(prev => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+  };
+
+  const addProductItem = () => {
+    setProductItems(prev => [...prev, newProductItem()]);
+  };
+
+  const removeProductItem = (index: number) => {
+    if (productItems.length === 1) return;
+    setProductItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // ✅ Add ALL products at once (was: add single product)
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCustomerId || !productName || !totalAmount) return;
+    if (!selectedCustomerId) return;
+
+    const validItems = productItems.filter(
+      item => item.product_name.trim() && Number(item.total_amount) > 0
+    );
+
+    if (validItems.length === 0) {
+      setError('Ongeza bidhaa angalau moja na bei');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
+
     try {
-      const response = await fetch(`${API_BASE_URL}/products`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const startDate = new Date().toISOString().split('T')[0];
+      const createdProducts: InstallmentProduct[] = [];
+
+      for (const item of validItems) {
+        const payload = {
           customerId: selectedCustomerId,
-          productName,
-          description: productDescription,
-          totalAmount: Number(totalAmount),
+          productName: item.product_name.trim(),
+          description: item.description.trim(),
+          totalAmount: Number(item.total_amount),
           paidAmount: 0,
-          startDate: new Date().toISOString().split('T')[0],
-          expectedCompletionDate,
+          startDate,
+          expectedCompletionDate: item.expected_completion_date || '',
           status: 'Active',
-          notes: productNotes
-        })
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Failed');
-      setProducts(prev => [result.product, ...prev]);
+          notes: item.notes.trim()
+        };
+
+        try {
+          const response = await fetch(`${API_BASE_URL}/products`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Failed');
+
+          createdProducts.push(result.product);
+        } catch (apiErr) {
+          // Fallback: add locally only
+          const fallback: InstallmentProduct = {
+            id: 'iprod-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+            customer_id: selectedCustomerId,
+            product_name: payload.productName,
+            description: payload.description,
+            total_amount: payload.totalAmount,
+            paid_amount: 0,
+            start_date: payload.startDate,
+            expected_completion_date: payload.expectedCompletionDate,
+            status: 'Active',
+            notes: payload.notes,
+            created_at: new Date().toISOString()
+          };
+          createdProducts.push(fallback);
+        }
+      }
+
+      setProducts(prev => [...createdProducts, ...prev]);
       setIsAddProductModalOpen(false);
       resetProductForm();
       onUpdate();
     } catch (err: any) {
-      // Fallback
-      const newProduct: InstallmentProduct = {
-        id: 'iprod-' + Date.now(),
-        customer_id: selectedCustomerId,
-        product_name: productName,
-        description: productDescription,
-        total_amount: Number(totalAmount),
-        paid_amount: 0,
-        start_date: new Date().toISOString().split('T')[0],
-        expected_completion_date: expectedCompletionDate,
-        status: 'Active',
-        notes: productNotes,
-        created_at: new Date().toISOString()
-      };
-      setProducts(prev => [newProduct, ...prev]);
-      setIsAddProductModalOpen(false);
-      resetProductForm();
-      onUpdate();
+      console.error('Add products error:', err);
+      setError('Imeshindwa kuongeza bidhaa: ' + (err?.message || 'Jaribu tena'));
+      setTimeout(() => setError(null), 5000);
     } finally {
       setIsLoading(false);
     }
@@ -423,7 +463,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     setError(null);
     
     try {
-      // Save payment to API
       const response = await fetch(`${API_BASE_URL}/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -437,9 +476,7 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
       });
       
       const result = await response.json();
-      console.log('💾 Payment saved:', result);
       
-      // Update payments state
       const newPayment: InstallmentPayment = {
         id: result.payment?.id || 'ipay-' + Date.now(),
         product_id: selectedProduct.id,
@@ -452,7 +489,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
       };
       setPayments(prev => [newPayment, ...prev]);
       
-      // Update product locally
       const updatedProducts = products.map(p => {
         if (p.id === selectedProduct.id) {
           const newPaid = Number(p.paid_amount) + Number(payAmount);
@@ -463,7 +499,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
       });
       setProducts(updatedProducts);
       
-      // Get updated product and customer for SMS
       const updatedProduct = updatedProducts.find(p => p.id === selectedProduct.id);
       const customer = customers.find(c => c.id === selectedProduct.customer_id);
       
@@ -471,24 +506,9 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
         const newPaidAmount = Number(updatedProduct.paid_amount);
         const totalProductAmount = Number(updatedProduct.total_amount);
         const remainingAmount = Math.max(0, totalProductAmount - newPaidAmount);
-        
-        // IMPORTANT: Check if this payment completes the installment
         const isCompleted = remainingAmount <= 0 || newPaidAmount >= totalProductAmount;
         const progressPercentage = totalProductAmount > 0 ? Math.round((newPaidAmount / totalProductAmount) * 100) : 0;
         
-        console.log('📱 Sending SMS notification...');
-        console.log('  Customer:', customer.full_name, customer.phone_number);
-        console.log('  Product:', updatedProduct.product_name);
-        console.log('  Payment:', Number(payAmount));
-        console.log('  Total Paid:', newPaidAmount);
-        console.log('  Total Amount:', totalProductAmount);
-        console.log('  Remaining:', remainingAmount);
-        console.log('  Progress:', progressPercentage + '%');
-        console.log('  Is Completed:', isCompleted);
-        console.log('  Remaining <= 0:', remainingAmount <= 0);
-        console.log('  Paid >= Total:', newPaidAmount >= totalProductAmount);
-        
-        // Send SMS with the correct isCompleted flag
         await sendPaymentNotification(
           customer.full_name,
           customer.phone_number,
@@ -496,13 +516,12 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
           totalProductAmount,
           newPaidAmount,
           Number(payAmount),
-          isCompleted,  // This will be true when payment is complete
+          isCompleted,
           progressPercentage,
           payMethod
         );
       }
       
-      // Generate in-app notifications for milestones
       if (onNotificationsGenerated && updatedProduct) {
         const notifs = generateInstallmentNotifications([updatedProduct], customers);
         if (notifs.length > 0) {
@@ -523,7 +542,12 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
   };
 
   const resetCustomerForm = () => { setFullName(''); setPhoneNumber(''); setAddress(''); setNotes(''); };
-  const resetProductForm = () => { setProductName(''); setProductDescription(''); setTotalAmount(''); setExpectedCompletionDate(''); setProductNotes(''); };
+
+  // ✅ Reset multi-product form
+  const resetProductForm = () => {
+    setProductItems([newProductItem()]);
+  };
+
   const resetPaymentForm = () => { setPayAmount(''); setPayNotes(''); };
 
   const openEditCustomerModal = () => {
@@ -571,7 +595,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
 
       {activeCustomer ? (
         <div className="space-y-6 text-xs text-left animate-fade-in">
-          {/* Profile Header */}
           <div className="bg-white rounded-3xl border border-slate-100 p-6 md:p-8 shadow-sm space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-4">
@@ -606,7 +629,7 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <button onClick={() => setIsAddProductModalOpen(true)} disabled={isLoading} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-5 rounded-xl flex items-center gap-2 shadow-sm transition disabled:opacity-50">
+            <button onClick={() => { resetProductForm(); setIsAddProductModalOpen(true); }} disabled={isLoading} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-5 rounded-xl flex items-center gap-2 shadow-sm transition disabled:opacity-50">
               <Plus size={16} /> Ongeza Bidhaa
             </button>
             <button onClick={() => setIsStatementOpen(true)} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-5 rounded-xl flex items-center gap-2 shadow-sm transition">
@@ -804,25 +827,112 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
         </div>
       )}
 
-      {/* Add Product Modal */}
+      {/* ✅ Multi-Product Add Modal */}
       {isAddProductModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
-            <button onClick={() => setIsAddProductModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition"><X size={18} /></button>
-            <h3 className="text-md font-bold text-slate-800">Ongeza Bidhaa ya Mkopo</h3>
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
+            <button onClick={() => { setIsAddProductModalOpen(false); resetProductForm(); }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition"><X size={18} /></button>
+            <h3 className="text-md font-bold text-slate-800 flex items-center gap-1.5">
+              <Package size={18} className="text-indigo-600" />
+              Ongeza Bidhaa ({productItems.length})
+            </h3>
             <p className="text-xs text-slate-400">Mteja: {activeCustomer?.full_name}</p>
+
             <form onSubmit={handleAddProduct} className="space-y-4 text-xs text-left">
-              <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina la Bidhaa *</label><input type="text" required value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="Mfano: Speaker ya Sony" className="w-full p-2.5 border border-slate-200 rounded-xl" /></div>
-              <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo ya Bidhaa</label><textarea value={productDescription} onChange={(e) => setProductDescription(e.target.value)} placeholder="Maelezo ya bidhaa..." className="w-full p-2.5 border border-slate-200 rounded-xl h-20" /></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Bei Kamili (TSh) *</label><input type="number" required value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)} placeholder="50000" className="w-full p-2.5 border border-slate-200 rounded-xl" /></div>
-                <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Tarehe ya Kukamilisha</label><input type="date" value={expectedCompletionDate} onChange={(e) => setExpectedCompletionDate(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl" /></div>
+              <div className="space-y-3">
+                {productItems.map((item, index) => (
+                  <div key={item.id} className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">Bidhaa {index + 1}</span>
+                      {productItems.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeProductItem(index)}
+                          className="text-rose-500 hover:text-rose-700 p-1"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+
+                    <input
+                      type="text"
+                      placeholder="Jina la bidhaa (mf. Speaker ya Sony)"
+                      value={item.product_name}
+                      onChange={(e) => updateProductItem(index, 'product_name', e.target.value)}
+                      className="w-full p-2 border border-slate-200 rounded-lg bg-white"
+                      required
+                    />
+
+                    <textarea
+                      placeholder="Maelezo ya bidhaa (si lazima)..."
+                      value={item.description}
+                      onChange={(e) => updateProductItem(index, 'description', e.target.value)}
+                      className="w-full p-2 border border-slate-200 rounded-lg bg-white h-14"
+                    />
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-400 mb-1">Bei Kamili (TSh)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="50000"
+                          value={item.total_amount}
+                          onChange={(e) => updateProductItem(index, 'total_amount', e.target.value)}
+                          className="w-full p-2 border border-slate-200 rounded-lg bg-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-400 mb-1">Tarehe ya Kukamilisha</label>
+                        <input
+                          type="date"
+                          value={item.expected_completion_date}
+                          onChange={(e) => updateProductItem(index, 'expected_completion_date', e.target.value)}
+                          className="w-full p-2 border border-slate-200 rounded-lg bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    <input
+                      type="text"
+                      placeholder="Notes za ziada (si lazima)..."
+                      value={item.notes}
+                      onChange={(e) => updateProductItem(index, 'notes', e.target.value)}
+                      className="w-full p-2 border border-slate-200 rounded-lg bg-white"
+                    />
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={addProductItem}
+                  className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 hover:text-indigo-600 hover:border-indigo-300 transition font-semibold flex items-center justify-center gap-1"
+                >
+                  <Plus size={14} /> Ongeza Bidhaa Nyingine
+                </button>
               </div>
-              <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Notes</label><textarea value={productNotes} onChange={(e) => setProductNotes(e.target.value)} placeholder="Maelezo ya ziada..." className="w-full p-2.5 border border-slate-200 rounded-xl h-20" /></div>
+
+              <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-200">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-bold text-slate-800">JUMLA KUU:</span>
+                  <span className="text-lg font-black text-indigo-700">TSh {productsTotal.toLocaleString()}</span>
+                </div>
+              </div>
+
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => setIsAddProductModalOpen(false)} disabled={isLoading} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50">Ghairi</button>
-                <button type="submit" disabled={isLoading} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2">
-                  {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inahifadhi...</> : 'Hifadhi Bidhaa'}
+                <button type="button" onClick={() => { setIsAddProductModalOpen(false); resetProductForm(); }} disabled={isLoading} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition disabled:opacity-50">Ghairi</button>
+                <button
+                  type="submit"
+                  disabled={isLoading || productItems.filter(p => p.product_name && Number(p.total_amount) > 0).length === 0}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isLoading ? (
+                    <><Loader2 size={14} className="animate-spin" /> Inahifadhi...</>
+                  ) : (
+                    <>Hifadhi Bidhaa ({productItems.filter(p => p.product_name && Number(p.total_amount) > 0).length})</>
+                  )}
                 </button>
               </div>
             </form>
