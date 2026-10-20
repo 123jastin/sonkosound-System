@@ -54,7 +54,7 @@ interface ProductItem {
   id: string;
   product_name: string;
   description: string;
-  total_amount: string;         // keep as string in form
+  total_amount: string;
   expected_completion_date: string;
   notes: string;
 }
@@ -81,6 +81,11 @@ interface InstallmentManagementProps {
 }
 
 const API_BASE_URL = '/api/installment';
+
+// ============================================
+// CONSTANTS
+// ============================================
+const LOGO_URL = 'https://pics.sonkosound.store/file_0000000018a881f4bef28aaff0866bbd.png';
 
 // ✅ Create a fresh empty product row
 const newProductItem = (): ProductItem => ({
@@ -163,7 +168,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
   const [isEditCustomerModalOpen, setIsEditCustomerModalOpen] = useState(false);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
-  const [isStatementOpen, setIsStatementOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<InstallmentProduct | null>(null);
   const [viewingHistoryProduct, setViewingHistoryProduct] = useState<InstallmentProduct | null>(null);
   
@@ -172,7 +176,7 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
 
-  // ✅ MULTI-PRODUCT STATE — replaces single productName / totalAmount / etc.
+  // ✅ MULTI-PRODUCT STATE
   const [productItems, setProductItems] = useState<ProductItem[]>([newProductItem()]);
 
   const [payAmount, setPayAmount] = useState('');
@@ -378,7 +382,7 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     setProductItems(prev => prev.filter((_, i) => i !== index));
   };
 
-  // ✅ Add ALL products at once (was: add single product)
+  // ✅ Add ALL products at once
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomerId) return;
@@ -424,7 +428,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
 
           createdProducts.push(result.product);
         } catch (apiErr) {
-          // Fallback: add locally only
           const fallback: InstallmentProduct = {
             id: 'iprod-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
             customer_id: selectedCustomerId,
@@ -574,6 +577,293 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     businessPhone: '255XXXXXXXXX'
   };
 
+  // ============================================
+  // ✅ PRINT STATEMENT — opens in new window (blank PDF FIX)
+  // ============================================
+  const handlePrintStatement = () => {
+    if (!activeCustomer) return;
+
+    const now = new Date();
+    const statementId = `INS-${Date.now().toString(36).toUpperCase()}`;
+
+    const totalValue = activeCustomerProducts.reduce((s, p) => s + Number(p.total_amount), 0);
+    const totalPaid = activeCustomerProducts.reduce((s, p) => s + Number(p.paid_amount), 0);
+    const totalRemaining = Math.max(0, totalValue - totalPaid);
+
+    const allPayments = payments
+      .filter(p => activeCustomerProducts.some(pr => pr.id === p.product_id))
+      .sort((a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime());
+
+    const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Taarifa ya Mafungu - ${activeCustomer.full_name}</title>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    @page { size: A4; margin: 12mm; }
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; background: white; color: #1e293b; padding: 20px; }
+    .container { max-width: 190mm; margin: 0 auto; }
+
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 24px;
+      background: linear-gradient(135deg, #312e81 0%, #4f46e5 50%, #6366f1 100%);
+      color: white; border-radius: 12px; margin-bottom: 24px; gap: 20px;
+    }
+    .header-left { display: flex; align-items: center; gap: 16px; }
+    .logo-box {
+      width: 70px; height: 70px; border-radius: 14px; background: white;
+      display: flex; align-items: center; justify-content: center;
+      padding: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+      flex-shrink: 0; overflow: hidden;
+    }
+    .logo-box img { width: 100%; height: 100%; object-fit: contain; }
+    .business-name { font-size: 22px; font-weight: 900; letter-spacing: 1px; line-height: 1.1; }
+    .business-slogan { font-size: 11px; opacity: 0.9; margin-top: 4px; }
+    .business-contact { font-size: 10px; opacity: 0.85; margin-top: 3px; }
+    .statement-badge {
+      display: inline-block; background: rgba(255,255,255,0.25);
+      padding: 6px 14px; border-radius: 20px; font-size: 10px;
+      font-weight: bold; letter-spacing: 1px; text-transform: uppercase;
+    }
+    .statement-id { font-size: 10px; opacity: 0.85; margin-top: 8px; font-family: monospace; }
+
+    .section { margin-bottom: 22px; }
+    .section-title {
+      font-size: 13px; font-weight: 800; color: #312e81;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 10px; padding-bottom: 6px;
+      border-bottom: 2px solid #c7d2fe;
+    }
+
+    .info-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      padding: 16px; background: #eef2ff;
+      border: 1px solid #c7d2fe; border-radius: 10px;
+    }
+    .info-card { display: flex; flex-direction: column; gap: 3px; }
+    .info-label {
+      font-size: 9px; font-weight: 800; text-transform: uppercase;
+      color: #4338ca; letter-spacing: 0.5px;
+    }
+    .info-value { font-size: 13px; font-weight: bold; color: #1e293b; }
+
+    .stat-strip {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px;
+    }
+    .stat-item { border-radius: 12px; padding: 14px; text-align: center; }
+    .stat-item.total { background: #e0e7ff; border: 1px solid #a5b4fc; }
+    .stat-item.paid  { background: #d1fae5; border: 1px solid #6ee7b7; }
+    .stat-item.balance { background: #fee2e2; border: 1px solid #fca5a5; }
+    .stat-label {
+      font-size: 9px; font-weight: 800; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 4px;
+    }
+    .stat-item.total .stat-label { color: #3730a3; }
+    .stat-item.paid .stat-label  { color: #065f46; }
+    .stat-item.balance .stat-label { color: #991b1b; }
+    .stat-value { font-size: 18px; font-weight: 900; }
+    .stat-item.total .stat-value { color: #312e81; }
+    .stat-item.paid .stat-value  { color: #059669; }
+    .stat-item.balance .stat-value { color: #dc2626; }
+
+    table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0; }
+    thead th {
+      background: linear-gradient(135deg, #312e81 0%, #4f46e5 100%);
+      color: white; padding: 10px 12px; text-align: left;
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 800;
+    }
+    thead th:last-child { text-align: right; }
+    tbody td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 11px; color: #334155; }
+    tbody td:last-child { text-align: right; font-weight: bold; }
+    tbody tr:nth-child(even) { background: #eef2ff; }
+    tbody tr:last-child td { border-bottom: none; }
+    .empty-row { text-align: center !important; padding: 20px !important; color: #94a3b8; font-style: italic; }
+    .payment-amount { color: #059669; font-weight: bold; }
+    .status-badge {
+      display: inline-block; padding: 3px 10px; border-radius: 12px;
+      font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .status-completed { background: #d1fae5; color: #065f46; }
+    .status-active    { background: #fef3c7; color: #92400e; }
+
+    .signatures {
+      display: flex; justify-content: space-between; gap: 40px;
+      margin-top: 50px; padding: 0 20px;
+    }
+    .signature-box { flex: 1; text-align: center; }
+    .signature-line {
+      border-top: 1.5px solid #312e81; padding-top: 8px;
+      font-size: 11px; font-weight: bold; color: #312e81;
+    }
+    .signature-sub { font-size: 9px; color: #94a3b8; margin-top: 3px; }
+
+    .footer {
+      margin-top: 30px; padding: 14px;
+      background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+      border-radius: 10px; text-align: center;
+      font-size: 10px; color: #312e81;
+      border: 1px solid #c7d2fe;
+    }
+    .footer strong { color: #312e81; }
+
+    .no-print { text-align: center; padding: 20px; margin-top: 10px; }
+    .no-print button {
+      background: #4f46e5; color: white; border: none;
+      padding: 12px 28px; border-radius: 22px;
+      font-size: 13px; font-weight: bold; cursor: pointer;
+      margin: 0 5px; transition: all 0.2s;
+    }
+    .no-print button:hover { background: #4338ca; }
+    .no-print button.close { background: #64748b; }
+    .no-print button.close:hover { background: #475569; }
+
+    @media print { .no-print { display: none !important; } body { padding: 0; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-left">
+        <div class="logo-box"><img src="${LOGO_URL}" alt="Sonko Sound Logo" /></div>
+        <div>
+          <div class="business-name">${settings.businessName.toUpperCase()}</div>
+          <div class="business-slogan">Electronics &amp; Appliances</div>
+          <div class="business-contact">${settings.businessAddress} • ${settings.businessPhone}</div>
+        </div>
+      </div>
+      <div style="text-align: right;">
+        <div class="statement-badge">Taarifa ya Mafungu</div>
+        <div class="statement-id">${statementId}</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Taarifa za Mteja</div>
+      <div class="info-grid">
+        <div class="info-card"><span class="info-label">Jina la Mteja</span><span class="info-value">${activeCustomer.full_name}</span></div>
+        <div class="info-card"><span class="info-label">Namba ya Simu</span><span class="info-value">${activeCustomer.phone_number}</span></div>
+        <div class="info-card"><span class="info-label">Anuani</span><span class="info-value">${activeCustomer.address || '—'}</span></div>
+        <div class="info-card"><span class="info-label">Tarehe ya Taarifa</span><span class="info-value">${now.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
+      </div>
+
+      <div class="stat-strip">
+        <div class="stat-item total">
+          <div class="stat-label">Jumla ya Bidhaa</div>
+          <div class="stat-value">TSh ${totalValue.toLocaleString()}</div>
+        </div>
+        <div class="stat-item paid">
+          <div class="stat-label">Imelipwa</div>
+          <div class="stat-value">TSh ${totalPaid.toLocaleString()}</div>
+        </div>
+        <div class="stat-item balance">
+          <div class="stat-label">Baki</div>
+          <div class="stat-value">TSh ${totalRemaining.toLocaleString()}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Bidhaa za Mkopo (${activeCustomerProducts.length})</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Bidhaa</th>
+            <th>Bei Kamili</th>
+            <th>Imelipwa</th>
+            <th>Baki</th>
+            <th>Hali</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${activeCustomerProducts.length > 0
+            ? activeCustomerProducts.map(product => {
+                const remaining = Math.max(0, Number(product.total_amount) - Number(product.paid_amount));
+                const isDone = remaining <= 0;
+                return `
+                  <tr>
+                    <td>${product.product_name}${product.description ? `<br><span style="font-size:9px;color:#94a3b8;">${product.description}</span>` : ''}</td>
+                    <td>TSh ${Number(product.total_amount).toLocaleString()}</td>
+                    <td class="payment-amount">TSh ${Number(product.paid_amount).toLocaleString()}</td>
+                    <td style="color:#dc2626;font-weight:bold;">TSh ${remaining.toLocaleString()}</td>
+                    <td><span class="status-badge ${isDone ? 'status-completed' : 'status-active'}">${isDone ? 'Imekamilika' : 'Inaendelea'}</span></td>
+                  </tr>
+                `;
+              }).join('')
+            : '<tr><td colspan="5" class="empty-row">Hakuna bidhaa bado</td></tr>'
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Historia ya Malipo (${allPayments.length})</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Tarehe</th>
+            <th>Bidhaa</th>
+            <th>Njia</th>
+            <th>Maelezo</th>
+            <th>Kiasi</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${allPayments.length > 0
+            ? allPayments.map(pay => {
+                const prod = activeCustomerProducts.find(pr => pr.id === pay.product_id);
+                return `
+                  <tr>
+                    <td>${pay.payment_date}</td>
+                    <td>${prod?.product_name || '—'}</td>
+                    <td>${pay.payment_method}</td>
+                    <td>${pay.notes || 'Malipo'}</td>
+                    <td class="payment-amount">TSh ${Number(pay.amount).toLocaleString()}</td>
+                  </tr>
+                `;
+              }).join('')
+            : '<tr><td colspan="5" class="empty-row">Hakuna malipo bado</td></tr>'
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="signatures">
+      <div class="signature-box">
+        <div class="signature-line">Sahihi ya Mmiliki</div>
+        <div class="signature-sub">${settings.businessName}</div>
+      </div>
+      <div class="signature-box">
+        <div class="signature-line">Sahihi ya Mteja</div>
+        <div class="signature-sub">${activeCustomer.full_name}</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <strong>${settings.businessName}</strong> • ${settings.businessAddress} • ${settings.businessPhone}<br>
+      Taarifa hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })} saa ${now.toLocaleTimeString('sw-TZ', { hour: '2-digit', minute: '2-digit' })}
+    </div>
+
+    <div class="no-print">
+      <button onclick="window.print()">🖨️ Chapisha / Save as PDF</button>
+      <button class="close" onclick="window.close()">Funga</button>
+    </div>
+  </div>
+  <script>window.onload = function() { setTimeout(function() { window.print(); }, 400); };</script>
+</body>
+</html>`;
+
+    const printWindow = window.open('', '_blank', 'width=900,height=800');
+    if (printWindow) {
+      printWindow.document.open();
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+    } else {
+      alert('Tafadhali ruhusu pop-ups kwa ajili ya kuchapisha');
+    }
+  };
+
   return (
     <div className="space-y-6">
       {error && (
@@ -632,8 +922,8 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
             <button onClick={() => { resetProductForm(); setIsAddProductModalOpen(true); }} disabled={isLoading} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-5 rounded-xl flex items-center gap-2 shadow-sm transition disabled:opacity-50">
               <Plus size={16} /> Ongeza Bidhaa
             </button>
-            <button onClick={() => setIsStatementOpen(true)} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-5 rounded-xl flex items-center gap-2 shadow-sm transition">
-              <Printer size={16} /> Taarifa
+            <button onClick={handlePrintStatement} className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold py-2.5 px-5 rounded-xl flex items-center gap-2 shadow-sm transition">
+              <Printer size={16} /> Taarifa (PDF)
             </button>
           </div>
 
@@ -1009,40 +1299,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
               {payments.filter(p => p.product_id === viewingHistoryProduct.id).length === 0 && (
                 <p className="text-xs text-slate-400 text-center py-8">Hakuna malipo bado.</p>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Statement Modal */}
-      {isStatementOpen && activeCustomer && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-3xl w-full p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
-            <div className="absolute top-6 right-6 flex items-center gap-2 print:hidden">
-              <button onClick={() => window.print()} className="bg-slate-900 text-white flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold hover:bg-slate-800 transition"><Printer size={14} /> Chapisha / PDF</button>
-              <button onClick={() => setIsStatementOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition"><X size={16} /></button>
-            </div>
-            <div className="space-y-6 pt-4 text-slate-700">
-              <div className="flex justify-between items-start border-b border-slate-200 pb-6">
-                <div><h2 className="text-xl font-extrabold text-slate-800 uppercase">{settings.businessName}</h2><p className="text-xs text-slate-500 mt-1">Anuani: {settings.businessAddress}</p><p className="text-xs text-slate-500 mt-0.5">Simu: {settings.businessPhone}</p></div>
-                <div className="text-right"><span className="inline-block text-[10px] uppercase tracking-wider font-extrabold px-3 py-1 bg-slate-100 text-slate-600 rounded-full">Taarifa ya Mafungu</span><p className="text-[11px] text-slate-400 mt-2">Muda: {new Date().toLocaleDateString('sw-TZ')}</p></div>
-              </div>
-              <div className="grid grid-cols-2 gap-8 py-4 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
-                <div><h4 className="text-[10px] font-bold text-slate-400 uppercase">MTEJA:</h4><h3 className="text-sm font-bold text-slate-800 mt-1">{activeCustomer.full_name}</h3><p className="text-xs text-slate-500 mt-0.5">Simu: {activeCustomer.phone_number}</p>{activeCustomer.address && <p className="text-xs text-slate-500 mt-0.5">Anuani: {activeCustomer.address}</p>}</div>
-                <div className="text-right"><h4 className="text-[10px] font-bold text-slate-400 uppercase">SALIO (TSh):</h4><h3 className="text-lg font-black text-rose-600 mt-1">TSh {activeCustomerProducts.reduce((sum, p) => sum + Math.max(0, Number(p.total_amount) - Number(p.paid_amount)), 0).toLocaleString()}</h3></div>
-              </div>
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-1.5 uppercase">Historia ya Bidhaa</h4>
-                <table className="w-full text-left text-xs text-slate-600">
-                  <thead><tr className="bg-slate-50 text-slate-500 font-bold"><th className="py-2.5 px-3 rounded-l-lg">Bidhaa</th><th className="py-2.5 px-3">Bei Kamili</th><th className="py-2.5 px-3">Imelipwa</th><th className="py-2.5 px-3 text-right rounded-r-lg">Baki</th></tr></thead>
-                  <tbody>{activeCustomerProducts.map(product => { const remaining = Math.max(0, Number(product.total_amount) - Number(product.paid_amount)); return (<tr key={product.id} className="border-b border-slate-100/50"><td className="py-2 px-3 font-semibold">{product.product_name}</td><td className="py-2 px-3">TSh {Number(product.total_amount).toLocaleString()}</td><td className="py-2 px-3 text-emerald-600">TSh {Number(product.paid_amount).toLocaleString()}</td><td className="py-2 px-3 text-right font-bold text-rose-600">TSh {remaining.toLocaleString()}</td></tr>); })}
-                  </tbody>
-                </table>
-              </div>
-              <div className="pt-12 grid grid-cols-2 gap-12 text-xs">
-                <div className="border-t border-slate-200 pt-3 text-center"><p className="font-bold text-slate-800">Sahihi ya Mmiliki</p><p className="text-slate-400 mt-1">{settings.businessName}</p></div>
-                <div className="border-t border-slate-200 pt-3 text-center"><p className="font-bold text-slate-800">Sahihi ya Mteja</p><p className="text-slate-400 mt-1">{activeCustomer.full_name}</p></div>
-              </div>
             </div>
           </div>
         </div>
