@@ -26,11 +26,11 @@ interface KopeshaCustomer {
 interface KopeshaLoan {
   id: string;
   customer_id: string;
-  amount: number;              // principal
-  paid_amount: number;         // running total
-  lend_date: string;           // YYYY-MM-DD
-  return_date: string;         // YYYY-MM-DD (deadline)
-  status: string;              // 'Active' | 'Cleared'
+  amount: number;
+  paid_amount: number;
+  lend_date: string;
+  return_date: string;
+  status: string;
   notes: string;
   created_at: string;
 }
@@ -52,6 +52,18 @@ interface KopeshaProps {
 const API_BASE_URL = '/api/kopesha';
 
 // ============================================
+// CONSTANTS
+// ============================================
+const LOGO_URL = 'https://pics.sonkosound.store/file_0000000018a881f4bef28aaff0866bbd.png';
+
+const BUSINESS = {
+  name: 'Sonko Sound',
+  slogan: 'Electronics & Appliances',
+  address: 'Morogoro, Tanzania',
+  phone: '0688423753',
+};
+
+// ============================================
 // HELPERS
 // ============================================
 const todayISO = () => new Date().toISOString().split('T')[0];
@@ -70,6 +82,14 @@ const formatDate = (s: string) => {
   try {
     return new Date(s).toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short', year: 'numeric' });
   } catch { return s; }
+};
+
+const formatDateDMY = (dateStr: string): string => {
+  const s = String(dateStr || '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return s;
 };
 
 const getInitials = (name: string) =>
@@ -166,7 +186,6 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
       .sort((a, b) => new Date(b.lend_date).getTime() - new Date(a.lend_date).getTime());
   }, [loans, selectedCustomerId]);
 
-  // Global stats
   const globalStats = useMemo(() => {
     let totalLent = 0, totalRepaid = 0, outstanding = 0, overdueCount = 0, dueSoonCount = 0;
     loans.forEach(l => {
@@ -182,6 +201,23 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
     });
     return { totalLent, totalRepaid, outstanding, overdueCount, dueSoonCount, totalBorrowers: customers.length };
   }, [loans, customers]);
+
+  // ============================================
+  // SMS HELPER
+  // ============================================
+  const sendKopeshaSMS = async (payload: any) => {
+    try {
+      const res = await fetch('/api/kopesha-send-sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return await res.json();
+    } catch (err) {
+      console.error('SMS error:', err);
+      return { success: false };
+    }
+  };
 
   // ============================================
   // CUSTOMER CRUD
@@ -250,7 +286,7 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
   };
 
   // ============================================
-  // LOAN
+  // LOAN (with SMS)
   // ============================================
   const handleAddLoan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -267,6 +303,9 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
       return;
     }
     setIsLoading(true);
+
+    let createdLoan: KopeshaLoan | null = null;
+
     try {
       const res = await fetch(`${API_BASE_URL}/loans`, {
         method: 'POST',
@@ -283,6 +322,7 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'Failed');
+      createdLoan = result.loan;
       setLoans(prev => [result.loan, ...prev]);
     } catch {
       const fallback: KopeshaLoan = {
@@ -296,31 +336,44 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
         notes: loanNotes,
         created_at: new Date().toISOString()
       };
+      createdLoan = fallback;
       setLoans(prev => [fallback, ...prev]);
-    } finally {
-      setIsAddLoanOpen(false);
-      resetLoanForm();
-      setIsLoading(false);
-      setSuccessMessage('Mkopo umeongezwa!');
-      setTimeout(() => setSuccessMessage(null), 3000);
-      onUpdate?.();
     }
+
+    // ✅ Send lending SMS
+    if (createdLoan && activeCustomer) {
+      await sendKopeshaSMS({
+        event: 'loan_created',
+        customerName: activeCustomer.full_name,
+        customerPhone: activeCustomer.phone_number,
+        amount: amt,
+        returnDate,
+      });
+    }
+
+    setIsAddLoanOpen(false);
+    resetLoanForm();
+    setIsLoading(false);
+    setSuccessMessage('Mkopo umeongezwa! SMS imetumwa.');
+    setTimeout(() => setSuccessMessage(null), 3000);
+    onUpdate?.();
   };
 
   // ============================================
-  // PAYMENT
+  // PAYMENT (with SMS)
   // ============================================
   const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedLoan) return;
     const amt = Number(payAmount);
-    const remaining = Math.max(0, Number(selectedLoan.amount) - Number(selectedLoan.paid_amount));
-    if (!amt || amt <= 0 || amt > remaining) {
+    const remainingBefore = Math.max(0, Number(selectedLoan.amount) - Number(selectedLoan.paid_amount));
+    if (!amt || amt <= 0 || amt > remainingBefore) {
       setError('Kiasi si sahihi');
       setTimeout(() => setError(null), 3000);
       return;
     }
     setIsLoading(true);
+
     try {
       const res = await fetch(`${API_BASE_URL}/payments`, {
         method: 'POST',
@@ -356,21 +409,36 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
       }, ...prev]);
     }
 
-    // Update loan locally
-    setLoans(prev => prev.map(l => {
-      if (l.id !== selectedLoan.id) return l;
-      const newPaid = Number(l.paid_amount) + amt;
-      return {
-        ...l,
-        paid_amount: newPaid,
-        status: newPaid >= Number(l.amount) ? 'Cleared' : 'Active'
-      };
-    }));
+    const newPaid = Number(selectedLoan.paid_amount) + amt;
+    const remainingAfter = Math.max(0, Number(selectedLoan.amount) - newPaid);
+    const isCompleted = remainingAfter <= 0;
+
+    setLoans(prev => prev.map(l =>
+      l.id === selectedLoan.id
+        ? { ...l, paid_amount: newPaid, status: isCompleted ? 'Cleared' : 'Active' }
+        : l
+    ));
+
+    // ✅ Send repayment SMS
+    if (activeCustomer) {
+      await sendKopeshaSMS({
+        event: 'loan_paid',
+        customerName: activeCustomer.full_name,
+        customerPhone: activeCustomer.phone_number,
+        paidAmount: amt,
+        remaining: remainingAfter,
+        isCompleted,
+      });
+    }
 
     setIsPayModalOpen(false);
     resetPaymentForm();
     setIsLoading(false);
-    setSuccessMessage('Malipo yamerekodiwa!');
+    setSuccessMessage(
+      isCompleted
+        ? 'Malipo yamerekodiwa! Mkopo umekamilika.'
+        : 'Malipo yamerekodiwa! SMS imetumwa.'
+    );
     setTimeout(() => setSuccessMessage(null), 3000);
     onUpdate?.();
   };
@@ -396,6 +464,306 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
     setPayAmount('');
     setPayNotes('');
     setIsPayModalOpen(true);
+  };
+
+  // ============================================
+  // PRINT STATEMENT (professional colored PDF)
+  // ============================================
+  const handlePrintStatement = () => {
+    if (!activeCustomer) return;
+
+    const now = new Date();
+    const statementId = `KPS-${Date.now().toString(36).toUpperCase()}`;
+
+    const totalLent = activeCustomerLoans.reduce((s, l) => s + Number(l.amount), 0);
+    const totalPaid = activeCustomerLoans.reduce((s, l) => s + Number(l.paid_amount), 0);
+    const totalRemaining = Math.max(0, totalLent - totalPaid);
+
+    const allCustomerPayments = payments.filter(p =>
+      activeCustomerLoans.some(l => l.id === p.loan_id)
+    ).sort((a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime());
+
+    const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Taarifa ya Mikopo - ${activeCustomer.full_name}</title>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    @page { size: A4; margin: 12mm; }
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; background: white; color: #1e293b; padding: 20px; }
+    .container { max-width: 190mm; margin: 0 auto; }
+
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 24px;
+      background: linear-gradient(135deg, #78350f 0%, #d97706 50%, #f59e0b 100%);
+      color: white; border-radius: 12px; margin-bottom: 24px; gap: 20px;
+    }
+    .header-left { display: flex; align-items: center; gap: 16px; }
+    .logo-box {
+      width: 70px; height: 70px; border-radius: 14px; background: white;
+      display: flex; align-items: center; justify-content: center;
+      padding: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+      flex-shrink: 0; overflow: hidden;
+    }
+    .logo-box img { width: 100%; height: 100%; object-fit: contain; }
+    .business-name { font-size: 22px; font-weight: 900; letter-spacing: 1px; line-height: 1.1; }
+    .business-slogan { font-size: 11px; opacity: 0.9; margin-top: 4px; }
+    .business-contact { font-size: 10px; opacity: 0.85; margin-top: 3px; }
+    .statement-badge {
+      display: inline-block; background: rgba(255,255,255,0.25);
+      padding: 6px 14px; border-radius: 20px; font-size: 10px;
+      font-weight: bold; letter-spacing: 1px; text-transform: uppercase;
+    }
+    .statement-id { font-size: 10px; opacity: 0.85; margin-top: 8px; font-family: monospace; }
+
+    .section { margin-bottom: 22px; }
+    .section-title {
+      font-size: 13px; font-weight: 800; color: #78350f;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 10px; padding-bottom: 6px;
+      border-bottom: 2px solid #fcd34d;
+    }
+
+    .info-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      padding: 16px; background: #fffbeb;
+      border: 1px solid #fde68a; border-radius: 10px;
+    }
+    .info-card { display: flex; flex-direction: column; gap: 3px; }
+    .info-label {
+      font-size: 9px; font-weight: 800; text-transform: uppercase;
+      color: #92400e; letter-spacing: 0.5px;
+    }
+    .info-value { font-size: 13px; font-weight: bold; color: #1e293b; }
+    .info-value.highlight { color: #dc2626; font-size: 16px; }
+
+    .stat-strip {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px;
+    }
+    .stat-item {
+      border-radius: 12px; padding: 14px; text-align: center;
+    }
+    .stat-item.lent { background: #fef3c7; border: 1px solid #fcd34d; }
+    .stat-item.paid { background: #d1fae5; border: 1px solid #6ee7b7; }
+    .stat-item.balance { background: #fee2e2; border: 1px solid #fca5a5; }
+    .stat-label {
+      font-size: 9px; font-weight: 800; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 4px;
+    }
+    .stat-item.lent .stat-label { color: #92400e; }
+    .stat-item.paid .stat-label { color: #065f46; }
+    .stat-item.balance .stat-label { color: #991b1b; }
+    .stat-value { font-size: 18px; font-weight: 900; }
+    .stat-item.lent .stat-value { color: #78350f; }
+    .stat-item.paid .stat-value { color: #059669; }
+    .stat-item.balance .stat-value { color: #dc2626; }
+
+    table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0; }
+    thead th {
+      background: linear-gradient(135deg, #78350f 0%, #b45309 100%);
+      color: white; padding: 10px 12px; text-align: left;
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 800;
+    }
+    thead th:last-child { text-align: right; }
+    tbody td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 11px; color: #334155; }
+    tbody td:last-child { text-align: right; font-weight: bold; }
+    tbody tr:nth-child(even) { background: #fffbeb; }
+    tbody tr:last-child td { border-bottom: none; }
+    .empty-row { text-align: center !important; padding: 20px !important; color: #94a3b8; font-style: italic; }
+    .payment-amount { color: #059669; font-weight: bold; }
+    .status-badge {
+      display: inline-block; padding: 3px 10px; border-radius: 12px;
+      font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .status-cleared { background: #d1fae5; color: #065f46; }
+    .status-active { background: #fef3c7; color: #92400e; }
+    .status-overdue { background: #fee2e2; color: #991b1b; }
+
+    .signatures {
+      display: flex; justify-content: space-between; gap: 40px;
+      margin-top: 50px; padding: 0 20px;
+    }
+    .signature-box { flex: 1; text-align: center; }
+    .signature-line {
+      border-top: 1.5px solid #78350f; padding-top: 8px;
+      font-size: 11px; font-weight: bold; color: #78350f;
+    }
+    .signature-sub { font-size: 9px; color: #94a3b8; margin-top: 3px; }
+
+    .footer {
+      margin-top: 30px; padding: 14px;
+      background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+      border-radius: 10px; text-align: center;
+      font-size: 10px; color: #78350f;
+      border: 1px solid #fde68a;
+    }
+    .footer strong { color: #78350f; }
+
+    .no-print { text-align: center; padding: 20px; margin-top: 10px; }
+    .no-print button {
+      background: #d97706; color: white; border: none;
+      padding: 12px 28px; border-radius: 22px;
+      font-size: 13px; font-weight: bold; cursor: pointer;
+      margin: 0 5px; transition: all 0.2s;
+    }
+    .no-print button:hover { background: #b45309; }
+    .no-print button.close { background: #64748b; }
+    .no-print button.close:hover { background: #475569; }
+
+    @media print { .no-print { display: none !important; } body { padding: 0; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-left">
+        <div class="logo-box">
+          <img src="${LOGO_URL}" alt="Sonko Sound Logo" />
+        </div>
+        <div>
+          <div class="business-name">${BUSINESS.name.toUpperCase()}</div>
+          <div class="business-slogan">${BUSINESS.slogan}</div>
+          <div class="business-contact">${BUSINESS.address} • ${BUSINESS.phone}</div>
+        </div>
+      </div>
+      <div style="text-align: right;">
+        <div class="statement-badge">Taarifa ya Mikopo</div>
+        <div class="statement-id">${statementId}</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Taarifa za Mkopaji</div>
+      <div class="info-grid">
+        <div class="info-card"><span class="info-label">Jina Kamili</span><span class="info-value">${activeCustomer.full_name}</span></div>
+        <div class="info-card"><span class="info-label">Namba ya Simu</span><span class="info-value">${activeCustomer.phone_number}</span></div>
+        <div class="info-card"><span class="info-label">Anuani</span><span class="info-value">${activeCustomer.address || '—'}</span></div>
+        <div class="info-card"><span class="info-label">Tarehe ya Taarifa</span><span class="info-value">${now.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
+      </div>
+
+      <div class="stat-strip">
+        <div class="stat-item lent">
+          <div class="stat-label">Jumla Iliyokopeshwa</div>
+          <div class="stat-value">TSh ${totalLent.toLocaleString()}</div>
+        </div>
+        <div class="stat-item paid">
+          <div class="stat-label">Iliyorejeshwa</div>
+          <div class="stat-value">TSh ${totalPaid.toLocaleString()}</div>
+        </div>
+        <div class="stat-item balance">
+          <div class="stat-label">Baki</div>
+          <div class="stat-value">TSh ${totalRemaining.toLocaleString()}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Historia ya Mikopo (${activeCustomerLoans.length})</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Mkopo #</th>
+            <th>Tarehe ya Kukopesha</th>
+            <th>Deadline</th>
+            <th>Kiasi</th>
+            <th>Imerejeshwa</th>
+            <th>Baki</th>
+            <th>Hali</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${activeCustomerLoans.length > 0
+            ? activeCustomerLoans.map((loan, idx) => {
+                const remaining = Math.max(0, Number(loan.amount) - Number(loan.paid_amount));
+                const isCleared = remaining <= 0;
+                const isOverdue = !isCleared && daysUntil(loan.return_date) < 0;
+                const statusClass = isCleared ? 'status-cleared' : isOverdue ? 'status-overdue' : 'status-active';
+                const statusText = isCleared ? 'Imekamilika' : isOverdue ? 'Imechelewa' : 'Inaendelea';
+                return `
+                  <tr>
+                    <td>#${idx + 1}</td>
+                    <td>${formatDate(loan.lend_date)}</td>
+                    <td>${formatDate(loan.return_date)}</td>
+                    <td>TSh ${Number(loan.amount).toLocaleString()}</td>
+                    <td class="payment-amount">TSh ${Number(loan.paid_amount).toLocaleString()}</td>
+                    <td style="color:#dc2626;font-weight:bold;">TSh ${remaining.toLocaleString()}</td>
+                    <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                  </tr>
+                `;
+              }).join('')
+            : '<tr><td colspan="7" class="empty-row">Hakuna mikopo bado</td></tr>'
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Historia ya Marejesho (${allCustomerPayments.length})</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Tarehe</th>
+            <th>Mkopo #</th>
+            <th>Njia</th>
+            <th>Maelezo</th>
+            <th>Kiasi</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${allCustomerPayments.length > 0
+            ? allCustomerPayments.map(pay => {
+                const loanIdx = activeCustomerLoans.findIndex(l => l.id === pay.loan_id) + 1;
+                return `
+                  <tr>
+                    <td>${formatDate(pay.payment_date)}</td>
+                    <td>#${loanIdx}</td>
+                    <td>${pay.payment_method}</td>
+                    <td>${pay.notes || 'Malipo'}</td>
+                    <td class="payment-amount">TSh ${Number(pay.amount).toLocaleString()}</td>
+                  </tr>
+                `;
+              }).join('')
+            : '<tr><td colspan="5" class="empty-row">Hakuna marejesho bado</td></tr>'
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="signatures">
+      <div class="signature-box">
+        <div class="signature-line">Sahihi ya Mmiliki</div>
+        <div class="signature-sub">${BUSINESS.name}</div>
+      </div>
+      <div class="signature-box">
+        <div class="signature-line">Sahihi ya Mkopaji</div>
+        <div class="signature-sub">${activeCustomer.full_name}</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <strong>${BUSINESS.name}</strong> • ${BUSINESS.address} • ${BUSINESS.phone}<br>
+      Taarifa hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', month: 'long', year: 'numeric' })} saa ${now.toLocaleTimeString('sw-TZ', { hour: '2-digit', minute: '2-digit' })}
+    </div>
+
+    <div class="no-print">
+      <button onclick="window.print()">🖨️ Chapisha / Save as PDF</button>
+      <button class="close" onclick="window.close()">Funga</button>
+    </div>
+  </div>
+  <script>window.onload = function() { setTimeout(function() { window.print(); }, 400); };</script>
+</body>
+</html>`;
+
+    const printWindow = window.open('', '_blank', 'width=900,height=800');
+    if (printWindow) {
+      printWindow.document.open();
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+    } else {
+      alert('Tafadhali ruhusu pop-ups kwa ajili ya kuchapisha');
+    }
   };
 
   // ============================================
@@ -500,6 +868,12 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
               className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 px-5 rounded-xl flex items-center gap-2 shadow-sm"
             >
               <Plus size={16} /> Kopesha Mpya
+            </button>
+            <button
+              onClick={handlePrintStatement}
+              className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white font-bold py-2.5 px-5 rounded-xl flex items-center gap-2 shadow-sm"
+            >
+              <Printer size={16} /> Taarifa (PDF)
             </button>
           </div>
 
@@ -636,7 +1010,6 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
         /* LIST VIEW                                     */
         /* ============================================ */
         <>
-          {/* Stats */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Jumla Iliyokopeshwa</span>
@@ -669,7 +1042,6 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
             </button>
           </div>
 
-          {/* Customer cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {customers.length > 0 ? customers.map(customer => {
               const cLoans = loans.filter(l => l.customer_id === customer.id);
@@ -865,7 +1237,7 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
                 <textarea value={loanNotes} onChange={e => setLoanNotes(e.target.value)} placeholder="Sababu au maelezo ya mkopo..." className="w-full p-2.5 border border-slate-200 rounded-xl h-20" />
               </div>
               <div className="bg-amber-50 p-3 rounded-2xl border border-amber-200 text-[11px] text-amber-800">
-                <strong>Kumbuka:</strong> Hakikisha umeandika deadline sahihi. Mkopo utaonekana kwenye orodha ya mikopo yote.
+                <strong>Kumbuka:</strong> SMS itatumwa kwa mkopaji mara moja. Hakikisha taarifa zote ni sahihi.
               </div>
               <div className="pt-2 flex justify-end gap-2">
                 <button type="button" onClick={() => setIsAddLoanOpen(false)} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600">Ghairi</button>
@@ -953,6 +1325,9 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
                     TSh {Math.max(0, Number(selectedLoan.amount) - Number(selectedLoan.paid_amount) - Number(payAmount || 0)).toLocaleString()}
                   </span>
                 </div>
+              </div>
+              <div className="bg-emerald-50 p-3 rounded-2xl border border-emerald-200 text-[11px] text-emerald-800">
+                <strong>SMS:</strong> Mkopaji atapokea ujumbe wa uthibitisho wa malipo.
               </div>
               <div className="pt-2 flex justify-end gap-2">
                 <button type="button" onClick={() => setIsPayModalOpen(false)} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600">Ghairi</button>
