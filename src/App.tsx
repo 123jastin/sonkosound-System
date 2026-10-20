@@ -23,11 +23,12 @@ import SettingsView from './components/SettingsView';
 import NotificationsView from './components/NotificationsView';
 import MemoryPage from './components/MemoryPage';
 import KubandikaPage from './components/KubandikaPage';
+import Kopesha from './components/Kopesha';
 import { 
   LayoutDashboard, Users, BookOpen, Truck, Calendar, 
   FileSpreadsheet, Settings, LogOut, Menu, X, Shield, 
   MapPin, Phone, Bell, Loader2, AlertTriangle, RefreshCw,
-  FolderOpen, Download, Wallet, ShoppingCart, Package, Globe
+  FolderOpen, Download, Wallet, ShoppingCart, Package, Globe, Banknote
 } from 'lucide-react';
 
 // Utility: Get days difference
@@ -421,6 +422,7 @@ export default function App() {
     { id: 'debts', label: 'Madeni ya Wateja (All)', icon: BookOpen },
     { id: 'suppliers', label: 'Ma Suppliers (Wanaotudai)', icon: Truck },
     { id: 'installments', label: 'Kubandika (Installments)', icon: Wallet },
+    { id: 'kopesha', label: 'Kopesha (Mikopo)', icon: Banknote },   // ✅ NEW
     {
       id: 'kubandika',
       label: 'Kubandika Tz/China',
@@ -705,6 +707,9 @@ export default function App() {
             onUpdate={() => syncDatabaseStates(false)} 
             onNotificationsGenerated={handleInstallmentNotifications}
           />
+        )}
+        {currentTab === 'kopesha' && (                                    // ✅ NEW
+          <Kopesha onUpdate={() => syncDatabaseStates(false)} />
         )}
         {currentTab === 'kubandika' && (
           <KubandikaPage />
