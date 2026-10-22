@@ -1,6 +1,6 @@
 // functions/api/kubandika/index.ts
 // GET  /api/kubandika         — list all (optional ?region=Tz|China, ?start, ?end)
-// POST /api/kubandika         — create new payment
+// POST /api/kubandika         — create new payment (type: 'IN' | 'OUT')
 // ============================================================
 
 interface Env {
@@ -18,6 +18,7 @@ function rowToPayment(row: any) {
   return {
     id: row.id,
     region: row.region,
+    type: row.type || 'IN', // ✅ Default to 'IN' for old records
     amount: row.amount,
     date: row.date,
     method: row.method || 'Cash',
@@ -81,14 +82,13 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 };
 
 // ============================================================
-// POST — create payment
+// POST — create payment (IN or OUT)
 // ============================================================
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
 
   try {
     const body: any = await request.json();
-
     console.log('📝 Create kubandika payment:', body);
 
     // Validation
@@ -113,16 +113,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       );
     }
 
+    // ✅ 'type' — 'IN' for received, 'OUT' for punguza/toa
+    const transactionType = body.type === 'OUT' ? 'OUT' : 'IN';
+
     const id = body.id || `kub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
     await env.DB.prepare(
       `INSERT INTO kubandika_payments (
-        id, region, amount, date, method, received_from, notes,
+        id, region, type, amount, date, method, received_from, notes,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
     ).bind(
       id,
       body.region,
+      transactionType,
       Number(body.amount),
       body.date,
       body.method || 'Cash',
@@ -137,7 +141,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return jsonResponse({
       success: true,
       payment: rowToPayment(row),
-      message: 'Pesa imeongezwa',
+      message: transactionType === 'OUT' ? 'Punguza imerekodiwa' : 'Pesa imeongezwa',
     }, 201);
   } catch (error: any) {
     console.error('❌ Failed to create kubandika payment:', error);
