@@ -19,6 +19,7 @@ function rowToPayment(row: any) {
   return {
     id: row.id,
     region: row.region,
+    type: row.type || 'IN', // ✅
     amount: row.amount,
     date: row.date,
     method: row.method || 'Cash',
@@ -81,6 +82,12 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
       }
       fields.push('region = ?');
       values.push(body.region);
+    }
+    // ✅ Allow updating 'type' (IN <-> OUT)
+    if (body.type !== undefined) {
+      const t = body.type === 'OUT' ? 'OUT' : 'IN';
+      fields.push('type = ?');
+      values.push(t);
     }
     if (body.amount !== undefined) {
       if (Number(body.amount) <= 0) {
