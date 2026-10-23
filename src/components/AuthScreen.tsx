@@ -8,7 +8,8 @@ import { api } from '../services/api';
 import { Lock, Eye, EyeOff, Shield, RefreshCw, KeyRound, Phone, MapPin, Building, Loader2, ArrowRight } from 'lucide-react';
 
 interface AuthScreenProps {
-  onAuthenticated: () => void;
+  // ✅ Updated: Now passes back the role ('admin' or 'staff')
+  onAuthenticated: (role: 'admin' | 'staff') => void;
   onWorkerAccess: () => void;
 }
 
@@ -64,7 +65,8 @@ export default function AuthScreen({ onAuthenticated, onWorkerAccess }: AuthScre
       
       if (result.success) {
         setError('');
-        onAuthenticated();
+        // ✅ Pass the role returned by the backend
+        onAuthenticated(result.role || 'staff');
       } else {
         setError('PIN si sahihi. Tafadhali jaribu tena.');
         setPin('');
@@ -153,7 +155,7 @@ export default function AuthScreen({ onAuthenticated, onWorkerAccess }: AuthScre
           <div className="flex-1 h-px bg-slate-200"></div>
         </div>
 
-        {/* ADMIN LOGIN */}
+        {/* ADMIN/STAFF LOGIN */}
         <div className="bg-white py-8 px-4 shadow-xl rounded-3xl sm:px-10 border border-slate-100">
           {!isForgotMode ? (
             <div>
@@ -161,8 +163,8 @@ export default function AuthScreen({ onAuthenticated, onWorkerAccess }: AuthScre
                 <span className="inline-flex p-3 rounded-full bg-accent/10 text-accent">
                   <Lock size={20} />
                 </span>
-                <h3 className="text-lg font-medium text-slate-800 mt-2">Admin</h3>
-                <p className="text-xs text-slate-400">Weka PIN ya biashara kuingia</p>
+                <h3 className="text-lg font-medium text-slate-800 mt-2">Mfumo wa Ndani</h3>
+                <p className="text-xs text-slate-400">Weka PIN (Admin au Staff)</p>
               </div>
 
               <form onSubmit={handleLogin} className="space-y-6">
@@ -244,7 +246,7 @@ export default function AuthScreen({ onAuthenticated, onWorkerAccess }: AuthScre
                       <span className="flex items-center gap-2">
                         <Loader2 size={16} className="animate-spin" /> Inaingia...
                       </span>
-                    ) : 'Ingia kama Admin'}
+                    ) : 'Ingia Mfumo'}
                   </button>
                 </div>
               </form>
