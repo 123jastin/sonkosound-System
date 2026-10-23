@@ -175,7 +175,7 @@ function generateNotificationsFromData(
 
 export default function App() {
   // ============================================
-  // NEW: URL-based worker mode (?worker=1)
+  // URL-based worker mode (?worker=1)
   // ============================================
   const [isWorkerUrl, setIsWorkerUrl] = useState<boolean>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -184,6 +184,11 @@ export default function App() {
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('ledger_authenticated') === 'true';
+  });
+
+  // ✅ NEW: Track user role (admin or staff)
+  const [userRole, setUserRole] = useState<'admin' | 'staff' | null>(() => {
+    return (localStorage.getItem('ledger_role') as 'admin' | 'staff') || null;
   });
 
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
@@ -243,7 +248,6 @@ export default function App() {
       if (cached) {
         const data = JSON.parse(cached);
         if (data.customers && Array.isArray(data.customers)) {
-          // ✅ Ensure contacts is always an array when restoring from cache
           const restoredCustomers: Customer[] = data.customers.map((c: any) => ({
             ...c,
             contacts: safeParseContacts(c.contacts),
@@ -289,7 +293,6 @@ export default function App() {
         api.settings.get()
       ]);
 
-      // ✅ contacts now preserved through the mapper
       const transformedCustomers: Customer[] = (Array.isArray(customersData) ? customersData : []).map((c: any) => ({
         id: c.id,
         fullName: c.full_name || '',
@@ -308,7 +311,6 @@ export default function App() {
         description: d.description || '', category: d.category || 'Mizigo/Products',
         notes: d.notes || '', status: d.status || 'Active',
         createdAt: d.created_at || new Date().toISOString(),
-        // ✅ Preserve extension fields from API
         originalDueDate: d.originalDueDate || d.original_due_date || d.due_date || '',
         extensions: Array.isArray(d.extensions)
           ? d.extensions
@@ -369,7 +371,6 @@ export default function App() {
     }
   }, [cacheDataToLocalStorage]);
 
-  // ✅ Safe parse extensions JSON string → array
   function safeParseExtensions(raw: any): any[] {
     if (!raw) return [];
     if (Array.isArray(raw)) return raw;
@@ -389,14 +390,20 @@ export default function App() {
     }
   }, [isAuthenticated, isWorkerUrl]);
 
-  const handleAuthenticated = () => {
+  // ✅ Receive role from AuthScreen
+  const handleAuthenticated = (role: 'admin' | 'staff') => {
     setIsAuthenticated(true);
+    setUserRole(role);
     localStorage.setItem('ledger_authenticated', 'true');
+    localStorage.setItem('ledger_role', role);
   };
 
+  // ✅ Clear role on logout
   const handleLogout = () => {
     setIsAuthenticated(false);
+    setUserRole(null);
     localStorage.removeItem('ledger_authenticated');
+    localStorage.removeItem('ledger_role');
     setCustomers([]); setDebts([]); setPayments([]);
     setSuppliers([]); setNotifications([]); setSettings(null);
     setInstallmentNotifications([]);
@@ -422,7 +429,7 @@ export default function App() {
     { id: 'debts', label: 'Madeni ya Wateja (All)', icon: BookOpen },
     { id: 'suppliers', label: 'Ma Suppliers (Wanaotudai)', icon: Truck },
     { id: 'installments', label: 'Kubandika (Installments)', icon: Wallet },
-    { id: 'kopesha', label: 'Kopesha (Mikopo)', icon: Banknote },   // ✅ NEW
+    { id: 'kopesha', label: 'Kopesha (Mikopo)', icon: Banknote },
     {
       id: 'kubandika',
       label: 'Kubandika Tz/China',
@@ -540,7 +547,10 @@ export default function App() {
               <div className="h-6 w-6 rounded-md bg-accent flex items-center justify-center text-white font-bold shadow-md shadow-accent/20"><Shield size={14} /></div>
               <div>
                 <h2 className="text-sm font-extrabold text-white leading-tight truncate w-32">{settings?.businessName || 'Sonko Sound'}</h2>
-                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Sonko Sound</span>
+                {/* ✅ NEW: Show Role Badge */}
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                  {userRole === 'admin' ? '👑 Admin' : '👤 Staff'}
+                </span>
               </div>
             </div>
             <button onClick={() => { setCurrentTab('notifications'); setSelectedCustomerId(null); }}
@@ -615,7 +625,13 @@ export default function App() {
       <header className="md:hidden bg-slate-900 text-slate-300 flex items-center justify-between p-4 sticky top-0 z-40 border-b border-slate-800 select-none">
         <div className="flex items-center gap-2">
           <div className="h-6 w-6 rounded-md bg-accent flex items-center justify-center text-white font-bold"><Shield size={12} /></div>
-          <span className="text-xs font-bold text-white truncate max-w-[150px]">{settings?.businessName || 'Sonko Sound'}</span>
+          <div>
+            <span className="text-xs font-bold text-white truncate max-w-[150px]">{settings?.businessName || 'Sonko Sound'}</span>
+            {/* ✅ NEW: Role badge on mobile too */}
+            <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+              {userRole === 'admin' ? '👑 Admin' : '👤 Staff'}
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => { setCurrentTab('notifications'); setSelectedCustomerId(null); setIsMobileMenuOpen(false); }}
@@ -694,25 +710,49 @@ export default function App() {
           <Dashboard customers={customers} debts={debts} payments={payments} suppliers={suppliers} transactions={transactions} notifications={notifications} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />
         )}
         {currentTab === 'customers' && (
-          <CustomerManagement customers={customers} debts={debts} payments={payments} onUpdate={() => syncDatabaseStates(false)} selectedCustomerId={selectedCustomerId} setSelectedCustomerId={setSelectedCustomerId} />
+          <CustomerManagement 
+            customers={customers} 
+            debts={debts} 
+            payments={payments} 
+            onUpdate={() => syncDatabaseStates(false)} 
+            selectedCustomerId={selectedCustomerId} 
+            setSelectedCustomerId={setSelectedCustomerId}
+            userRole={userRole} // ✅ Passed role
+          />
         )}
         {currentTab === 'debts' && (
-          <DebtManagement debts={debts} customers={customers} payments={payments} onUpdate={() => syncDatabaseStates(false)} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />
+          <DebtManagement 
+            debts={debts} 
+            customers={customers} 
+            payments={payments} 
+            onUpdate={() => syncDatabaseStates(false)} 
+            setCurrentTab={setCurrentTab} 
+            setSelectedCustomerId={setSelectedCustomerId}
+            userRole={userRole} // ✅ Passed role
+          />
         )}
         {currentTab === 'suppliers' && (
-          <SupplierManagement suppliers={suppliers} onUpdate={() => syncDatabaseStates(false)} />
+          <SupplierManagement 
+            suppliers={suppliers} 
+            onUpdate={() => syncDatabaseStates(false)} 
+            userRole={userRole} // ✅ Passed role
+          />
         )}
         {currentTab === 'installments' && (
           <InstallmentManagement 
             onUpdate={() => syncDatabaseStates(false)} 
             onNotificationsGenerated={handleInstallmentNotifications}
+            userRole={userRole} // ✅ Passed role
           />
         )}
-        {currentTab === 'kopesha' && (                                    // ✅ NEW
-          <Kopesha onUpdate={() => syncDatabaseStates(false)} />
+        {currentTab === 'kopesha' && (
+          <Kopesha 
+            onUpdate={() => syncDatabaseStates(false)} 
+            userRole={userRole} // ✅ Passed role
+          />
         )}
         {currentTab === 'kubandika' && (
-          <KubandikaPage />
+          <KubandikaPage userRole={userRole} /> // ✅ Passed role
         )}
         {currentTab === 'orders' && (
           <OrdersPage onUpdate={() => {
