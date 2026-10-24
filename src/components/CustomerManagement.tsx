@@ -21,6 +21,7 @@ interface CustomerManagementProps {
   onUpdate: () => void;
   selectedCustomerId: string | null;
   setSelectedCustomerId: (id: string | null) => void;
+  userRole?: 'admin' | 'staff' | null; // ✅ NEW: Role for delete permissions
 }
 
 interface ProductItem {
@@ -42,7 +43,8 @@ export default function CustomerManagement({
   payments,
   onUpdate,
   selectedCustomerId,
-  setSelectedCustomerId
+  setSelectedCustomerId,
+  userRole, // ✅ Receive role
 }: CustomerManagementProps) {
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -79,7 +81,7 @@ export default function CustomerManagement({
   const [notes, setNotes] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
 
-  // ✅ NEW: Additional contacts (Mwenyekiti, Katibu, etc.)
+  // Additional contacts (Mwenyekiti, Katibu, etc.)
   const [contacts, setContacts] = useState<CustomerContact[]>([
     { id: 'contact-' + Date.now(), role: '', name: '', phone: '' }
   ]);
@@ -296,7 +298,7 @@ export default function CustomerManagement({
   };
 
   // ============================================
-  // ✅ NEW: MULTI-CONTACT HANDLERS
+  // MULTI-CONTACT HANDLERS
   // ============================================
   const updateContact = (index: number, field: keyof CustomerContact, value: string) => {
     const updated = [...contacts];
@@ -331,7 +333,6 @@ export default function CustomerManagement({
     setIsLoading(true);
     setError(null);
     try {
-      // ✅ Filter contacts that have at least a name
       const validContacts = contacts.filter(c => c.name.trim());
 
       await api.customers.create({
@@ -342,7 +343,7 @@ export default function CustomerManagement({
         businessName: businessName || '',
         notes,
         photoUrl: photoUrl || '',
-        contacts: validContacts, // ✅ NEW
+        contacts: validContacts,
       });
       
       onUpdate();
@@ -371,7 +372,7 @@ export default function CustomerManagement({
         businessName: businessName || '',
         notes,
         photoUrl: photoUrl || '',
-        contacts: validContacts, // ✅ NEW
+        contacts: validContacts,
       });
       
       onUpdate();
@@ -384,6 +385,13 @@ export default function CustomerManagement({
   };
 
   const handleDeleteCustomer = async (customerId: string) => {
+    // ✅ Only admins can delete
+    if (userRole !== 'admin') {
+      setError('Huna ruhusa ya kufuta. Wasiliana na Admin.');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
     if (!confirm('Je, una uhakika unataka kumfuta mteja huyu pamoja na madeni na malipo yake yote?')) return;
 
     setIsLoading(true);
@@ -530,11 +538,23 @@ export default function CustomerManagement({
 
   // DELETE DEBT
   const openDeleteDebtConfirm = (debtId: string) => {
+    // ✅ Only admins can open delete modal
+    if (userRole !== 'admin') {
+      setError('Huna ruhusa ya kufuta. Wasiliana na Admin.');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
     setEditingDebtId(debtId);
     setIsDeleteDebtConfirmOpen(true);
   };
 
   const handleDeleteDebt = async () => {
+    // ✅ Double-check at execution time
+    if (userRole !== 'admin') {
+      setError('Huna ruhusa ya kufuta. Wasiliana na Admin.');
+      return;
+    }
+
     if (!editingDebtId) return;
 
     setIsLoading(true);
@@ -735,7 +755,7 @@ export default function CustomerManagement({
   const resetCustomerForm = () => {
     setFullName(''); setPhoneNumber(''); setAddress('');
     setBusinessName(''); setNotes(''); setPhotoUrl('');
-    resetContacts(); // ✅ NEW
+    resetContacts();
   };
 
   const resetPaymentForm = () => {
@@ -751,7 +771,6 @@ export default function CustomerManagement({
     setNotes(activeCustomer.notes);
     setPhotoUrl(activeCustomer.photoUrl || '');
 
-    // ✅ Load existing contacts (or reset)
     if (activeCustomer.contacts && activeCustomer.contacts.length > 0) {
       setContacts(activeCustomer.contacts);
     } else {
@@ -780,7 +799,7 @@ export default function CustomerManagement({
   };
 
   // ============================================
-  // PRINT STATEMENT (with logo + extensions + contacts)
+  // PRINT STATEMENT
   // ============================================
   const handlePrintStatement = () => {
     if (!activeCustomer || !activeCustomerStats) return;
@@ -815,7 +834,6 @@ export default function CustomerManagement({
     .info-value { font-size: 13px; font-weight: bold; color: #1e293b; }
     .info-value.highlight { color: #dc2626; font-size: 16px; }
 
-    /* ✅ Contacts table */
     .contacts-table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
     .contacts-table thead th { background: #7c3aed; color: white; padding: 10px 12px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 800; }
     .contacts-table tbody td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 11px; color: #334155; }
@@ -1128,9 +1146,12 @@ export default function CustomerManagement({
                 <button onClick={openEditModal} disabled={isLoading} className="py-2.5 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors flex items-center gap-1.5 font-bold disabled:opacity-50">
                   <Edit2 size={14} /> Hariri (Edit)
                 </button>
-                <button onClick={() => handleDeleteCustomer(activeCustomer.id)} disabled={isLoading} className="py-2.5 px-4 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition-colors flex items-center gap-1.5 font-bold disabled:opacity-50">
-                  <Trash2 size={14} /> Futa
-                </button>
+                {/* ✅ Admin-only Delete Customer button */}
+                {userRole === 'admin' && (
+                  <button onClick={() => handleDeleteCustomer(activeCustomer.id)} disabled={isLoading} className="py-2.5 px-4 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition-colors flex items-center gap-1.5 font-bold disabled:opacity-50">
+                    <Trash2 size={14} /> Futa
+                  </button>
+                )}
                 <button onClick={() => setSelectedCustomerId(null)} className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors font-bold">
                   Orodha (Back)
                 </button>
@@ -1138,10 +1159,9 @@ export default function CustomerManagement({
             </div>
           </div>
 
-          {/* ✅ NEW: Contacts / Representatives Card */}
+          {/* Contacts / Representatives Card */}
           {activeCustomer.contacts && activeCustomer.contacts.length > 0 && (
             <div className="bg-white rounded-3xl border border-purple-200 shadow-sm overflow-hidden">
-              {/* Header */}
               <div className="bg-gradient-to-r from-purple-500 via-violet-500 to-indigo-500 px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-2xl bg-white/25 backdrop-blur flex items-center justify-center border border-white/30">
@@ -1164,14 +1184,12 @@ export default function CustomerManagement({
                 </div>
               </div>
 
-              {/* Contacts list */}
               <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
                 {activeCustomer.contacts.map((contact, idx) => (
                   <div
                     key={contact.id || idx}
                     className="relative bg-gradient-to-br from-purple-50 to-white rounded-xl border border-purple-100 p-3 shadow-sm"
                   >
-                    {/* Left accent */}
                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-purple-400 to-purple-600 rounded-l-xl" />
 
                     <div className="pl-2">
@@ -1389,9 +1407,12 @@ export default function CustomerManagement({
                           <button onClick={() => openEditDebtModal(debt)} className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition" title="Hariri deni">
                             <Edit2 size={12} />
                           </button>
-                          <button onClick={() => openDeleteDebtConfirm(debt.id)} className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 transition" title="Futa deni">
-                            <Trash2 size={12} />
-                          </button>
+                          {/* ✅ Admin-only Delete Debt button */}
+                          {userRole === 'admin' && (
+                            <button onClick={() => openDeleteDebtConfirm(debt.id)} className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 transition" title="Futa deni">
+                              <Trash2 size={12} />
+                            </button>
+                          )}
                         </div>
                       </div>
                       
@@ -1602,7 +1623,6 @@ export default function CustomerManagement({
               </div>
               <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Anuani</label><input type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Kariakoo, Dar" className="w-full p-2.5 border border-slate-200 rounded-xl" /></div>
 
-              {/* ✅ NEW: Additional Contacts Section */}
               <div className="bg-purple-50 border border-purple-200 rounded-2xl p-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
@@ -1688,7 +1708,6 @@ export default function CustomerManagement({
               </div>
               <div><label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Anuani</label><input type="text" value={address} onChange={(e) => setAddress(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl" /></div>
 
-              {/* ✅ NEW: Additional Contacts Section (Edit) */}
               <div className="bg-purple-50 border border-purple-200 rounded-2xl p-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
