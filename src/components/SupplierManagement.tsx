@@ -16,11 +16,13 @@ import {
 interface SupplierManagementProps {
   suppliers: Supplier[];
   onUpdate: () => void;
+  userRole?: 'admin' | 'staff' | null; // ✅ NEW: Role for delete permissions
 }
 
 export default function SupplierManagement({
   suppliers,
-  onUpdate
+  onUpdate,
+  userRole, // ✅ Receive role
 }: SupplierManagementProps) {
   // Loading state
   const [isLoading, setIsLoading] = useState(false);
@@ -79,7 +81,6 @@ export default function SupplierManagement({
     if (activeSupplier.products && activeSupplier.products.length > 0) {
       return activeSupplier.products;
     }
-    // Fallback virtual product if there's an amount
     if ((activeSupplier.amount || 0) > 0) {
       return [{
         id: 'initial-' + activeSupplier.id,
@@ -242,7 +243,6 @@ export default function SupplierManagement({
       setNewProductDueDate('');
       setNewProductNotes('');
     } catch (err: any) {
-      // Fallback - update supplier amount directly
       const newProduct = {
         id: 'prod-' + Date.now(),
         supplierId: activeSupplier.id,
@@ -252,19 +252,6 @@ export default function SupplierManagement({
         notes: newProductNotes,
         createdAt: new Date().toISOString().split('T')[0]
       };
-      
-      // Update supplier amount locally
-      const updatedSuppliers = suppliers.map(s => {
-        if (s.id === activeSupplier.id) {
-          return {
-            ...s,
-            amount: (s.amount || 0) + Number(newProductAmount),
-            products: [...(s.products || []), newProduct],
-            productType: s.productType || newProductDesc
-          };
-        }
-        return s;
-      });
       
       onUpdate();
       setIsAddProductModalOpen(false);
@@ -279,6 +266,13 @@ export default function SupplierManagement({
   };
 
   const handleDeleteSupplier = async (id: string, sName: string) => {
+    // ✅ Only admins can delete
+    if (userRole !== 'admin') {
+      setError('Huna ruhusa ya kufuta. Wasiliana na Admin.');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
     if (!confirm(`Je, una uhakika unataka kumfuta ${sName}?`)) return;
     setIsLoading(true);
     try {
@@ -347,7 +341,6 @@ export default function SupplierManagement({
       {activeSupplier && activeSupplierStats ? (
         /* SUPPLIER PROFILE FULL PAGE VIEW */
         <div className="space-y-6 text-xs text-left animate-fade-in">
-          {/* Profile Header */}
           <div className="bg-white rounded-3xl border border-slate-100 p-6 md:p-8 shadow-sm space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-4">
@@ -373,9 +366,12 @@ export default function SupplierManagement({
                 <button onClick={() => openEditModal(activeSupplier)} disabled={isLoading} className="py-2.5 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors flex items-center gap-1.5 font-bold disabled:opacity-50">
                   <Edit2 size={14} /> Hariri
                 </button>
-                <button onClick={() => handleDeleteSupplier(activeSupplier.id, activeSupplier.name)} disabled={isLoading} className="py-2.5 px-4 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition-colors flex items-center gap-1.5 font-bold disabled:opacity-50">
-                  <Trash2 size={14} /> Futa
-                </button>
+                {/* ✅ Admin-only Delete Supplier */}
+                {userRole === 'admin' && (
+                  <button onClick={() => handleDeleteSupplier(activeSupplier.id, activeSupplier.name)} disabled={isLoading} className="py-2.5 px-4 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition-colors flex items-center gap-1.5 font-bold disabled:opacity-50">
+                    <Trash2 size={14} /> Futa
+                  </button>
+                )}
                 <button onClick={() => setSelectedSupplierId('')} className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors font-bold">
                   Orodha
                 </button>
@@ -436,7 +432,6 @@ export default function SupplierManagement({
 
           {/* Products & Payments Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* PRODUCTS LIST */}
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
@@ -486,7 +481,6 @@ export default function SupplierManagement({
               </div>
             </div>
 
-            {/* PAYMENTS HISTORY */}
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
@@ -519,7 +513,6 @@ export default function SupplierManagement({
       ) : (
         /* DEFAULT LIST VIEW */
         <>
-          {/* KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Jumla ya Madeni kwa Wauzaji</span>
@@ -538,7 +531,6 @@ export default function SupplierManagement({
             </div>
           </div>
 
-          {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-5 rounded-3xl border border-slate-100 shadow-sm gap-4">
             <div>
               <h2 className="text-md font-bold text-slate-850">Suppliers (Wauzaji)</h2>
@@ -556,7 +548,6 @@ export default function SupplierManagement({
             </div>
           )}
 
-          {/* Suppliers Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {suppliers.length > 0 ? (
               suppliers.map(sup => {
@@ -635,7 +626,7 @@ export default function SupplierManagement({
         </>
       )}
 
-      {/* MODAL: Add Supplier - Simplified */}
+      {/* MODAL: Add Supplier */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
