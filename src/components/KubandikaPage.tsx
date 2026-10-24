@@ -73,6 +73,7 @@ interface ReceivedPayment {
 
 interface KubandikaPageProps {
   onBack?: () => void;
+  userRole?: 'admin' | 'staff' | null; // ✅ NEW: Role for delete permissions
 }
 
 // ============================================================
@@ -317,7 +318,7 @@ function AddPaymentModal({
 // ============================================================
 // MAIN COMPONENT
 // ============================================================
-export default function KubandikaPage({ onBack }: KubandikaPageProps) {
+export default function KubandikaPage({ onBack, userRole }: KubandikaPageProps) {
   const [activeRegion, setActiveRegion] = useState<KubandikaRegion | null>(null);
   const [payments, setPayments] = useState<ReceivedPayment[]>([]);
   const [filterMode, setFilterMode] = useState<FilterMode>('day');
@@ -344,7 +345,7 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
       const mapped: ReceivedPayment[] = list.map((p: any) => ({
         id: p.id,
         region: p.region,
-        type: p.type || 'IN', // Defaults to IN if missing from old records
+        type: p.type || 'IN',
         amount: Number(p.amount) || 0,
         date: p.date,
         method: p.method || 'Cash',
@@ -373,7 +374,7 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
   }, [payments, isInitialLoading]);
 
   // ============================================================
-  // TOTALS (Calculates IN, OUT, and Balance)
+  // TOTALS
   // ============================================================
   const regionTotals = useMemo(() => {
     const calc = (region: KubandikaRegion) => {
@@ -420,7 +421,6 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
   const handleSavePayment = async (payment: Omit<ReceivedPayment, 'id' | 'createdAt'>) => {
     setIsLoading(true);
     try {
-      // NOTE: Ensure your backend accepts `type: 'IN' | 'OUT'`
       const result: any = await api.kubandika.create({
         region: payment.region,
         type: payment.type,
@@ -458,6 +458,13 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
   };
 
   const handleDelete = async (id: string) => {
+    // ✅ Only admins can delete
+    if (userRole !== 'admin') {
+      setErrorMsg('Huna ruhusa ya kufuta. Wasiliana na Admin.');
+      setTimeout(() => setErrorMsg(null), 3000);
+      return;
+    }
+
     if (!confirm('Futa rekodi hii?')) return;
     const previous = payments;
     setPayments(prev => prev.filter(p => p.id !== id));
@@ -507,7 +514,7 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
     .stat-label { font-size: 9px; font-weight: 800; text-transform: uppercase; color: #64748b; margin-bottom: 4px; }
     .stat-value { font-size: 18px; font-weight: 900; color: #1e293b; }
     .stat-card.primary .stat-value { color: ${primaryDark}; font-size: 22px; }
-    .stat-value.out { color: #ea580c; } /* Orange for OUT */
+    .stat-value.out { color: #ea580c; }
 
     table { width: 100%; border-collapse: collapse; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; }
     thead th { background: ${primaryDark}; color: white; padding: 12px 14px; text-align: left; font-size: 10px; text-transform: uppercase; font-weight: 800; }
@@ -745,7 +752,10 @@ export default function KubandikaPage({ onBack }: KubandikaPageProps) {
                         {isOut ? '-' : '+'} {p.amount.toLocaleString()}
                       </td>
                       <td className="px-3 py-3">
-                        <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600"><Trash2 size={14} /></button>
+                        {/* ✅ Admin-only Delete Button */}
+                        {userRole === 'admin' && (
+                          <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600"><Trash2 size={14} /></button>
+                        )}
                       </td>
                     </tr>
                   );
