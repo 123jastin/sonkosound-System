@@ -20,6 +20,7 @@ interface DebtManagementProps {
   onUpdate: () => void;
   setCurrentTab: (tab: string) => void;
   setSelectedCustomerId: (id: string | null) => void;
+  userRole?: 'admin' | 'staff' | null; // ✅ NEW: Role for delete permissions
 }
 
 export default function DebtManagement({
@@ -28,7 +29,8 @@ export default function DebtManagement({
   payments,
   onUpdate,
   setCurrentTab,
-  setSelectedCustomerId
+  setSelectedCustomerId,
+  userRole, // ✅ Receive role
 }: DebtManagementProps) {
   // Filters & search
   const [searchQuery, setSearchQuery] = useState('');
@@ -113,7 +115,6 @@ export default function DebtManagement({
     const today = new Date(todayStr);
 
     return processedDebts.filter(debt => {
-      // Search Query
       const matchesSearch = 
         debt.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         debt.customerPhone.includes(searchQuery) ||
@@ -122,7 +123,6 @@ export default function DebtManagement({
 
       if (!matchesSearch) return false;
 
-      // Tab Filter
       if (filterType === 'All') return true;
       if (filterType === 'Paid') return debt.status === 'Paid';
       if (filterType === 'Unpaid') return debt.status !== 'Paid';
@@ -162,7 +162,6 @@ export default function DebtManagement({
     
     let customerIdToUse = selectedCustomerIdForm;
 
-    // Create new customer if needed
     if (isNewCustomer) {
       if (!newCustomerName) return;
       
@@ -192,10 +191,6 @@ export default function DebtManagement({
 
     setIsLoading(true);
     try {
-      const customer = isNewCustomer 
-        ? { fullName: newCustomerName } 
-        : customers.find(c => c.id === customerIdToUse);
-      
       await api.debts.create({
         id: 'debt-' + Date.now(),
         customerId: customerIdToUse,
@@ -245,6 +240,12 @@ export default function DebtManagement({
   };
 
   const handleDeleteDebt = async (debtId: string) => {
+    // ✅ Only admins can delete
+    if (userRole !== 'admin') {
+      alert('Huna ruhusa ya kufuta. Wasiliana na Admin.');
+      return;
+    }
+
     if (!confirm("Je, una uhakika unataka kufuta deni hili? Kitendo hiki pia kitafuta kumbukumbu za malipo husika.")) return;
 
     setIsLoading(true);
@@ -403,7 +404,6 @@ export default function DebtManagement({
 
       </div>
 
-      {/* Loading indicator */}
       {isLoading && (
         <div className="flex items-center justify-center gap-2 text-xs text-slate-400 py-2">
           <Loader2 size={14} className="animate-spin" />
@@ -483,14 +483,17 @@ export default function DebtManagement({
                         >
                           <Edit2 size={15} />
                         </button>
-                        <button
-                          onClick={() => handleDeleteDebt(debt.id)}
-                          disabled={isLoading}
-                          className="p-1 text-rose-500 hover:bg-rose-50 rounded-lg transition disabled:opacity-50"
-                          title="Futa deni"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        {/* ✅ Admin-only Delete button */}
+                        {userRole === 'admin' && (
+                          <button
+                            onClick={() => handleDeleteDebt(debt.id)}
+                            disabled={isLoading}
+                            className="p-1 text-rose-500 hover:bg-rose-50 rounded-lg transition disabled:opacity-50"
+                            title="Futa deni"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
