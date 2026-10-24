@@ -59,11 +59,12 @@ interface Order {
 
 interface OrdersPageProps {
   onUpdate: () => void;
+  userRole?: 'admin' | 'staff' | null; // ✅ NEW: Role for delete permissions
 }
 
 const API_BASE_URL = '/api/orders';
 
-export default function OrdersPage({ onUpdate }: OrdersPageProps) {
+export default function OrdersPage({ onUpdate, userRole }: OrdersPageProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -112,10 +113,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
-    // Don't show error for D1 limit - just use cached data
     setError(null);
     
-    // First load from local storage
     const savedData = localStorage.getItem('orders_data');
     if (savedData) {
       try {
@@ -135,7 +134,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         const loadedCustomers = Array.isArray(data.customers) ? data.customers : [];
         const loadedOrders = Array.isArray(data.orders) ? data.orders : [];
         
-        // Cache data
         localStorage.setItem('orders_data', JSON.stringify({
           customers: loadedCustomers,
           orders: loadedOrders
@@ -166,10 +164,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setCustomers(loadedCustomers);
         setOrders(parsedOrders);
       }
-      // Don't show error if data.success is false
     } catch (err) {
-      // Silently fail - use cached data
-      console.error('Failed to load orders (D1 limit may be reached):', err);
+      console.error('Failed to load orders:', err);
     } finally {
       setIsLoading(false);
     }
@@ -181,10 +177,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
 
   const updateOrderItem = (index: number, field: string, value: any) => {
     const updatedItems = [...orderItems];
-    updatedItems[index] = {
-      ...updatedItems[index],
-      [field]: value
-    };
+    updatedItems[index] = { ...updatedItems[index], [field]: value };
     
     if (field === 'quantity' || field === 'unit_price') {
       const qty = Number(updatedItems[index].quantity) || 0;
@@ -198,13 +191,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   const addOrderItem = () => {
     setOrderItems([
       ...orderItems,
-      { 
-        id: 'item-' + Date.now() + '-' + Math.random(), 
-        product_name: '', 
-        quantity: 1, 
-        unit_price: '',
-        total_price: 0 
-      }
+      { id: 'item-' + Date.now() + '-' + Math.random(), product_name: '', quantity: 1, unit_price: '', total_price: 0 }
     ]);
   };
 
@@ -251,7 +238,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setTimeout(() => setSuccessMessage(null), 3000);
         onUpdate();
         setActiveTab('customers');
-        // Don't call loadData here to avoid D1 reads
       } else {
         setError(result.error || 'Imeshindwa kumsajili mteja');
         setTimeout(() => setError(null), 5000);
@@ -294,7 +280,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setSuccessMessage('Mteja amehaririwa kikamilifu');
         setTimeout(() => setSuccessMessage(null), 3000);
         onUpdate();
-        // Don't call loadData here
       } else {
         setError(result.error || 'Imeshindwa kuhariri mteja');
         setTimeout(() => setError(null), 5000);
@@ -317,6 +302,13 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   };
 
   const handleDeleteCustomer = async (customerId: string) => {
+    // ✅ Only admins can delete
+    if (userRole !== 'admin') {
+      setError('Huna ruhusa ya kufuta. Wasiliana na Admin.');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
     const customerOrders = orders.filter(o => o.customer_id === customerId);
     const confirmMsg = customerOrders.length > 0 
       ? `Je, una uhakika unataka kumfuta mteja huyu? Oda zake ${customerOrders.length} zitafutwa pia.`
@@ -341,7 +333,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setSuccessMessage('Mteja amefutwa kikamilifu');
         setTimeout(() => setSuccessMessage(null), 3000);
         onUpdate();
-        // Don't call loadData here
       } else {
         setError(result.error || 'Imeshindwa kumfuta mteja');
         setTimeout(() => setError(null), 5000);
@@ -396,7 +387,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         resetOrderForm();
         onUpdate();
         setActiveTab('orders');
-        // Don't call loadData here
         
         const customer = customers.find(c => c.id === selectedCustomerId);
         if (customer) {
@@ -477,7 +467,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setSuccessMessage('Oda imehaririwa kikamilifu');
         setTimeout(() => setSuccessMessage(null), 3000);
         onUpdate();
-        // Don't call loadData here
       } else {
         setError(result.error || 'Imeshindwa kuhariri oda');
         setTimeout(() => setError(null), 5000);
@@ -509,41 +498,27 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     e.preventDefault();
     if (!selectedOrder) return;
     
-    const shippingInfo: ShippingInfo = {
-      method: shippingMethod,
-    };
+    const shippingInfo: ShippingInfo = { method: shippingMethod };
     
     if (shippingMethod === 'BodaBoda') {
-      if (!bodaPhone) {
-        setError('Namba ya BodaBoda inahitajika');
-        return;
-      }
+      if (!bodaPhone) { setError('Namba ya BodaBoda inahitajika'); return; }
       shippingInfo.bodaName = bodaName;
       shippingInfo.bodaPhone = bodaPhone;
       shippingInfo.bodaPlateNumber = bodaPlateNumber;
     } else if (shippingMethod === 'Bus') {
       if (busType === 'company') {
-        if (!busName) {
-          setError('Jina la Bus/Kampuni inahitajika');
-          return;
-        }
+        if (!busName) { setError('Jina la Bus/Kampuni inahitajika'); return; }
         shippingInfo.busName = busName;
         shippingInfo.busNumber = busNumber;
         shippingInfo.cargoNumber = cargoNumber;
       } else {
-        if (!driverName || !driverPhone) {
-          setError('Jina na namba ya Dreva vinahitajika');
-          return;
-        }
+        if (!driverName || !driverPhone) { setError('Jina na namba ya Dreva vinahitajika'); return; }
         shippingInfo.driverName = driverName;
         shippingInfo.driverPhone = driverPhone;
         shippingInfo.cargoNumber = cargoNumber;
       }
     } else if (shippingMethod === 'Msafirishaji') {
-      if (!transporterName || !transporterPhone) {
-        setError('Jina na namba ya Msafirishaji vinahitajika');
-        return;
-      }
+      if (!transporterName || !transporterPhone) { setError('Jina na namba ya Msafirishaji vinahitajika'); return; }
       shippingInfo.transporterName = transporterName;
       shippingInfo.transporterPhone = transporterPhone;
     }
@@ -555,10 +530,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       const response = await fetch('/api/orders-complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId: selectedOrder.id,
-          ...shippingInfo
-        })
+        body: JSON.stringify({ orderId: selectedOrder.id, ...shippingInfo })
       });
       
       const result = await response.json();
@@ -598,7 +570,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setSelectedOrder(null);
         resetShippingForm();
         onUpdate();
-        // Don't call loadData here
       } else {
         setError(result.error || 'Imeshindwa kukamilisha oda');
         setTimeout(() => setError(null), 5000);
@@ -639,6 +610,13 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   };
 
   const handleDeleteOrder = async (orderId: string) => {
+    // ✅ Only admins can delete
+    if (userRole !== 'admin') {
+      setError('Huna ruhusa ya kufuta. Wasiliana na Admin.');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
     if (!confirm('Je, una uhakika unataka kufuta oda hii?')) return;
     
     setIsLoading(true);
@@ -657,7 +635,6 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         setSuccessMessage('Oda imefutwa kikamilifu');
         setTimeout(() => setSuccessMessage(null), 3000);
         onUpdate();
-        // Don't call loadData here
       } else {
         setError(result.error || 'Imeshindwa kufuta oda');
         setTimeout(() => setError(null), 5000);
@@ -714,19 +691,12 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
   const handlePrintOrder = (order: Order) => {
     const formatDate = (dateStr: string) => {
       const date = new Date(dateStr);
-      return date.toLocaleDateString('sw-TZ', { 
-        year: 'numeric', 
-        month: 'short', 
-        day: 'numeric' 
-      });
+      return date.toLocaleDateString('sw-TZ', { year: 'numeric', month: 'short', day: 'numeric' });
     };
 
     const formatTime = (dateStr: string) => {
       const date = new Date(dateStr);
-      return date.toLocaleTimeString('sw-TZ', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
-      });
+      return date.toLocaleTimeString('sw-TZ', { hour: '2-digit', minute: '2-digit' });
     };
 
     const shippingHTML = order.shipping_info ? `
@@ -738,14 +708,9 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 11px;">
           <div>
             <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Njia</span>
-            <span style="font-weight: bold; color: #16a34a;">${
-              order.shipping_info.method === 'BodaBoda' ? 'BodaBoda' : 
-              order.shipping_info.method === 'Bus' ? 'Bus' : 'Msafirishaji'
-            }</span>
+            <span style="font-weight: bold; color: #16a34a;">${order.shipping_info.method === 'BodaBoda' ? 'BodaBoda' : order.shipping_info.method === 'Bus' ? 'Bus' : 'Msafirishaji'}</span>
           </div>
-          ${
-            order.shipping_info.method === 'BodaBoda'
-              ? `
+          ${order.shipping_info.method === 'BodaBoda' ? `
                 <div>
                   <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Jina</span>
                   <span style="font-weight: bold; color: #334155;">${order.shipping_info.bodaName || '-'}</span>
@@ -758,10 +723,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                   <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Pikipiki</span>
                   <span style="font-weight: bold; color: #334155;">${order.shipping_info.bodaPlateNumber || '-'}</span>
                 </div>
-              `
-              : order.shipping_info.method === 'Bus'
-                ? order.shipping_info.busName
-                  ? `
+              ` : order.shipping_info.method === 'Bus' ? order.shipping_info.busName ? `
                     <div>
                       <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Bus/Kampuni</span>
                       <span style="font-weight: bold; color: #334155;">${order.shipping_info.busName}</span>
@@ -774,8 +736,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                       <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Mzigo</span>
                       <span style="font-weight: bold; color: #334155;">${order.shipping_info.cargoNumber || '-'}</span>
                     </div>
-                  `
-                  : `
+                  ` : `
                     <div>
                       <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Dreva</span>
                       <span style="font-weight: bold; color: #334155;">${order.shipping_info.driverName || '-'}</span>
@@ -788,8 +749,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                       <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Namba ya Mzigo</span>
                       <span style="font-weight: bold; color: #334155;">${order.shipping_info.cargoNumber || '-'}</span>
                     </div>
-                  `
-                : `
+                  ` : `
                   <div>
                     <span style="color: #64748b; font-size: 8px; font-weight: bold; text-transform: uppercase; display: block;">Jina la Wakala</span>
                     <span style="font-weight: bold; color: #334155;">${order.shipping_info.transporterName || '-'}</span>
@@ -799,8 +759,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                     <span style="font-weight: bold; color: #334155;">${order.shipping_info.transporterPhone || '-'}</span>
                   </div>
                   <div></div>
-                `
-          }
+                `}
         </div>
       </div>
     ` : '';
@@ -850,22 +809,10 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
     </div>
     <div class="content">
       <div class="info-grid">
-        <div class="info-card">
-          <div class="info-label">Oda ID</div>
-          <div class="info-value" style="font-size:10px;">${order.id}</div>
-        </div>
-        <div class="info-card">
-          <div class="info-label">Tarehe</div>
-          <div class="info-value">${formatDate(order.created_at)}</div>
-        </div>
-        <div class="info-card">
-          <div class="info-label">Saa</div>
-          <div class="info-value">${formatTime(order.created_at)}</div>
-        </div>
-        <div class="info-card">
-          <div class="info-label">Hali</div>
-          <div class="info-value">${order.status === 'Completed' ? 'Imekamilika' : 'Inasubiri'}</div>
-        </div>
+        <div class="info-card"><div class="info-label">Oda ID</div><div class="info-value" style="font-size:10px;">${order.id}</div></div>
+        <div class="info-card"><div class="info-label">Tarehe</div><div class="info-value">${formatDate(order.created_at)}</div></div>
+        <div class="info-card"><div class="info-label">Saa</div><div class="info-value">${formatTime(order.created_at)}</div></div>
+        <div class="info-card"><div class="info-label">Hali</div><div class="info-value">${order.status === 'Completed' ? 'Imekamilika' : 'Inasubiri'}</div></div>
       </div>
       
       <div class="section-title">TAARIFA ZA MTEJA</div>
@@ -886,15 +833,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       
       <div class="section-title">BIDHAA ZILIZOAGIZWA</div>
       <table>
-        <thead>
-          <tr>
-            <th style="width:30px;">#</th>
-            <th>Bidhaa</th>
-            <th style="width:50px;">Idadi</th>
-            <th>Bei</th>
-            <th>Jumla</th>
-          </tr>
-        </thead>
+        <thead><tr><th style="width:30px;">#</th><th>Bidhaa</th><th style="width:50px;">Idadi</th><th>Bei</th><th>Jumla</th></tr></thead>
         <tbody>
           ${order.items.map((item, index) => `
             <tr>
@@ -914,14 +853,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       </div>
       
       <div class="signature-section">
-        <div class="signature-box">
-          <div class="signature-name">${order.customer_name}</div>
-          <div class="signature-line">Sahihi ya Mteja</div>
-        </div>
-        <div class="signature-box">
-          <div class="signature-name">Sonko Sound</div>
-          <div class="signature-line">Sahihi ya Mmiliki</div>
-        </div>
+        <div class="signature-box"><div class="signature-name">${order.customer_name}</div><div class="signature-line">Sahihi ya Mteja</div></div>
+        <div class="signature-box"><div class="signature-name">Sonko Sound</div><div class="signature-line">Sahihi ya Mmiliki</div></div>
       </div>
     </div>
     <div class="footer">
@@ -933,11 +866,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       <button class="close-btn" onclick="window.close()">Funga</button>
     </div>
   </div>
-  <script>
-    window.onload = function() {
-      setTimeout(function() { window.print(); }, 500);
-    };
-  </script>
+  <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
 </body>
 </html>`;
 
@@ -954,16 +883,13 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
 
   return (
     <div className="space-y-6">
-      {/* Don't show D1 limit errors */}
       {error && !error.includes('D1') && (
         <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-rose-700 text-xs">
             <AlertCircle size={16} />
             <span>{error}</span>
           </div>
-          <button onClick={() => setError(null)} className="text-rose-500 hover:text-rose-700">
-            <X size={16} />
-          </button>
+          <button onClick={() => setError(null)} className="text-rose-500 hover:text-rose-700"><X size={16} /></button>
         </div>
       )}
 
@@ -1005,22 +931,14 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       <div className="flex gap-2 bg-white p-2 rounded-2xl border border-slate-100 shadow-sm">
         <button 
           onClick={() => setActiveTab('orders')}
-          className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition ${
-            activeTab === 'orders' 
-              ? 'bg-accent text-white shadow-sm' 
-              : 'text-slate-500 hover:bg-slate-50'
-          }`}
+          className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition ${activeTab === 'orders' ? 'bg-accent text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
         >
           <ShoppingCart size={14} className="inline mr-1" />
           Oda ({orders.length})
         </button>
         <button 
           onClick={() => setActiveTab('customers')}
-          className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition ${
-            activeTab === 'customers' 
-              ? 'bg-accent text-white shadow-sm' 
-              : 'text-slate-500 hover:bg-slate-50'
-          }`}
+          className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition ${activeTab === 'customers' ? 'bg-accent text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
         >
           <Users size={14} className="inline mr-1" />
           Wateja ({customers.length})
@@ -1034,25 +952,14 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
             {activeTab === 'orders' ? 'Oda za Bidhaa' : 'Wateja wa Oda'}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            {activeTab === 'orders' 
-              ? 'Dhibiti oda za wateja na bidhaa zao.' 
-              : 'Dhibiti wateja wanaonunua bidhaa.'}
+            {activeTab === 'orders' ? 'Dhibiti oda za wateja na bidhaa zao.' : 'Dhibiti wateja wanaonunua bidhaa.'}
           </p>
         </div>
         <div className="flex gap-2">
-          <button 
-            onClick={() => setIsAddCustomerModalOpen(true)} 
-            className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition"
-          >
+          <button onClick={() => setIsAddCustomerModalOpen(true)} className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition">
             <User size={15} /> Mteja Mpya
           </button>
-          <button 
-            onClick={() => {
-              resetOrderForm();
-              setIsAddOrderModalOpen(true);
-            }} 
-            className="bg-accent hover:bg-accent/90 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition"
-          >
+          <button onClick={() => { resetOrderForm(); setIsAddOrderModalOpen(true); }} className="bg-accent hover:bg-accent/90 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition">
             <Plus size={15} /> Oda Mpya
           </button>
         </div>
@@ -1063,13 +970,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         <>
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Tafuta oda kwa jina la mteja au bidhaa..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-xs"
-            />
+            <input type="text" placeholder="Tafuta oda kwa jina la mteja au bidhaa..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-xs" />
           </div>
 
           <div className="space-y-4">
@@ -1077,21 +978,14 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               <div key={order.id} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex items-start gap-3 flex-1">
-                    <div className={`h-12 w-12 rounded-xl flex items-center justify-center ${
-                      order.status === 'Completed' ? 'bg-emerald-50 text-emerald-600' : 'bg-accent/10 text-accent'
-                    }`}>
+                    <div className={`h-12 w-12 rounded-xl flex items-center justify-center ${order.status === 'Completed' ? 'bg-emerald-50 text-emerald-600' : 'bg-accent/10 text-accent'}`}>
                       <ShoppingCart size={20} />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <h3 className="text-sm font-bold text-slate-800">{order.customer_name}</h3>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                          order.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
-                          order.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                          'bg-rose-100 text-rose-700'
-                        }`}>
-                          {order.status === 'Pending' ? 'Inasubiri' : 
-                           order.status === 'Completed' ? 'Imekamilika' : 'Imefutwa'}
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${order.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : order.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>
+                          {order.status === 'Pending' ? 'Inasubiri' : order.status === 'Completed' ? 'Imekamilika' : 'Imefutwa'}
                         </span>
                       </div>
                       <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
@@ -1109,65 +1003,35 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                       </div>
                       {order.shipping_info && (
                         <p className="text-xs text-emerald-600 mt-2 flex items-center gap-1">
-                          {order.shipping_info.method === 'BodaBoda' 
-                            ? <Bike size={12} /> 
-                            : order.shipping_info.method === 'Bus' 
-                              ? <Bus size={12} />
-                              : <Truck size={12} />} 
-                          {order.shipping_info.method === 'BodaBoda' 
-                            ? order.shipping_info.bodaName || order.shipping_info.bodaPhone || 'BodaBoda'
-                            : order.shipping_info.method === 'Bus'
-                              ? order.shipping_info.busName || order.shipping_info.driverName || 'Bus'
-                              : order.shipping_info.transporterName || 'Msafirishaji'}
+                          {order.shipping_info.method === 'BodaBoda' ? <Bike size={12} /> : order.shipping_info.method === 'Bus' ? <Bus size={12} /> : <Truck size={12} />} 
+                          {order.shipping_info.method === 'BodaBoda' ? order.shipping_info.bodaName || order.shipping_info.bodaPhone || 'BodaBoda' : order.shipping_info.method === 'Bus' ? order.shipping_info.busName || order.shipping_info.driverName || 'Bus' : order.shipping_info.transporterName || 'Msafirishaji'}
                         </p>
                       )}
                     </div>
                   </div>
                   <div className="flex md:flex-col items-center gap-2">
-                    <span className="text-sm font-black text-slate-800">
-                      TSh {Number(order.total_amount).toLocaleString()}
-                    </span>
+                    <span className="text-sm font-black text-slate-800">TSh {Number(order.total_amount).toLocaleString()}</span>
                     <div className="flex gap-1">
                       {order.status === 'Pending' && (
-                        <button 
-                          onClick={() => openCompleteOrderModal(order)}
-                          className="p-2 rounded-xl border border-emerald-200 hover:bg-emerald-50 text-emerald-600 transition"
-                          title="Kamilisha Oda"
-                        >
+                        <button onClick={() => openCompleteOrderModal(order)} className="p-2 rounded-xl border border-emerald-200 hover:bg-emerald-50 text-emerald-600 transition" title="Kamilisha Oda">
                           <CheckCircle size={14} />
                         </button>
                       )}
-                      <button 
-                        onClick={() => {
-                          setSelectedOrder(order);
-                          setIsViewOrderModalOpen(true);
-                        }}
-                        className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition"
-                        title="Angalia Oda"
-                      >
+                      <button onClick={() => { setSelectedOrder(order); setIsViewOrderModalOpen(true); }} className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition" title="Angalia Oda">
                         <FileText size={14} />
                       </button>
-                      <button 
-                        onClick={() => openEditOrderModal(order)}
-                        className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition"
-                        title="Hariri Oda"
-                      >
+                      <button onClick={() => openEditOrderModal(order)} className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition" title="Hariri Oda">
                         <Edit2 size={14} />
                       </button>
-                      <button 
-                        onClick={() => handlePrintOrder(order)}
-                        className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition"
-                        title="Chapisha"
-                      >
+                      <button onClick={() => handlePrintOrder(order)} className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition" title="Chapisha">
                         <Printer size={14} />
                       </button>
-                      <button 
-                        onClick={() => handleDeleteOrder(order.id)}
-                        className="p-2 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition"
-                        title="Futa"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {/* ✅ Admin-only Delete Order */}
+                      {userRole === 'admin' && (
+                        <button onClick={() => handleDeleteOrder(order.id)} className="p-2 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition" title="Futa">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1188,13 +1052,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
         <>
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Tafuta mteja kwa jina au namba..."
-              value={customerSearchTerm}
-              onChange={(e) => setCustomerSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-xs"
-            />
+            <input type="text" placeholder="Tafuta mteja kwa jina au namba..." value={customerSearchTerm} onChange={(e) => setCustomerSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-xs" />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1217,20 +1075,15 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                       </div>
                     </div>
                     <div className="flex gap-1">
-                      <button 
-                        onClick={() => openEditCustomerModal(customer)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-accent hover:bg-accent/10 transition"
-                        title="Hariri Mteja"
-                      >
+                      <button onClick={() => openEditCustomerModal(customer)} className="p-1.5 rounded-lg text-slate-400 hover:text-accent hover:bg-accent/10 transition" title="Hariri Mteja">
                         <Edit2 size={14} />
                       </button>
-                      <button 
-                        onClick={() => handleDeleteCustomer(customer.id)}
-                        className="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                        title="Futa Mteja"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {/* ✅ Admin-only Delete Customer */}
+                      {userRole === 'admin' && (
+                        <button onClick={() => handleDeleteCustomer(customer.id)} className="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition" title="Futa Mteja">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
                   
@@ -1273,11 +1126,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       {(isAddCustomerModalOpen || isEditCustomerModalOpen) && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
-            <button onClick={() => {
-              setIsAddCustomerModalOpen(false);
-              setIsEditCustomerModalOpen(false);
-              setEditingCustomer(null);
-            }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
+            <button onClick={() => { setIsAddCustomerModalOpen(false); setIsEditCustomerModalOpen(false); setEditingCustomer(null); }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
               <X size={18} />
             </button>
             <h3 className="text-md font-bold text-slate-800">
@@ -1286,28 +1135,19 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
             <form onSubmit={isEditCustomerModalOpen ? handleEditCustomer : handleAddCustomer} className="space-y-4 text-xs text-left">
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina Kamili *</label>
-                <input type="text" required value={customerName} onChange={(e) => setCustomerName(e.target.value)} 
-                  placeholder="Mfano: Juma Kassim" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                <input type="text" required value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Mfano: Juma Kassim" className="w-full p-2.5 border border-slate-200 rounded-xl" />
               </div>
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Simu *</label>
-                <input type="tel" required value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} 
-                  placeholder="0712345678" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                <input type="tel" required value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="0712345678" className="w-full p-2.5 border border-slate-200 rounded-xl" />
               </div>
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Anuani</label>
-                <input type="text" value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} 
-                  placeholder="Mtaa, Jiji" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                <input type="text" value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} placeholder="Mtaa, Jiji" className="w-full p-2.5 border border-slate-200 rounded-xl" />
               </div>
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => {
-                  setIsAddCustomerModalOpen(false);
-                  setIsEditCustomerModalOpen(false);
-                  setEditingCustomer(null);
-                }} 
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition">Ghairi</button>
-                <button type="submit" disabled={isLoading} 
-                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50">
+                <button type="button" onClick={() => { setIsAddCustomerModalOpen(false); setIsEditCustomerModalOpen(false); setEditingCustomer(null); }} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition">Ghairi</button>
+                <button type="submit" disabled={isLoading} className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50">
                   {isLoading ? 'Inahifadhi...' : isEditCustomerModalOpen ? 'Hifadhi Mabadiliko' : 'Sajili Mteja'}
                 </button>
               </div>
@@ -1320,11 +1160,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       {(isAddOrderModalOpen || isEditOrderModalOpen) && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <button onClick={() => {
-              setIsAddOrderModalOpen(false);
-              setIsEditOrderModalOpen(false);
-              setEditingOrder(null);
-            }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
+            <button onClick={() => { setIsAddOrderModalOpen(false); setIsEditOrderModalOpen(false); setEditingOrder(null); }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
               <X size={18} />
             </button>
             <h3 className="text-md font-bold text-slate-800">
@@ -1333,17 +1169,10 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
             <form onSubmit={isEditOrderModalOpen ? handleEditOrder : handleAddOrder} className="space-y-4 text-xs text-left">
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Mteja *</label>
-                <select 
-                  required 
-                  value={selectedCustomerId} 
-                  onChange={(e) => setSelectedCustomerId(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
-                >
+                <select required value={selectedCustomerId} onChange={(e) => setSelectedCustomerId(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl bg-white">
                   <option value="">Chagua Mteja...</option>
                   {customers.map(customer => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.full_name} - {customer.phone_number}
-                    </option>
+                    <option key={customer.id} value={customer.id}>{customer.full_name} - {customer.phone_number}</option>
                   ))}
                 </select>
               </div>
@@ -1355,54 +1184,28 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-bold text-slate-400 uppercase">Bidhaa {index + 1}</span>
                       {orderItems.length > 1 && (
-                        <button type="button" onClick={() => removeOrderItem(index)} 
-                          className="text-rose-500 hover:text-rose-700 p-1">
+                        <button type="button" onClick={() => removeOrderItem(index)} className="text-rose-500 hover:text-rose-700 p-1">
                           <Trash2 size={14} />
                         </button>
                       )}
                     </div>
-                    <input 
-                      type="text" 
-                      placeholder="Jina la bidhaa (mf. Generator)" 
-                      value={item.product_name}
-                      onChange={(e) => updateOrderItem(index, 'product_name', e.target.value)}
-                      className="w-full p-2 border border-slate-200 rounded-lg bg-white"
-                      required
-                    />
+                    <input type="text" placeholder="Jina la bidhaa (mf. Generator)" value={item.product_name} onChange={(e) => updateOrderItem(index, 'product_name', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg bg-white" required />
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-[10px] font-semibold text-slate-400 mb-1">Idadi</label>
-                        <input 
-                          type="number" 
-                          min="1" 
-                          value={item.quantity}
-                          onChange={(e) => updateOrderItem(index, 'quantity', Number(e.target.value))}
-                          className="w-full p-2 border border-slate-200 rounded-lg bg-white"
-                          required
-                        />
+                        <input type="number" min="1" value={item.quantity} onChange={(e) => updateOrderItem(index, 'quantity', Number(e.target.value))} className="w-full p-2 border border-slate-200 rounded-lg bg-white" required />
                       </div>
                       <div>
                         <label className="block text-[10px] font-semibold text-slate-400 mb-1">Bei ya Kimoja (TSh)</label>
-                        <input 
-                          type="number" 
-                          min="0"
-                          placeholder="0"
-                          value={item.unit_price === '' ? '' : item.unit_price}
-                          onChange={(e) => updateOrderItem(index, 'unit_price', e.target.value)}
-                          className="w-full p-2 border border-slate-200 rounded-lg bg-white"
-                          required
-                        />
+                        <input type="number" min="0" placeholder="0" value={item.unit_price === '' ? '' : item.unit_price} onChange={(e) => updateOrderItem(index, 'unit_price', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg bg-white" required />
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className="text-xs font-bold text-slate-700">
-                        Jumla: TSh {((Number(item.quantity) || 0) * (Number(item.unit_price) || 0)).toLocaleString()}
-                      </span>
+                      <span className="text-xs font-bold text-slate-700">Jumla: TSh {((Number(item.quantity) || 0) * (Number(item.unit_price) || 0)).toLocaleString()}</span>
                     </div>
                   </div>
                 ))}
-                <button type="button" onClick={addOrderItem} 
-                  className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 hover:text-accent hover:border-accent transition font-semibold flex items-center justify-center gap-1">
+                <button type="button" onClick={addOrderItem} className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 hover:text-accent hover:border-accent transition font-semibold flex items-center justify-center gap-1">
                   <Plus size={14} /> Ongeza Bidhaa Nyingine
                 </button>
               </div>
@@ -1416,23 +1219,12 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
 
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Maelezo</label>
-                <textarea 
-                  value={orderNotes}
-                  onChange={(e) => setOrderNotes(e.target.value)}
-                  placeholder="Maelezo ya ziada..."
-                  className="w-full p-2.5 border border-slate-200 rounded-xl h-20"
-                />
+                <textarea value={orderNotes} onChange={(e) => setOrderNotes(e.target.value)} placeholder="Maelezo ya ziada..." className="w-full p-2.5 border border-slate-200 rounded-xl h-20" />
               </div>
 
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => {
-                  setIsAddOrderModalOpen(false);
-                  setIsEditOrderModalOpen(false);
-                  setEditingOrder(null);
-                }} 
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition">Ghairi</button>
-                <button type="submit" disabled={isLoading} 
-                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50">
+                <button type="button" onClick={() => { setIsAddOrderModalOpen(false); setIsEditOrderModalOpen(false); setEditingOrder(null); }} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition">Ghairi</button>
+                <button type="submit" disabled={isLoading} className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50">
                   {isLoading ? 'Inahifadhi...' : isEditOrderModalOpen ? 'Hifadhi Mabadiliko' : 'Hifadhi Oda'}
                 </button>
               </div>
@@ -1445,55 +1237,25 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       {isCompleteOrderModalOpen && selectedOrder && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <button onClick={() => {
-              setIsCompleteOrderModalOpen(false);
-              setSelectedOrder(null);
-              resetShippingForm();
-            }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
+            <button onClick={() => { setIsCompleteOrderModalOpen(false); setSelectedOrder(null); resetShippingForm(); }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
               <X size={18} />
             </button>
             <h3 className="text-md font-bold text-slate-800">Kamilisha Oda - Usafirishaji</h3>
-            <p className="text-xs text-slate-400">
-              Oda ya {selectedOrder.customer_name} - TSh {Number(selectedOrder.total_amount).toLocaleString()}
-            </p>
+            <p className="text-xs text-slate-400">Oda ya {selectedOrder.customer_name} - TSh {Number(selectedOrder.total_amount).toLocaleString()}</p>
             
             <form onSubmit={handleCompleteOrder} className="space-y-4 text-xs text-left">
               <div>
                 <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-2">Kutuma Kwa *</label>
                 <div className="grid grid-cols-3 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setShippingMethod('BodaBoda')}
-                    className={`p-4 rounded-2xl border-2 transition flex flex-col items-center gap-2 ${
-                      shippingMethod === 'BodaBoda' 
-                        ? 'border-accent bg-accent/5 text-accent' 
-                        : 'border-slate-200 text-slate-500 hover:border-slate-300'
-                    }`}
-                  >
+                  <button type="button" onClick={() => setShippingMethod('BodaBoda')} className={`p-4 rounded-2xl border-2 transition flex flex-col items-center gap-2 ${shippingMethod === 'BodaBoda' ? 'border-accent bg-accent/5 text-accent' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}>
                     <Bike size={24} />
                     <span className="font-bold text-center">BodaBoda</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setShippingMethod('Bus')}
-                    className={`p-4 rounded-2xl border-2 transition flex flex-col items-center gap-2 ${
-                      shippingMethod === 'Bus' 
-                        ? 'border-accent bg-accent/5 text-accent' 
-                        : 'border-slate-200 text-slate-500 hover:border-slate-300'
-                    }`}
-                  >
+                  <button type="button" onClick={() => setShippingMethod('Bus')} className={`p-4 rounded-2xl border-2 transition flex flex-col items-center gap-2 ${shippingMethod === 'Bus' ? 'border-accent bg-accent/5 text-accent' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}>
                     <Bus size={24} />
                     <span className="font-bold text-center">Bus</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setShippingMethod('Msafirishaji')}
-                    className={`p-4 rounded-2xl border-2 transition flex flex-col items-center gap-2 ${
-                      shippingMethod === 'Msafirishaji' 
-                        ? 'border-accent bg-accent/5 text-accent' 
-                        : 'border-slate-200 text-slate-500 hover:border-slate-300'
-                    }`}
-                  >
+                  <button type="button" onClick={() => setShippingMethod('Msafirishaji')} className={`p-4 rounded-2xl border-2 transition flex flex-col items-center gap-2 ${shippingMethod === 'Msafirishaji' ? 'border-accent bg-accent/5 text-accent' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}>
                     <Truck size={24} />
                     <span className="font-bold text-center">Msafirishaji</span>
                   </button>
@@ -1504,18 +1266,15 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                 <div className="space-y-3">
                   <div>
                     <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina la BodaBoda (Optional)</label>
-                    <input type="text" value={bodaName} onChange={(e) => setBodaName(e.target.value)} 
-                      placeholder="Mfano: Juma Boda" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                    <input type="text" value={bodaName} onChange={(e) => setBodaName(e.target.value)} placeholder="Mfano: Juma Boda" className="w-full p-2.5 border border-slate-200 rounded-xl" />
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya BodaBoda *</label>
-                    <input type="tel" required value={bodaPhone} onChange={(e) => setBodaPhone(e.target.value)} 
-                      placeholder="0712345678" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                    <input type="tel" required value={bodaPhone} onChange={(e) => setBodaPhone(e.target.value)} placeholder="0712345678" className="w-full p-2.5 border border-slate-200 rounded-xl" />
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Pikipiki (Optional)</label>
-                    <input type="text" value={bodaPlateNumber} onChange={(e) => setBodaPlateNumber(e.target.value)} 
-                      placeholder="T123 ABC" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                    <input type="text" value={bodaPlateNumber} onChange={(e) => setBodaPlateNumber(e.target.value)} placeholder="T123 ABC" className="w-full p-2.5 border border-slate-200 rounded-xl" />
                   </div>
                 </div>
               )}
@@ -1525,28 +1284,8 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                   <div>
                     <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-2">Chagua Aina</label>
                     <div className="grid grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setBusType('company')}
-                        className={`p-3 rounded-xl border-2 transition ${
-                          busType === 'company' 
-                            ? 'border-accent bg-accent/5 text-accent' 
-                            : 'border-slate-200 text-slate-500'
-                        }`}
-                      >
-                        Kampuni ya Bus
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setBusType('driver')}
-                        className={`p-3 rounded-xl border-2 transition ${
-                          busType === 'driver' 
-                            ? 'border-accent bg-accent/5 text-accent' 
-                            : 'border-slate-200 text-slate-500'
-                        }`}
-                      >
-                        Dreva
-                      </button>
+                      <button type="button" onClick={() => setBusType('company')} className={`p-3 rounded-xl border-2 transition ${busType === 'company' ? 'border-accent bg-accent/5 text-accent' : 'border-slate-200 text-slate-500'}`}>Kampuni ya Bus</button>
+                      <button type="button" onClick={() => setBusType('driver')} className={`p-3 rounded-xl border-2 transition ${busType === 'driver' ? 'border-accent bg-accent/5 text-accent' : 'border-slate-200 text-slate-500'}`}>Dreva</button>
                     </div>
                   </div>
 
@@ -1554,36 +1293,30 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                     <>
                       <div>
                         <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina la Bus/Kampuni *</label>
-                        <input type="text" required value={busName} onChange={(e) => setBusName(e.target.value)} 
-                          placeholder="Mfano: ABC Express" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                        <input type="text" required value={busName} onChange={(e) => setBusName(e.target.value)} placeholder="Mfano: ABC Express" className="w-full p-2.5 border border-slate-200 rounded-xl" />
                       </div>
                       <div>
                         <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Bus (Optional)</label>
-                        <input type="text" value={busNumber} onChange={(e) => setBusNumber(e.target.value)} 
-                          placeholder="T123 ABC" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                        <input type="text" value={busNumber} onChange={(e) => setBusNumber(e.target.value)} placeholder="T123 ABC" className="w-full p-2.5 border border-slate-200 rounded-xl" />
                       </div>
                       <div>
                         <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Mzigo (Optional)</label>
-                        <input type="text" value={cargoNumber} onChange={(e) => setCargoNumber(e.target.value)} 
-                          placeholder="MZ123456" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                        <input type="text" value={cargoNumber} onChange={(e) => setCargoNumber(e.target.value)} placeholder="MZ123456" className="w-full p-2.5 border border-slate-200 rounded-xl" />
                       </div>
                     </>
                   ) : (
                     <>
                       <div>
                         <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina la Dreva *</label>
-                        <input type="text" required value={driverName} onChange={(e) => setDriverName(e.target.value)} 
-                          placeholder="Mfano: Juma Dreva" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                        <input type="text" required value={driverName} onChange={(e) => setDriverName(e.target.value)} placeholder="Mfano: Juma Dreva" className="w-full p-2.5 border border-slate-200 rounded-xl" />
                       </div>
                       <div>
                         <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Simu *</label>
-                        <input type="tel" required value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} 
-                          placeholder="0712345678" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                        <input type="tel" required value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} placeholder="0712345678" className="w-full p-2.5 border border-slate-200 rounded-xl" />
                       </div>
                       <div>
                         <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Mzigo (Optional)</label>
-                        <input type="text" value={cargoNumber} onChange={(e) => setCargoNumber(e.target.value)} 
-                          placeholder="MZ123456" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                        <input type="text" value={cargoNumber} onChange={(e) => setCargoNumber(e.target.value)} placeholder="MZ123456" className="w-full p-2.5 border border-slate-200 rounded-xl" />
                       </div>
                     </>
                   )}
@@ -1594,26 +1327,18 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                 <div className="space-y-3">
                   <div>
                     <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Jina la Msafirishaji *</label>
-                    <input type="text" required value={transporterName} onChange={(e) => setTransporterName(e.target.value)} 
-                      placeholder="Mfano: Juma Msafirishaji" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                    <input type="text" required value={transporterName} onChange={(e) => setTransporterName(e.target.value)} placeholder="Mfano: Juma Msafirishaji" className="w-full p-2.5 border border-slate-200 rounded-xl" />
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-500 uppercase tracking-wide mb-1">Namba ya Simu *</label>
-                    <input type="tel" required value={transporterPhone} onChange={(e) => setTransporterPhone(e.target.value)} 
-                      placeholder="0712345678" className="w-full p-2.5 border border-slate-200 rounded-xl" />
+                    <input type="tel" required value={transporterPhone} onChange={(e) => setTransporterPhone(e.target.value)} placeholder="0712345678" className="w-full p-2.5 border border-slate-200 rounded-xl" />
                   </div>
                 </div>
               )}
 
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => {
-                  setIsCompleteOrderModalOpen(false);
-                  setSelectedOrder(null);
-                  resetShippingForm();
-                }} 
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition">Ghairi</button>
-                <button type="submit" disabled={isLoading} 
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2">
+                <button type="button" onClick={() => { setIsCompleteOrderModalOpen(false); setSelectedOrder(null); resetShippingForm(); }} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 transition">Ghairi</button>
+                <button type="submit" disabled={isLoading} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold shadow-sm transition disabled:opacity-50 flex items-center gap-2">
                   <CheckCircle size={14} />
                   {isLoading ? 'Inakamilisha...' : 'Kamilisha Oda'}
                 </button>
@@ -1627,34 +1352,14 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
       {isViewOrderModalOpen && selectedOrder && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative">
-            <button onClick={() => setIsViewOrderModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition">
-              <X size={18} />
-            </button>
+            <button onClick={() => setIsViewOrderModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50 transition"><X size={18} /></button>
             <h3 className="text-md font-bold text-slate-800">Maelezo ya Oda</h3>
             <div className="space-y-4 text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Oda ID:</span>
-                <span className="font-bold">{selectedOrder.id}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Mteja:</span>
-                <span className="font-bold">{selectedOrder.customer_name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Simu:</span>
-                <span className="font-bold">{selectedOrder.customer_phone}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Tarehe:</span>
-                <span className="font-bold">{new Date(selectedOrder.created_at).toLocaleDateString('sw-TZ')}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Hali:</span>
-                <span className={`font-bold ${selectedOrder.status === 'Completed' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                  {selectedOrder.status === 'Pending' ? 'Inasubiri' : 
-                   selectedOrder.status === 'Completed' ? 'Imekamilika' : 'Imefutwa'}
-                </span>
-              </div>
+              <div className="flex justify-between"><span className="text-slate-400">Oda ID:</span><span className="font-bold">{selectedOrder.id}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Mteja:</span><span className="font-bold">{selectedOrder.customer_name}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Simu:</span><span className="font-bold">{selectedOrder.customer_phone}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Tarehe:</span><span className="font-bold">{new Date(selectedOrder.created_at).toLocaleDateString('sw-TZ')}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Hali:</span><span className={`font-bold ${selectedOrder.status === 'Completed' ? 'text-emerald-600' : 'text-amber-600'}`}>{selectedOrder.status === 'Pending' ? 'Inasubiri' : selectedOrder.status === 'Completed' ? 'Imekamilika' : 'Imefutwa'}</span></div>
               
               {selectedOrder.shipping_info && (
                 <div className="border-t border-slate-100 pt-3">
@@ -1672,17 +1377,13 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
                         <>
                           <p><strong>Bus/Kampuni:</strong> {selectedOrder.shipping_info.busName}</p>
                           <p><strong>Namba ya Bus:</strong> {selectedOrder.shipping_info.busNumber || '-'}</p>
-                          {selectedOrder.shipping_info.cargoNumber && (
-                            <p><strong>Namba ya Mzigo:</strong> {selectedOrder.shipping_info.cargoNumber}</p>
-                          )}
+                          {selectedOrder.shipping_info.cargoNumber && (<p><strong>Namba ya Mzigo:</strong> {selectedOrder.shipping_info.cargoNumber}</p>)}
                         </>
                       ) : (
                         <>
                           <p><strong>Dreva:</strong> {selectedOrder.shipping_info.driverName || '-'}</p>
                           <p><strong>Simu:</strong> {selectedOrder.shipping_info.driverPhone || '-'}</p>
-                          {selectedOrder.shipping_info.cargoNumber && (
-                            <p><strong>Namba ya Mzigo:</strong> {selectedOrder.shipping_info.cargoNumber}</p>
-                          )}
+                          {selectedOrder.shipping_info.cargoNumber && (<p><strong>Namba ya Mzigo:</strong> {selectedOrder.shipping_info.cargoNumber}</p>)}
                         </>
                       )
                     ) : (
@@ -1715,10 +1416,7 @@ export default function OrdersPage({ onUpdate }: OrdersPageProps) {
               </div>
               
               <div className="flex justify-end gap-2 pt-4">
-                <button 
-                  onClick={() => handlePrintOrder(selectedOrder)}
-                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-semibold flex items-center gap-2"
-                >
+                <button onClick={() => handlePrintOrder(selectedOrder)} className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-semibold flex items-center gap-2">
                   <Printer size={14} /> Chapisha
                 </button>
               </div>
