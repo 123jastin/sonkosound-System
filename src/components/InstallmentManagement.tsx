@@ -78,6 +78,7 @@ export interface InstallmentNotification {
 interface InstallmentManagementProps {
   onUpdate: () => void;
   onNotificationsGenerated?: (notifications: InstallmentNotification[]) => void;
+  userRole?: 'admin' | 'staff' | null; // ✅ NEW: Role for delete permissions
 }
 
 const API_BASE_URL = '/api/installment';
@@ -155,7 +156,11 @@ export function generateInstallmentNotifications(
   return notifications;
 }
 
-export default function InstallmentManagement({ onUpdate, onNotificationsGenerated }: InstallmentManagementProps) {
+export default function InstallmentManagement({ 
+  onUpdate, 
+  onNotificationsGenerated,
+  userRole, // ✅ Receive role
+}: InstallmentManagementProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -277,7 +282,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     return { totalExpected, totalCollected, totalRemaining, activeInstallments, completedInstallments, totalCustomers: customers.length };
   }, [products, customers]);
 
-  // ✅ MULTI-PRODUCT TOTAL for the modal footer
   const productsTotal = useMemo(() => {
     return productItems.reduce((sum, item) => {
       return sum + (Number(item.total_amount) || 0);
@@ -346,6 +350,13 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
   };
 
   const handleDeleteCustomer = async (customerId: string) => {
+    // ✅ Only admins can delete
+    if (userRole !== 'admin') {
+      setError('Huna ruhusa ya kufuta. Wasiliana na Admin.');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
     if (!confirm('Je, una uhakika unataka kumfuta mteja huyu na bidhaa zake zote?')) return;
     setIsLoading(true);
     try {
@@ -364,7 +375,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     }
   };
 
-  // ✅ Multi-product handlers
   const updateProductItem = (index: number, field: keyof ProductItem, value: string) => {
     setProductItems(prev => {
       const next = [...prev];
@@ -382,7 +392,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     setProductItems(prev => prev.filter((_, i) => i !== index));
   };
 
-  // ✅ Add ALL products at once
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomerId) return;
@@ -546,7 +555,6 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
 
   const resetCustomerForm = () => { setFullName(''); setPhoneNumber(''); setAddress(''); setNotes(''); };
 
-  // ✅ Reset multi-product form
   const resetProductForm = () => {
     setProductItems([newProductItem()]);
   };
@@ -578,7 +586,7 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
   };
 
   // ============================================
-  // ✅ PRINT STATEMENT — opens in new window (blank PDF FIX)
+  // PRINT STATEMENT
   // ============================================
   const handlePrintStatement = () => {
     if (!activeCustomer) return;
@@ -604,62 +612,27 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     @page { size: A4; margin: 12mm; }
     body { font-family: 'Segoe UI', Tahoma, sans-serif; background: white; color: #1e293b; padding: 20px; }
     .container { max-width: 190mm; margin: 0 auto; }
-
-    .header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 20px 24px;
-      background: linear-gradient(135deg, #312e81 0%, #4f46e5 50%, #6366f1 100%);
-      color: white; border-radius: 12px; margin-bottom: 24px; gap: 20px;
-    }
+    .header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; background: linear-gradient(135deg, #312e81 0%, #4f46e5 50%, #6366f1 100%); color: white; border-radius: 12px; margin-bottom: 24px; gap: 20px; }
     .header-left { display: flex; align-items: center; gap: 16px; }
-    .logo-box {
-      width: 70px; height: 70px; border-radius: 14px; background: white;
-      display: flex; align-items: center; justify-content: center;
-      padding: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-      flex-shrink: 0; overflow: hidden;
-    }
+    .logo-box { width: 70px; height: 70px; border-radius: 14px; background: white; display: flex; align-items: center; justify-content: center; padding: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); flex-shrink: 0; overflow: hidden; }
     .logo-box img { width: 100%; height: 100%; object-fit: contain; }
     .business-name { font-size: 22px; font-weight: 900; letter-spacing: 1px; line-height: 1.1; }
     .business-slogan { font-size: 11px; opacity: 0.9; margin-top: 4px; }
     .business-contact { font-size: 10px; opacity: 0.85; margin-top: 3px; }
-    .statement-badge {
-      display: inline-block; background: rgba(255,255,255,0.25);
-      padding: 6px 14px; border-radius: 20px; font-size: 10px;
-      font-weight: bold; letter-spacing: 1px; text-transform: uppercase;
-    }
+    .statement-badge { display: inline-block; background: rgba(255,255,255,0.25); padding: 6px 14px; border-radius: 20px; font-size: 10px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; }
     .statement-id { font-size: 10px; opacity: 0.85; margin-top: 8px; font-family: monospace; }
-
     .section { margin-bottom: 22px; }
-    .section-title {
-      font-size: 13px; font-weight: 800; color: #312e81;
-      text-transform: uppercase; letter-spacing: 0.5px;
-      margin-bottom: 10px; padding-bottom: 6px;
-      border-bottom: 2px solid #c7d2fe;
-    }
-
-    .info-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-      padding: 16px; background: #eef2ff;
-      border: 1px solid #c7d2fe; border-radius: 10px;
-    }
+    .section-title { font-size: 13px; font-weight: 800; color: #312e81; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #c7d2fe; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px; }
     .info-card { display: flex; flex-direction: column; gap: 3px; }
-    .info-label {
-      font-size: 9px; font-weight: 800; text-transform: uppercase;
-      color: #4338ca; letter-spacing: 0.5px;
-    }
+    .info-label { font-size: 9px; font-weight: 800; text-transform: uppercase; color: #4338ca; letter-spacing: 0.5px; }
     .info-value { font-size: 13px; font-weight: bold; color: #1e293b; }
-
-    .stat-strip {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px;
-    }
+    .stat-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
     .stat-item { border-radius: 12px; padding: 14px; text-align: center; }
     .stat-item.total { background: #e0e7ff; border: 1px solid #a5b4fc; }
     .stat-item.paid  { background: #d1fae5; border: 1px solid #6ee7b7; }
     .stat-item.balance { background: #fee2e2; border: 1px solid #fca5a5; }
-    .stat-label {
-      font-size: 9px; font-weight: 800; text-transform: uppercase;
-      letter-spacing: 0.5px; margin-bottom: 4px;
-    }
+    .stat-label { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
     .stat-item.total .stat-label { color: #3730a3; }
     .stat-item.paid .stat-label  { color: #065f46; }
     .stat-item.balance .stat-label { color: #991b1b; }
@@ -667,13 +640,8 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     .stat-item.total .stat-value { color: #312e81; }
     .stat-item.paid .stat-value  { color: #059669; }
     .stat-item.balance .stat-value { color: #dc2626; }
-
     table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0; }
-    thead th {
-      background: linear-gradient(135deg, #312e81 0%, #4f46e5 100%);
-      color: white; padding: 10px 12px; text-align: left;
-      font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 800;
-    }
+    thead th { background: linear-gradient(135deg, #312e81 0%, #4f46e5 100%); color: white; padding: 10px 12px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 800; }
     thead th:last-child { text-align: right; }
     tbody td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 11px; color: #334155; }
     tbody td:last-child { text-align: right; font-weight: bold; }
@@ -681,44 +649,20 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
     tbody tr:last-child td { border-bottom: none; }
     .empty-row { text-align: center !important; padding: 20px !important; color: #94a3b8; font-style: italic; }
     .payment-amount { color: #059669; font-weight: bold; }
-    .status-badge {
-      display: inline-block; padding: 3px 10px; border-radius: 12px;
-      font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px;
-    }
+    .status-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; }
     .status-completed { background: #d1fae5; color: #065f46; }
     .status-active    { background: #fef3c7; color: #92400e; }
-
-    .signatures {
-      display: flex; justify-content: space-between; gap: 40px;
-      margin-top: 50px; padding: 0 20px;
-    }
+    .signatures { display: flex; justify-content: space-between; gap: 40px; margin-top: 50px; padding: 0 20px; }
     .signature-box { flex: 1; text-align: center; }
-    .signature-line {
-      border-top: 1.5px solid #312e81; padding-top: 8px;
-      font-size: 11px; font-weight: bold; color: #312e81;
-    }
+    .signature-line { border-top: 1.5px solid #312e81; padding-top: 8px; font-size: 11px; font-weight: bold; color: #312e81; }
     .signature-sub { font-size: 9px; color: #94a3b8; margin-top: 3px; }
-
-    .footer {
-      margin-top: 30px; padding: 14px;
-      background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
-      border-radius: 10px; text-align: center;
-      font-size: 10px; color: #312e81;
-      border: 1px solid #c7d2fe;
-    }
+    .footer { margin-top: 30px; padding: 14px; background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%); border-radius: 10px; text-align: center; font-size: 10px; color: #312e81; border: 1px solid #c7d2fe; }
     .footer strong { color: #312e81; }
-
     .no-print { text-align: center; padding: 20px; margin-top: 10px; }
-    .no-print button {
-      background: #4f46e5; color: white; border: none;
-      padding: 12px 28px; border-radius: 22px;
-      font-size: 13px; font-weight: bold; cursor: pointer;
-      margin: 0 5px; transition: all 0.2s;
-    }
+    .no-print button { background: #4f46e5; color: white; border: none; padding: 12px 28px; border-radius: 22px; font-size: 13px; font-weight: bold; cursor: pointer; margin: 0 5px; transition: all 0.2s; }
     .no-print button:hover { background: #4338ca; }
     .no-print button.close { background: #64748b; }
     .no-print button.close:hover { background: #475569; }
-
     @media print { .no-print { display: none !important; } body { padding: 0; } }
   </style>
 </head>
@@ -904,9 +848,12 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
                 <button onClick={openEditCustomerModal} disabled={isLoading} className="py-2.5 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors flex items-center gap-1.5 font-bold disabled:opacity-50">
                   <Edit2 size={14} /> Hariri
                 </button>
-                <button onClick={() => handleDeleteCustomer(activeCustomer.id)} disabled={isLoading} className="py-2.5 px-4 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition-colors flex items-center gap-1.5 font-bold disabled:opacity-50">
-                  <Trash2 size={14} /> Futa
-                </button>
+                {/* ✅ Admin-only Delete Customer */}
+                {userRole === 'admin' && (
+                  <button onClick={() => handleDeleteCustomer(activeCustomer.id)} disabled={isLoading} className="py-2.5 px-4 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 transition-colors flex items-center gap-1.5 font-bold disabled:opacity-50">
+                    <Trash2 size={14} /> Futa
+                  </button>
+                )}
                 <button onClick={() => setSelectedCustomerId('')} className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors font-bold">Orodha</button>
               </div>
             </div>
@@ -1117,7 +1064,7 @@ export default function InstallmentManagement({ onUpdate, onNotificationsGenerat
         </div>
       )}
 
-      {/* ✅ Multi-Product Add Modal */}
+      {/* Multi-Product Add Modal */}
       {isAddProductModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
