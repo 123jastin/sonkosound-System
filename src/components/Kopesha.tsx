@@ -47,6 +47,7 @@ interface KopeshaPayment {
 
 interface KopeshaProps {
   onUpdate?: () => void;
+  userRole?: 'admin' | 'staff' | null; // ✅ NEW: Role for delete permissions
 }
 
 const API_BASE_URL = '/api/kopesha';
@@ -98,7 +99,7 @@ const getInitials = (name: string) =>
 // ============================================
 // COMPONENT
 // ============================================
-export default function Kopesha({ onUpdate }: KopeshaProps) {
+export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -275,6 +276,13 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
   };
 
   const handleDeleteCustomer = async (id: string) => {
+    // ✅ Only admins can delete
+    if (userRole !== 'admin') {
+      setError('Huna ruhusa ya kufuta. Wasiliana na Admin.');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
     if (!confirm('Futa mteja huyu pamoja na mikopo yake yote?')) return;
     setIsLoading(true);
     try { await fetch(`${API_BASE_URL}/customers/${id}`, { method: 'DELETE' }); } catch {}
@@ -493,65 +501,28 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
     @page { size: A4; margin: 12mm; }
     body { font-family: 'Segoe UI', Tahoma, sans-serif; background: white; color: #1e293b; padding: 20px; }
     .container { max-width: 190mm; margin: 0 auto; }
-
-    .header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 20px 24px;
-      background: linear-gradient(135deg, #78350f 0%, #d97706 50%, #f59e0b 100%);
-      color: white; border-radius: 12px; margin-bottom: 24px; gap: 20px;
-    }
+    .header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; background: linear-gradient(135deg, #78350f 0%, #d97706 50%, #f59e0b 100%); color: white; border-radius: 12px; margin-bottom: 24px; gap: 20px; }
     .header-left { display: flex; align-items: center; gap: 16px; }
-    .logo-box {
-      width: 70px; height: 70px; border-radius: 14px; background: white;
-      display: flex; align-items: center; justify-content: center;
-      padding: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-      flex-shrink: 0; overflow: hidden;
-    }
+    .logo-box { width: 70px; height: 70px; border-radius: 14px; background: white; display: flex; align-items: center; justify-content: center; padding: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); flex-shrink: 0; overflow: hidden; }
     .logo-box img { width: 100%; height: 100%; object-fit: contain; }
     .business-name { font-size: 22px; font-weight: 900; letter-spacing: 1px; line-height: 1.1; }
     .business-slogan { font-size: 11px; opacity: 0.9; margin-top: 4px; }
     .business-contact { font-size: 10px; opacity: 0.85; margin-top: 3px; }
-    .statement-badge {
-      display: inline-block; background: rgba(255,255,255,0.25);
-      padding: 6px 14px; border-radius: 20px; font-size: 10px;
-      font-weight: bold; letter-spacing: 1px; text-transform: uppercase;
-    }
+    .statement-badge { display: inline-block; background: rgba(255,255,255,0.25); padding: 6px 14px; border-radius: 20px; font-size: 10px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; }
     .statement-id { font-size: 10px; opacity: 0.85; margin-top: 8px; font-family: monospace; }
-
     .section { margin-bottom: 22px; }
-    .section-title {
-      font-size: 13px; font-weight: 800; color: #78350f;
-      text-transform: uppercase; letter-spacing: 0.5px;
-      margin-bottom: 10px; padding-bottom: 6px;
-      border-bottom: 2px solid #fcd34d;
-    }
-
-    .info-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-      padding: 16px; background: #fffbeb;
-      border: 1px solid #fde68a; border-radius: 10px;
-    }
+    .section-title { font-size: 13px; font-weight: 800; color: #78350f; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #fcd34d; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; }
     .info-card { display: flex; flex-direction: column; gap: 3px; }
-    .info-label {
-      font-size: 9px; font-weight: 800; text-transform: uppercase;
-      color: #92400e; letter-spacing: 0.5px;
-    }
+    .info-label { font-size: 9px; font-weight: 800; text-transform: uppercase; color: #92400e; letter-spacing: 0.5px; }
     .info-value { font-size: 13px; font-weight: bold; color: #1e293b; }
     .info-value.highlight { color: #dc2626; font-size: 16px; }
-
-    .stat-strip {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px;
-    }
-    .stat-item {
-      border-radius: 12px; padding: 14px; text-align: center;
-    }
+    .stat-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
+    .stat-item { border-radius: 12px; padding: 14px; text-align: center; }
     .stat-item.lent { background: #fef3c7; border: 1px solid #fcd34d; }
     .stat-item.paid { background: #d1fae5; border: 1px solid #6ee7b7; }
     .stat-item.balance { background: #fee2e2; border: 1px solid #fca5a5; }
-    .stat-label {
-      font-size: 9px; font-weight: 800; text-transform: uppercase;
-      letter-spacing: 0.5px; margin-bottom: 4px;
-    }
+    .stat-label { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
     .stat-item.lent .stat-label { color: #92400e; }
     .stat-item.paid .stat-label { color: #065f46; }
     .stat-item.balance .stat-label { color: #991b1b; }
@@ -559,13 +530,8 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
     .stat-item.lent .stat-value { color: #78350f; }
     .stat-item.paid .stat-value { color: #059669; }
     .stat-item.balance .stat-value { color: #dc2626; }
-
     table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0; }
-    thead th {
-      background: linear-gradient(135deg, #78350f 0%, #b45309 100%);
-      color: white; padding: 10px 12px; text-align: left;
-      font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 800;
-    }
+    thead th { background: linear-gradient(135deg, #78350f 0%, #b45309 100%); color: white; padding: 10px 12px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 800; }
     thead th:last-child { text-align: right; }
     tbody td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 11px; color: #334155; }
     tbody td:last-child { text-align: right; font-weight: bold; }
@@ -573,45 +539,21 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
     tbody tr:last-child td { border-bottom: none; }
     .empty-row { text-align: center !important; padding: 20px !important; color: #94a3b8; font-style: italic; }
     .payment-amount { color: #059669; font-weight: bold; }
-    .status-badge {
-      display: inline-block; padding: 3px 10px; border-radius: 12px;
-      font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px;
-    }
+    .status-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; }
     .status-cleared { background: #d1fae5; color: #065f46; }
     .status-active { background: #fef3c7; color: #92400e; }
     .status-overdue { background: #fee2e2; color: #991b1b; }
-
-    .signatures {
-      display: flex; justify-content: space-between; gap: 40px;
-      margin-top: 50px; padding: 0 20px;
-    }
+    .signatures { display: flex; justify-content: space-between; gap: 40px; margin-top: 50px; padding: 0 20px; }
     .signature-box { flex: 1; text-align: center; }
-    .signature-line {
-      border-top: 1.5px solid #78350f; padding-top: 8px;
-      font-size: 11px; font-weight: bold; color: #78350f;
-    }
+    .signature-line { border-top: 1.5px solid #78350f; padding-top: 8px; font-size: 11px; font-weight: bold; color: #78350f; }
     .signature-sub { font-size: 9px; color: #94a3b8; margin-top: 3px; }
-
-    .footer {
-      margin-top: 30px; padding: 14px;
-      background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
-      border-radius: 10px; text-align: center;
-      font-size: 10px; color: #78350f;
-      border: 1px solid #fde68a;
-    }
+    .footer { margin-top: 30px; padding: 14px; background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border-radius: 10px; text-align: center; font-size: 10px; color: #78350f; border: 1px solid #fde68a; }
     .footer strong { color: #78350f; }
-
     .no-print { text-align: center; padding: 20px; margin-top: 10px; }
-    .no-print button {
-      background: #d97706; color: white; border: none;
-      padding: 12px 28px; border-radius: 22px;
-      font-size: 13px; font-weight: bold; cursor: pointer;
-      margin: 0 5px; transition: all 0.2s;
-    }
+    .no-print button { background: #d97706; color: white; border: none; padding: 12px 28px; border-radius: 22px; font-size: 13px; font-weight: bold; cursor: pointer; margin: 0 5px; transition: all 0.2s; }
     .no-print button:hover { background: #b45309; }
     .no-print button.close { background: #64748b; }
     .no-print button.close:hover { background: #475569; }
-
     @media print { .no-print { display: none !important; } body { padding: 0; } }
   </style>
 </head>
@@ -619,9 +561,7 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
   <div class="container">
     <div class="header">
       <div class="header-left">
-        <div class="logo-box">
-          <img src="${LOGO_URL}" alt="Sonko Sound Logo" />
-        </div>
+        <div class="logo-box"><img src="${LOGO_URL}" alt="Sonko Sound Logo" /></div>
         <div>
           <div class="business-name">${BUSINESS.name.toUpperCase()}</div>
           <div class="business-slogan">${BUSINESS.slogan}</div>
@@ -732,14 +672,8 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
     </div>
 
     <div class="signatures">
-      <div class="signature-box">
-        <div class="signature-line">Sahihi ya Mmiliki</div>
-        <div class="signature-sub">${BUSINESS.name}</div>
-      </div>
-      <div class="signature-box">
-        <div class="signature-line">Sahihi ya Mkopaji</div>
-        <div class="signature-sub">${activeCustomer.full_name}</div>
-      </div>
+      <div class="signature-box"><div class="signature-line">Sahihi ya Mmiliki</div><div class="signature-sub">${BUSINESS.name}</div></div>
+      <div class="signature-box"><div class="signature-line">Sahihi ya Mkopaji</div><div class="signature-sub">${activeCustomer.full_name}</div></div>
     </div>
 
     <div class="footer">
@@ -794,9 +728,6 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
       )}
 
       {activeCustomer ? (
-        /* ============================================ */
-        /* CUSTOMER DETAIL VIEW                          */
-        /* ============================================ */
         <div className="space-y-6 text-xs text-left">
           <div className="bg-white rounded-3xl border border-slate-100 p-6 md:p-8 shadow-sm space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -826,16 +757,18 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
                 <button onClick={openEditCustomer} className="py-2.5 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold flex items-center gap-1.5">
                   <Edit2 size={14} /> Hariri
                 </button>
-                <button onClick={() => handleDeleteCustomer(activeCustomer.id)} className="py-2.5 px-4 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 font-bold flex items-center gap-1.5">
-                  <Trash2 size={14} /> Futa
-                </button>
+                {/* ✅ Admin-only Delete Customer */}
+                {userRole === 'admin' && (
+                  <button onClick={() => handleDeleteCustomer(activeCustomer.id)} className="py-2.5 px-4 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 font-bold flex items-center gap-1.5">
+                    <Trash2 size={14} /> Futa
+                  </button>
+                )}
                 <button onClick={() => setSelectedCustomerId('')} className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold">
                   Orodha
                 </button>
               </div>
             </div>
 
-            {/* Summary strip */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-slate-100">
               <div className="text-center">
                 <p className="text-xs text-slate-400">Mikopo Yote</p>
@@ -877,7 +810,6 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
             </button>
           </div>
 
-          {/* Loans list */}
           <div className="space-y-4">
             {activeCustomerLoans.map(loan => {
               const remaining = Math.max(0, Number(loan.amount) - Number(loan.paid_amount));
@@ -1006,9 +938,6 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
           </div>
         </div>
       ) : (
-        /* ============================================ */
-        /* LIST VIEW                                     */
-        /* ============================================ */
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
@@ -1126,9 +1055,7 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
         </>
       )}
 
-      {/* ============================================ */}
-      {/* ADD CUSTOMER MODAL                            */}
-      {/* ============================================ */}
+      {/* ADD CUSTOMER MODAL */}
       {isAddCustomerOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
@@ -1166,9 +1093,7 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
         </div>
       )}
 
-      {/* ============================================ */}
-      {/* EDIT CUSTOMER MODAL                           */}
-      {/* ============================================ */}
+      {/* EDIT CUSTOMER MODAL */}
       {isEditCustomerOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
@@ -1206,9 +1131,7 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
         </div>
       )}
 
-      {/* ============================================ */}
-      {/* ADD LOAN MODAL                                */}
-      {/* ============================================ */}
+      {/* ADD LOAN MODAL */}
       {isAddLoanOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
@@ -1250,9 +1173,7 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
         </div>
       )}
 
-      {/* ============================================ */}
-      {/* PAY MODAL                                     */}
-      {/* ============================================ */}
+      {/* PAY MODAL */}
       {isPayModalOpen && selectedLoan && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
@@ -1340,9 +1261,7 @@ export default function Kopesha({ onUpdate }: KopeshaProps) {
         </div>
       )}
 
-      {/* ============================================ */}
-      {/* HISTORY MODAL                                 */}
-      {/* ============================================ */}
+      {/* HISTORY MODAL */}
       {isHistoryOpen && historyLoan && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
