@@ -73,7 +73,7 @@ interface ReceivedPayment {
 
 interface KubandikaPageProps {
   onBack?: () => void;
-  userRole?: 'admin' | 'staff' | null; // ✅ NEW: Role for delete permissions
+  userRole?: 'admin' | 'staff' | null;
 }
 
 // ============================================================
@@ -419,6 +419,14 @@ export default function KubandikaPage({ onBack, userRole }: KubandikaPageProps) 
   // SAVE
   // ============================================================
   const handleSavePayment = async (payment: Omit<ReceivedPayment, 'id' | 'createdAt'>) => {
+    // ✅ Only admins can record OUT (Punguza) transactions
+    if (payment.type === 'OUT' && userRole !== 'admin') {
+      setErrorMsg('Huna ruhusa ya kupunguza pesa. Wasiliana na Admin.');
+      setTimeout(() => setErrorMsg(null), 3000);
+      setModalState({ open: false, type: 'IN' });
+      return;
+    }
+
     setIsLoading(true);
     try {
       const result: any = await api.kubandika.create({
@@ -458,7 +466,6 @@ export default function KubandikaPage({ onBack, userRole }: KubandikaPageProps) 
   };
 
   const handleDelete = async (id: string) => {
-    // ✅ Only admins can delete
     if (userRole !== 'admin') {
       setErrorMsg('Huna ruhusa ya kufuta. Wasiliana na Admin.');
       setTimeout(() => setErrorMsg(null), 3000);
@@ -657,9 +664,12 @@ export default function KubandikaPage({ onBack, userRole }: KubandikaPageProps) 
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => setModalState({ open: true, type: 'OUT' })} className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-5 rounded-2xl transition-colors flex items-center gap-2 shadow-lg">
-              <MinusCircle size={16} /> Punguza / Toa
-            </button>
+            {/* ✅ Admin-only Punguza button */}
+            {userRole === 'admin' && (
+              <button onClick={() => setModalState({ open: true, type: 'OUT' })} className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-5 rounded-2xl transition-colors flex items-center gap-2 shadow-lg">
+                <MinusCircle size={16} /> Punguza / Toa
+              </button>
+            )}
             <button onClick={() => setModalState({ open: true, type: 'IN' })} className="bg-white text-slate-900 font-bold py-3 px-5 rounded-2xl hover:bg-white/95 transition-colors flex items-center gap-2 shadow-lg">
               <Plus size={16} /> Ongeza Pesa
             </button>
@@ -752,7 +762,6 @@ export default function KubandikaPage({ onBack, userRole }: KubandikaPageProps) 
                         {isOut ? '-' : '+'} {p.amount.toLocaleString()}
                       </td>
                       <td className="px-3 py-3">
-                        {/* ✅ Admin-only Delete Button */}
                         {userRole === 'admin' && (
                           <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600"><Trash2 size={14} /></button>
                         )}
