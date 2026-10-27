@@ -47,7 +47,7 @@ interface KopeshaPayment {
 
 interface KopeshaProps {
   onUpdate?: () => void;
-  userRole?: 'admin' | 'staff' | null; // ✅ NEW: Role for delete permissions
+  userRole?: 'admin' | 'staff' | null;
 }
 
 const API_BASE_URL = '/api/kopesha';
@@ -276,7 +276,6 @@ export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
   };
 
   const handleDeleteCustomer = async (id: string) => {
-    // ✅ Only admins can delete
     if (userRole !== 'admin') {
       setError('Huna ruhusa ya kufuta. Wasiliana na Admin.');
       setTimeout(() => setError(null), 3000);
@@ -348,7 +347,6 @@ export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
       setLoans(prev => [fallback, ...prev]);
     }
 
-    // ✅ Send lending SMS
     if (createdLoan && activeCustomer) {
       await sendKopeshaSMS({
         event: 'loan_created',
@@ -368,11 +366,19 @@ export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
   };
 
   // ============================================
-  // PAYMENT (with SMS)
+  // PAYMENT (with SMS) — ✅ ADMIN ONLY
   // ============================================
   const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedLoan) return;
+
+    // ✅ Only admins can record repayments
+    if (userRole !== 'admin') {
+      setError('Huna ruhusa ya kurekodi malipo. Wasiliana na Admin.');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
     const amt = Number(payAmount);
     const remainingBefore = Math.max(0, Number(selectedLoan.amount) - Number(selectedLoan.paid_amount));
     if (!amt || amt <= 0 || amt > remainingBefore) {
@@ -427,7 +433,6 @@ export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
         : l
     ));
 
-    // ✅ Send repayment SMS
     if (activeCustomer) {
       await sendKopeshaSMS({
         event: 'loan_paid',
@@ -467,7 +472,13 @@ export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
     setIsEditCustomerOpen(true);
   };
 
+  // ✅ Admin-only Pay Modal
   const openPay = (loan: KopeshaLoan) => {
+    if (userRole !== 'admin') {
+      setError('Huna ruhusa ya kurekodi malipo. Wasiliana na Admin.');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
     setSelectedLoan(loan);
     setPayAmount('');
     setPayNotes('');
@@ -475,7 +486,7 @@ export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
   };
 
   // ============================================
-  // PRINT STATEMENT (professional colored PDF)
+  // PRINT STATEMENT
   // ============================================
   const handlePrintStatement = () => {
     if (!activeCustomer) return;
@@ -757,7 +768,6 @@ export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
                 <button onClick={openEditCustomer} className="py-2.5 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold flex items-center gap-1.5">
                   <Edit2 size={14} /> Hariri
                 </button>
-                {/* ✅ Admin-only Delete Customer */}
                 {userRole === 'admin' && (
                   <button onClick={() => handleDeleteCustomer(activeCustomer.id)} className="py-2.5 px-4 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 font-bold flex items-center gap-1.5">
                     <Trash2 size={14} /> Futa
@@ -908,7 +918,8 @@ export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
                     </div>
 
                     <div className="flex md:flex-col gap-2">
-                      {!isCleared && (
+                      {/* ✅ Admin-only Rejesha button */}
+                      {!isCleared && userRole === 'admin' && (
                         <button
                           onClick={() => openPay(loan)}
                           className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-xl flex items-center gap-1.5 text-xs"
@@ -1173,8 +1184,8 @@ export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
         </div>
       )}
 
-      {/* PAY MODAL */}
-      {isPayModalOpen && selectedLoan && (
+      {/* PAY MODAL — ✅ Only reachable by admin */}
+      {isPayModalOpen && selectedLoan && userRole === 'admin' && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
             <button onClick={() => setIsPayModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50">
