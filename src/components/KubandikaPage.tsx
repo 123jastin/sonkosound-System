@@ -68,6 +68,7 @@ interface ReceivedPayment {
   method: string;
   receivedFrom?: string;
   notes?: string;
+  refId?: string; // ✅ NEW: Tracks if this row came from Kopesha
   createdAt: string;
 }
 
@@ -339,7 +340,9 @@ export default function KubandikaPage({ onBack, userRole }: KubandikaPageProps) 
     try {
       setIsInitialLoading(true);
       setErrorMsg(null);
-      const data: any = await api.kubandika.list();
+      
+      // ✅ Fetch WITH Kopesha rows so China balance is accurate
+      const data: any = await api.kubandika.list({ includeRef: true });
       const list = Array.isArray(data) ? data : (data?.payments || []);
       
       const mapped: ReceivedPayment[] = list.map((p: any) => ({
@@ -351,6 +354,7 @@ export default function KubandikaPage({ onBack, userRole }: KubandikaPageProps) 
         method: p.method || 'Cash',
         receivedFrom: p.receivedFrom || p.received_from || '',
         notes: p.notes || '',
+        refId: p.refId || '', // ✅ Save refId to know it came from Kopesha
         createdAt: p.createdAt || p.created_at || new Date().toISOString(),
       }));
       setPayments(mapped);
@@ -400,6 +404,7 @@ export default function KubandikaPage({ onBack, userRole }: KubandikaPageProps) 
     const { start, end } = getDateRange(filterMode, customStart, customEnd);
     return payments
       .filter(p => p.region === activeRegion && p.date >= start && p.date <= end)
+      .filter(p => !p.refId) // ✅ Hide Kopesha-linked rows from the table list
       .sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [payments, activeRegion, filterMode, customStart, customEnd]);
 
@@ -449,6 +454,7 @@ export default function KubandikaPage({ onBack, userRole }: KubandikaPageProps) 
           method: result.payment.method,
           receivedFrom: result.payment.receivedFrom || '',
           notes: result.payment.notes || '',
+          refId: '', // Manual entries never have refId
           createdAt: result.payment.createdAt,
         }, ...prev]);
       } else {
