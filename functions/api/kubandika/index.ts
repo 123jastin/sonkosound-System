@@ -1,8 +1,4 @@
 // functions/api/kubandika/index.ts
-// GET  /api/kubandika         — list all (optional ?region=Tz|China, ?start, ?end)
-// POST /api/kubandika         — create new payment (type: 'IN' | 'OUT')
-// ============================================================
-
 interface Env {
   DB: D1Database;
 }
@@ -18,19 +14,20 @@ function rowToPayment(row: any) {
   return {
     id: row.id,
     region: row.region,
-    type: row.type || 'IN', // ✅ Default to 'IN' for old records
+    type: row.type || 'IN',
     amount: row.amount,
     date: row.date,
     method: row.method || 'Cash',
     receivedFrom: row.received_from || '',
     notes: row.notes || '',
+    refId: row.ref_id || '',           // ✅ NEW
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
 // ============================================================
-// GET — list payments
+// GET — list payments (exclude Kopesha-linked rows)
 // ============================================================
 export const onRequestGet: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
@@ -40,6 +37,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     const region = url.searchParams.get('region');
     const start = url.searchParams.get('start');
     const end = url.searchParams.get('end');
+    const includeRef = url.searchParams.get('includeRef') === '1';  // ✅ optional
 
     let query = 'SELECT * FROM kubandika_payments';
     const conditions: string[] = [];
@@ -56,6 +54,11 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     if (end) {
       conditions.push('date <= ?');
       bindings.push(end);
+    }
+
+    // ✅ Hide Kopesha-linked rows from Kubandika UI
+    if (!includeRef) {
+      conditions.push("(ref_id IS NULL OR ref_id = '')");
     }
 
     if (conditions.length > 0) {
@@ -82,47 +85,32 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 };
 
 // ============================================================
-// POST — create payment (IN or OUT)
+// POST — create payment (manual only — no ref_id)
 // ============================================================
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
 
   try {
     const body: any = await request.json();
-    console.log('📝 Create kubandika payment:', body);
 
-    // Validation
     if (!body.region || !['Tz', 'China'].includes(body.region)) {
-      return jsonResponse(
-        { success: false, error: 'Eneo (Tz/China) linahitajika' },
-        400
-      );
+      return jsonResponse({ success: false, error: 'Eneo (Tz/China) linahitajika' }, 400);
     }
-
     if (!body.amount || Number(body.amount) <= 0) {
-      return jsonResponse(
-        { success: false, error: 'Kiasi kinahitajika' },
-        400
-      );
+      return jsonResponse({ success: false, error: 'Kiasi kinahitajika' }, 400);
     }
-
     if (!body.date) {
-      return jsonResponse(
-        { success: false, error: 'Tarehe inahitajika' },
-        400
-      );
+      return jsonResponse({ success: false, error: 'Tarehe inahitajika' }, 400);
     }
 
-    // ✅ 'type' — 'IN' for received, 'OUT' for punguza/toa
     const transactionType = body.type === 'OUT' ? 'OUT' : 'IN';
-
     const id = body.id || `kub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
     await env.DB.prepare(
       `INSERT INTO kubandika_payments (
-        id, region, type, amount, date, method, received_from, notes,
+        id, region, type, amount, date, method, received_from, notes, ref_id,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', datetime('now'), datetime('now'))`
     ).bind(
       id,
       body.region,
