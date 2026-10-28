@@ -33,7 +33,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     if (!amount || amount <= 0) return json({ error: 'Kiasi si sahihi' }, 400);
     if (!paymentDate) return json({ error: 'Tarehe ya malipo inahitajika' }, 400);
 
-    // Load loan
     const loan: any = await env.DB
       .prepare('SELECT * FROM kopesha_loans WHERE id = ?')
       .bind(loanId).first();
@@ -47,24 +46,43 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ error: `Kiasi kinazidi baki (TSh ${remaining.toLocaleString()})` }, 400);
     }
 
-    const paymentId = `kpay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const customer: any = await env.DB
+      .prepare('SELECT full_name FROM kopesha_customers WHERE id = ?')
+      .bind(loan.customer_id).first();
 
-    // Insert payment
+    const paymentId = `kpay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const kubId = `kub-kopesha-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+    // 1. Insert payment
     await env.DB.prepare(
       `INSERT INTO kopesha_payments
          (id, loan_id, amount, payment_date, payment_method, notes)
        VALUES (?, ?, ?, ?, ?, ?)`
     ).bind(paymentId, loanId, amount, paymentDate, paymentMethod, notes).run();
 
-    // Update loan totals + status
+    // 2. Update loan
     const newPaid = currentPaid + amount;
     const newStatus = newPaid >= totalAmount ? 'Cleared' : 'Active';
-
     await env.DB.prepare(
       `UPDATE kopesha_loans
          SET paid_amount = ?, status = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`
     ).bind(newPaid, newStatus, loanId).run();
+
+    // ✅ 3. Auto-insert kubandika IN (China) with ref_id = paymentId
+    await env.DB.prepare(
+      `INSERT INTO kubandika_payments
+         (id, region, type, amount, date, method, received_from, notes, ref_id, created_at, updated_at)
+       VALUES (?, 'China', 'IN', ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+    ).bind(
+      kubId,
+      amount,
+      paymentDate,
+      paymentMethod,
+      customer?.full_name || 'Mkopaji',
+      `Rejesho: mkopo kutoka ${customer?.full_name || 'Mkopaji'} - TSh ${amount.toLocaleString()}`,
+      paymentId
+    ).run();
 
     const payment: any = await env.DB
       .prepare('SELECT * FROM kopesha_payments WHERE id = ?')
