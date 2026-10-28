@@ -186,7 +186,7 @@ export default function App() {
     return localStorage.getItem('ledger_authenticated') === 'true';
   });
 
-  // ✅ NEW: Track user role (admin or staff)
+  // ✅ Track user role (admin or staff)
   const [userRole, setUserRole] = useState<'admin' | 'staff' | null>(() => {
     return (localStorage.getItem('ledger_role') as 'admin' | 'staff') || null;
   });
@@ -390,7 +390,6 @@ export default function App() {
     }
   }, [isAuthenticated, isWorkerUrl]);
 
-  // ✅ Receive role from AuthScreen
   const handleAuthenticated = (role: 'admin' | 'staff') => {
     setIsAuthenticated(true);
     setUserRole(role);
@@ -398,7 +397,6 @@ export default function App() {
     localStorage.setItem('ledger_role', role);
   };
 
-  // ✅ Clear role on logout
   const handleLogout = () => {
     setIsAuthenticated(false);
     setUserRole(null);
@@ -423,13 +421,14 @@ export default function App() {
     window.open(APK_DOWNLOAD_URL, '_blank');
   };
 
-  const navigationItems = [
+  // ✅ Filtered navigation items — hide Kopesha & Stock from Staff
+  const allNavigationItems = [
     { id: 'dashboard', label: 'Bao Kuu (Dashboard)', icon: LayoutDashboard },
     { id: 'customers', label: 'Wateja (wadaiwa)', icon: Users },
     { id: 'debts', label: 'Madeni ya Wateja (All)', icon: BookOpen },
     { id: 'suppliers', label: 'Ma Suppliers (Wanaotudai)', icon: Truck },
     { id: 'installments', label: 'Kubandika (Installments)', icon: Wallet },
-    { id: 'kopesha', label: 'Kopesha (Mikopo)', icon: Banknote },
+    { id: 'kopesha', label: 'Kopesha (Mikopo)', icon: Banknote, adminOnly: true },
     {
       id: 'kubandika',
       label: 'Kubandika Tz/China',
@@ -438,15 +437,26 @@ export default function App() {
       highlight: 'kubandika',
     },
     { id: 'orders', label: 'Oda (Orders)', icon: ShoppingCart },
-    { id: 'stock', label: 'Bidhaa Zisizokuepo', icon: Package },
+    { id: 'stock', label: 'Bidhaa Zisizokuepo', icon: Package, adminOnly: true },
     { id: 'calendar', label: 'Kalenda (Calendar)', icon: Calendar },
     { id: 'reports', label: 'Ripoti (Reports)', icon: FileSpreadsheet },
     { id: 'memory', label: 'Kumbukumbu (Memory)', icon: FolderOpen },
     { id: 'settings', label: 'Mipangilio (Settings)', icon: Settings },
   ];
 
+  const navigationItems = allNavigationItems.filter(item => 
+    !(item as any).adminOnly || userRole === 'admin'
+  );
+
+  // ✅ Force staff out of admin-only tabs if they somehow get there
+  useEffect(() => {
+    if (userRole === 'staff' && (currentTab === 'kopesha' || currentTab === 'stock')) {
+      setCurrentTab('dashboard');
+    }
+  }, [userRole, currentTab]);
+
   // ============================================
-  // WORKER VIEW (via ?worker=1 URL)
+  // WORKER VIEW (via ?worker=1 URL) — NO RUDI BUTTON
   // ============================================
   if (isWorkerUrl) {
     return (
@@ -463,15 +473,7 @@ export default function App() {
               </span>
             </div>
           </div>
-          <button
-            onClick={() => {
-              setIsWorkerUrl(false);
-              window.history.replaceState({}, '', window.location.pathname);
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 transition"
-          >
-            Rudi
-          </button>
+          {/* ✅ "Rudi" button completely removed — worker is locked in */}
         </header>
 
         <main className="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full overflow-y-auto">
@@ -547,7 +549,6 @@ export default function App() {
               <div className="h-6 w-6 rounded-md bg-accent flex items-center justify-center text-white font-bold shadow-md shadow-accent/20"><Shield size={14} /></div>
               <div>
                 <h2 className="text-sm font-extrabold text-white leading-tight truncate w-32">{settings?.businessName || 'Sonko Sound'}</h2>
-                {/* ✅ NEW: Show Role Badge */}
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
                   {userRole === 'admin' ? '👑 Admin' : '👤 Staff'}
                 </span>
@@ -627,7 +628,6 @@ export default function App() {
           <div className="h-6 w-6 rounded-md bg-accent flex items-center justify-center text-white font-bold"><Shield size={12} /></div>
           <div>
             <span className="text-xs font-bold text-white truncate max-w-[150px]">{settings?.businessName || 'Sonko Sound'}</span>
-            {/* ✅ NEW: Role badge on mobile too */}
             <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">
               {userRole === 'admin' ? '👑 Admin' : '👤 Staff'}
             </span>
@@ -717,7 +717,7 @@ export default function App() {
             onUpdate={() => syncDatabaseStates(false)} 
             selectedCustomerId={selectedCustomerId} 
             setSelectedCustomerId={setSelectedCustomerId}
-            userRole={userRole} // ✅ Passed role
+            userRole={userRole}
           />
         )}
         {currentTab === 'debts' && (
@@ -728,31 +728,32 @@ export default function App() {
             onUpdate={() => syncDatabaseStates(false)} 
             setCurrentTab={setCurrentTab} 
             setSelectedCustomerId={setSelectedCustomerId}
-            userRole={userRole} // ✅ Passed role
+            userRole={userRole}
           />
         )}
         {currentTab === 'suppliers' && (
           <SupplierManagement 
             suppliers={suppliers} 
             onUpdate={() => syncDatabaseStates(false)} 
-            userRole={userRole} // ✅ Passed role
+            userRole={userRole}
           />
         )}
         {currentTab === 'installments' && (
           <InstallmentManagement 
             onUpdate={() => syncDatabaseStates(false)} 
             onNotificationsGenerated={handleInstallmentNotifications}
-            userRole={userRole} // ✅ Passed role
+            userRole={userRole}
           />
         )}
-        {currentTab === 'kopesha' && (
+        {/* ✅ Kopesha — Only mounted if user is Admin */}
+        {currentTab === 'kopesha' && userRole === 'admin' && (
           <Kopesha 
             onUpdate={() => syncDatabaseStates(false)} 
-            userRole={userRole} // ✅ Passed role
+            userRole={userRole}
           />
         )}
         {currentTab === 'kubandika' && (
-          <KubandikaPage userRole={userRole} /> // ✅ Passed role
+          <KubandikaPage userRole={userRole} />
         )}
         {currentTab === 'orders' && (
           <OrdersPage onUpdate={() => {
@@ -760,8 +761,12 @@ export default function App() {
             processAdminSMSQueue();
           }} />
         )}
-        {currentTab === 'stock' && (
-          <StockRequests onUpdate={() => syncDatabaseStates(false)} />
+        {/* ✅ Stock — Only mounted if user is Admin */}
+        {currentTab === 'stock' && userRole === 'admin' && (
+          <StockRequests 
+            onUpdate={() => syncDatabaseStates(false)} 
+            userRole={userRole}
+          />
         )}
         {currentTab === 'calendar' && (
           <CalendarView debts={debts} customers={customers} payments={payments} suppliers={suppliers} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />
