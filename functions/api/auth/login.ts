@@ -12,9 +12,8 @@ export const onRequestPost = async (context: any) => {
       );
     }
 
-    // ✅ FIX: context.env.DB (not context.DB)
     const setting: any = await context.env.DB.prepare(
-      'SELECT password_hash, admin_pin FROM settings WHERE id = 1'
+      'SELECT password_hash, admin_pin, cashier_pin FROM settings WHERE id = 1'
     ).first();
 
     if (!setting) {
@@ -24,7 +23,17 @@ export const onRequestPost = async (context: any) => {
       );
     }
 
-    // 1. Check Admin PIN
+    // 1. ✅ Cashier PIN — from DB (default '0712')
+    const cashierPin = (setting.cashier_pin || '0712').trim();
+    if (cashierPin && cashierPin === cleanPin) {
+      return Response.json({
+        success: true,
+        token: 'cashier-session',
+        role: 'cashier',
+      });
+    }
+
+    // 2. Admin PIN
     if (setting.admin_pin && setting.admin_pin === cleanPin) {
       return Response.json({
         success: true,
@@ -33,7 +42,7 @@ export const onRequestPost = async (context: any) => {
       });
     }
 
-    // 2. Check Staff PIN
+    // 3. Staff PIN
     if (setting.password_hash && setting.password_hash === cleanPin) {
       return Response.json({
         success: true,
