@@ -7,11 +7,11 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { 
   Plus, X, Trash2, Check, Loader2, AlertCircle,
   Package, Search, CheckCircle2, Clock,
-  ListChecks, Phone, UserPlus, ChevronRight, LogOut,
+  ListChecks, Phone, UserPlus, ChevronRight, 
   TrendingUp, Calendar, Users, ShoppingBag, RefreshCw,
-  CheckSquare, Square, CalendarDays, Filter, MoreVertical,
-  Download, FileText, FileDown, Edit2, Camera, Image as ImageIcon,
-  UserCog, Save, ChevronLeft
+  CheckSquare, Square, MoreVertical,
+  Download, FileText, FileDown, Camera, Image as ImageIcon,
+  UserCog, Save, ChevronLeft, Sparkles, Box, Lock
 } from 'lucide-react';
 import { compressProfilePicture, compressProductImage } from '../utils/imageCompression';
 
@@ -41,12 +41,13 @@ interface StockItem {
 interface StockRequestsProps {
   onUpdate?: () => void;
   isWorkerMode?: boolean;
+  userRole?: 'admin' | 'staff' | null;
 }
 
 const API_BASE_URL = '/api/stock-requests';
 const WORKER_DEVICE_KEY = 'worker_device_id';
 
-export default function StockRequests({ onUpdate, isWorkerMode = false }: StockRequestsProps) {
+export default function StockRequests({ onUpdate, isWorkerMode = false, userRole }: StockRequestsProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -64,9 +65,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   
-  // ============================================
-  // IMAGE GALLERY STATE (NEW)
-  // ============================================
+  // Gallery State
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [galleryImages, setGalleryImages] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
@@ -128,13 +127,11 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   // ============================================
   useEffect(() => {
     if (!isGalleryOpen) return;
-    
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setIsGalleryOpen(false);
       if (e.key === 'ArrowLeft') setGalleryIndex(i => i > 0 ? i - 1 : galleryImages.length - 1);
       if (e.key === 'ArrowRight') setGalleryIndex(i => i < galleryImages.length - 1 ? i + 1 : 0);
     };
-    
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isGalleryOpen, galleryImages.length]);
@@ -189,16 +186,11 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   useEffect(() => {
     if (isWorkerMode && !isInitializing && rememberedWorkerId && workers.length > 0) {
       const exists = workers.find(w => w.id === rememberedWorkerId);
-      if (exists) {
-        setSelectedWorkerId(rememberedWorkerId);
-      } else {
-        localStorage.removeItem(WORKER_DEVICE_KEY);
-        setRememberedWorkerId(null);
-      }
+      if (exists) setSelectedWorkerId(rememberedWorkerId);
+      else { localStorage.removeItem(WORKER_DEVICE_KEY); setRememberedWorkerId(null); }
     }
   }, [rememberedWorkerId, workers, isInitializing, isWorkerMode]);
 
-  // If worker selects a name (first time), remember it
   useEffect(() => {
     if (isWorkerMode && selectedWorkerId && !rememberedWorkerId) {
       localStorage.setItem(WORKER_DEVICE_KEY, selectedWorkerId);
@@ -219,71 +211,36 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   const handleProfileImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('Chagua picha tu');
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
+    if (!file.type.startsWith('image/')) { setError('Chagua picha tu'); setTimeout(() => setError(null), 3000); return; }
     setIsCompressing(true);
-    try {
-      const compressed = await compressProfilePicture(file);
-      setWorkerPhoto(compressed);
-    } catch (err) {
-      setError('Imeshindwa kusindika picha');
-    } finally {
-      setIsCompressing(false);
-    }
+    try { setWorkerPhoto(await compressProfilePicture(file)); } catch { setError('Imeshindwa kusindika picha'); } finally { setIsCompressing(false); }
   };
 
   const handleEditProfileImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('Chagua picha tu');
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
+    if (!file.type.startsWith('image/')) { setError('Chagua picha tu'); setTimeout(() => setError(null), 3000); return; }
     setIsCompressing(true);
-    try {
-      const compressed = await compressProfilePicture(file);
-      setEditWorkerPhoto(compressed);
-    } catch (err) {
-      setError('Imeshindwa kusindika picha');
-    } finally {
-      setIsCompressing(false);
-    }
+    try { setEditWorkerPhoto(await compressProfilePicture(file)); } catch { setError('Imeshindwa kusindika picha'); } finally { setIsCompressing(false); }
   };
 
   const handleProductImageChange = async (e: React.ChangeEvent<HTMLInputElement>, slot: 1 | 2) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('Chagua picha tu');
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
+    if (!file.type.startsWith('image/')) { setError('Chagua picha tu'); setTimeout(() => setError(null), 3000); return; }
     setIsCompressing(true);
     try {
       const compressed = await compressProductImage(file);
       if (slot === 1) setProductImage1(compressed);
       else setProductImage2(compressed);
-    } catch (err) {
-      setError('Imeshindwa kusindika picha');
-    } finally {
-      setIsCompressing(false);
-    }
+    } catch { setError('Imeshindwa kusindika picha'); } finally { setIsCompressing(false); }
   };
 
-  // ============================================
-  // GALLERY OPENER (NEW)
-  // ============================================
   const openGallery = (item: StockItem, startIndex: number = 0) => {
     const images: string[] = [];
     if (item.image1) images.push(item.image1);
     if (item.image2) images.push(item.image2);
-    
     if (images.length === 0) return;
-    
     setGalleryImages(images);
     setGalleryIndex(Math.min(startIndex, images.length - 1));
     setGalleryTitle(item.product_name);
@@ -301,38 +258,23 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
     switch (filterType) {
-      case 'Today':
-        return { start: today, end: new Date(today.getTime() + 24 * 60 * 60 * 1000) };
-      case 'Yesterday': {
-        const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-        return { start: yesterday, end: today };
-      }
-      case 'Week': {
-        const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-        return { start: weekAgo, end: new Date(today.getTime() + 24 * 60 * 60 * 1000) };
-      }
-      case 'Month': {
-        const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-        return { start: monthAgo, end: new Date(today.getTime() + 24 * 60 * 60 * 1000) };
-      }
+      case 'Today': return { start: today, end: new Date(today.getTime() + 24 * 60 * 60 * 1000) };
+      case 'Yesterday': { const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000); return { start: yesterday, end: today }; }
+      case 'Week': { const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000); return { start: weekAgo, end: new Date(today.getTime() + 24 * 60 * 60 * 1000) }; }
+      case 'Month': { const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000); return { start: monthAgo, end: new Date(today.getTime() + 24 * 60 * 60 * 1000) }; }
       case 'Custom': {
         const start = customStartDate ? new Date(customStartDate) : new Date(0);
-        const end = customEndDate 
-          ? new Date(new Date(customEndDate).getTime() + 24 * 60 * 60 * 1000) 
-          : new Date();
+        const end = customEndDate ? new Date(new Date(customEndDate).getTime() + 24 * 60 * 60 * 1000) : new Date();
         return { start, end };
       }
-      default:
-        return null;
+      default: return null;
     }
   }, [dateFilter, customStartDate, customEndDate]);
 
   const isItemInDateRange = useCallback((item: StockItem, filterType?: typeof dateFilter) => {
     const range = getDateRange(filterType);
     if (!range) return true;
-    const dateToCheck = item.status === 'Purchased' && item.purchased_at 
-      ? new Date(item.purchased_at) 
-      : new Date(item.created_at);
+    const dateToCheck = item.status === 'Purchased' && item.purchased_at ? new Date(item.purchased_at) : new Date(item.created_at);
     return dateToCheck >= range.start && dateToCheck < range.end;
   }, [getDateRange]);
 
@@ -357,55 +299,30 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
 
   const activeWorkerStats = useMemo(() => {
     const items = activeWorkerItems;
-    return {
-      total: items.length,
-      pending: items.filter(i => i.status === 'Pending').length,
-      purchased: items.filter(i => i.status === 'Purchased').length
-    };
+    return { total: items.length, pending: items.filter(i => i.status === 'Pending').length, purchased: items.filter(i => i.status === 'Purchased').length };
   }, [activeWorkerItems]);
 
   const adminStats = useMemo(() => {
     const dateFiltered = stockItems.filter(i => isItemInDateRange(i));
     const pending = dateFiltered.filter(i => i.status === 'Pending').length;
     const purchased = dateFiltered.filter(i => i.status === 'Purchased').length;
-    return { 
-      total: dateFiltered.length, 
-      pending, 
-      purchased, 
-      workers: workers.length,
-      purchaseRate: dateFiltered.length > 0 
-        ? Math.round((purchased / dateFiltered.length) * 100) 
-        : 0
-    };
+    return { total: dateFiltered.length, pending, purchased, workers: workers.length, purchaseRate: dateFiltered.length > 0 ? Math.round((purchased / dateFiltered.length) * 100) : 0 };
   }, [stockItems, workers, isItemInDateRange]);
 
   const itemsByWorker = useMemo(() => {
     const grouped: Record<string, { worker: Worker; items: StockItem[]; pending: number; purchased: number }> = {};
-    
     workers.forEach(worker => {
       const workerItems = stockItems.filter(i => i.worker_id === worker.id);
       let filteredItems = workerItems.filter(i => isItemInDateRange(i));
-      
       if (adminFilter !== 'All') filteredItems = filteredItems.filter(i => i.status === adminFilter);
-      
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
-        filteredItems = filteredItems.filter(i => 
-          i.product_name.toLowerCase().includes(term) ||
-          (i.notes && i.notes.toLowerCase().includes(term))
-        );
+        filteredItems = filteredItems.filter(i => i.product_name.toLowerCase().includes(term) || (i.notes && i.notes.toLowerCase().includes(term)));
       }
-      
       if (filteredItems.length > 0 || workerItems.length === 0) {
-        grouped[worker.id] = {
-          worker,
-          items: filteredItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
-          pending: workerItems.filter(i => i.status === 'Pending').length,
-          purchased: workerItems.filter(i => i.status === 'Purchased').length
-        };
+        grouped[worker.id] = { worker, items: filteredItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), pending: workerItems.filter(i => i.status === 'Pending').length, purchased: workerItems.filter(i => i.status === 'Purchased').length };
       }
     });
-    
     if (workerFilter !== 'All') {
       const filtered: typeof grouped = {};
       if (grouped[workerFilter]) filtered[workerFilter] = grouped[workerFilter];
@@ -423,8 +340,6 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     setRememberedWorkerId(workerId);
   };
 
-  // NO handleSwitchWorker — removed back arrow function
-
   const openEditWorkerModal = () => {
     if (!activeWorker) return;
     setEditWorkerName(activeWorker.name);
@@ -436,101 +351,58 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
   const handleUpdateWorker = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeWorker || !editWorkerName.trim()) return;
-    
     setIsLoading(true);
     setError(null);
-    
     try {
       const response = await fetch(`${API_BASE_URL}/workers/${activeWorker.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editWorkerName.trim(),
-          phone: editWorkerPhone.trim(),
-          photo: editWorkerPhoto
-        })
+        body: JSON.stringify({ name: editWorkerName.trim(), phone: editWorkerPhone.trim(), photo: editWorkerPhoto })
       });
-      
       const result = await response.json();
-      
       if (result.success) {
-        setWorkers(prev => prev.map(w => 
-          w.id === activeWorker.id 
-            ? { ...w, name: result.worker.name, phone: result.worker.phone, photo: result.worker.photo }
-            : w
-        ));
-        setStockItems(prev => prev.map(i => 
-          i.worker_id === activeWorker.id ? { ...i, worker_name: result.worker.name } : i
-        ));
-        
+        setWorkers(prev => prev.map(w => w.id === activeWorker.id ? { ...w, name: result.worker.name, phone: result.worker.phone, photo: result.worker.photo } : w));
+        setStockItems(prev => prev.map(i => i.worker_id === activeWorker.id ? { ...i, worker_name: result.worker.name } : i));
         setIsEditWorkerModalOpen(false);
         setSuccessMessage('Wasifu umehifadhiwa!');
         setTimeout(() => setSuccessMessage(null), 3000);
         if (onUpdate) onUpdate();
-      } else {
-        setError(result.error || 'Imeshindwa kuhifadhi wasifu');
-        setTimeout(() => setError(null), 5000);
-      }
+      } else throw new Error(result.error);
     } catch (err: any) {
-      setWorkers(prev => prev.map(w => 
-        w.id === activeWorker.id 
-          ? { ...w, name: editWorkerName.trim(), phone: editWorkerPhone.trim(), photo: editWorkerPhoto }
-          : w
-      ));
-      setStockItems(prev => prev.map(i => 
-        i.worker_id === activeWorker.id ? { ...i, worker_name: editWorkerName.trim() } : i
-      ));
+      setWorkers(prev => prev.map(w => w.id === activeWorker.id ? { ...w, name: editWorkerName.trim(), phone: editWorkerPhone.trim(), photo: editWorkerPhoto } : w));
+      setStockItems(prev => prev.map(i => i.worker_id === activeWorker.id ? { ...i, worker_name: editWorkerName.trim() } : i));
       setIsEditWorkerModalOpen(false);
       setSuccessMessage('Wasifu umehifadhiwa!');
       setTimeout(() => setSuccessMessage(null), 3000);
-    } finally {
-      setIsLoading(false);
-    }
+    } finally { setIsLoading(false); }
   };
 
   const handleDeleteWorker = async (workerId: string) => {
     const worker = workers.find(w => w.id === workerId);
     const workerItems = stockItems.filter(i => i.worker_id === workerId);
-    
     if (!confirm(`Je, una uhakika unataka kumfuta "${worker?.name}" pamoja na bidhaa zake ${workerItems.length}?`)) return;
-    
     setOpenMenuId(null);
     setIsLoading(true);
-    
     try {
       const response = await fetch(`${API_BASE_URL}/workers/${workerId}`, { method: 'DELETE' });
       const result = await response.json();
-      
       if (result.success) {
         setWorkers(prev => prev.filter(w => w.id !== workerId));
         setStockItems(prev => prev.filter(i => i.worker_id !== workerId));
-        
         if (selectedWorkerId === workerId) setSelectedWorkerId(null);
-        if (rememberedWorkerId === workerId) {
-          localStorage.removeItem(WORKER_DEVICE_KEY);
-          setRememberedWorkerId(null);
-        }
-        
+        if (rememberedWorkerId === workerId) { localStorage.removeItem(WORKER_DEVICE_KEY); setRememberedWorkerId(null); }
         setSuccessMessage('Mfanyakazi amefutwa');
         setTimeout(() => setSuccessMessage(null), 3000);
         if (onUpdate) onUpdate();
-      } else {
-        setError(result.error || 'Imeshindwa kumfuta mfanyakazi');
-        setTimeout(() => setError(null), 5000);
-      }
+      } else throw new Error(result.error);
     } catch (err: any) {
       setWorkers(prev => prev.filter(w => w.id !== workerId));
       setStockItems(prev => prev.filter(i => i.worker_id !== workerId));
       if (selectedWorkerId === workerId) setSelectedWorkerId(null);
-      if (rememberedWorkerId === workerId) {
-        localStorage.removeItem(WORKER_DEVICE_KEY);
-        setRememberedWorkerId(null);
-      }
+      if (rememberedWorkerId === workerId) { localStorage.removeItem(WORKER_DEVICE_KEY); setRememberedWorkerId(null); }
       setSuccessMessage('Mfanyakazi amefutwa');
       setTimeout(() => setSuccessMessage(null), 3000);
-    } finally {
-      setIsLoading(false);
-    }
+    } finally { setIsLoading(false); }
   };
 
   const toggleWorkerExpanded = (workerId: string) => {
@@ -542,36 +414,15 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     });
   };
 
-  const expandAllWorkers = () => setExpandedWorkers(new Set(Object.keys(itemsByWorker)));
-  const collapseAllWorkers = () => setExpandedWorkers(new Set());
-
   const handleAddWorker = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!workerName.trim()) return;
-    
     const existing = workers.find(w => w.name.toLowerCase() === workerName.trim().toLowerCase());
-    if (existing) {
-      setError('Jina hili tayari lipo.');
-      setTimeout(() => setError(null), 5000);
-      return;
-    }
-    
-    setIsLoading(true);
-    setError(null);
-    
+    if (existing) { setError('Jina hili tayari lipo.'); setTimeout(() => setError(null), 5000); return; }
+    setIsLoading(true); setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/workers`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: workerName.trim(),
-          phone: workerPhone.trim(),
-          photo: workerPhoto
-        })
-      });
-      
+      const response = await fetch(`${API_BASE_URL}/workers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: workerName.trim(), phone: workerPhone.trim(), photo: workerPhoto }) });
       const result = await response.json();
-      
       if (result.success) {
         setWorkers(prev => [...prev, result.worker]);
         setIsAddWorkerModalOpen(false);
@@ -579,168 +430,75 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
         handleSelectWorker(result.worker.id);
         setSuccessMessage('Jina lako limesajiliwa!');
         setTimeout(() => setSuccessMessage(null), 3000);
-      } else {
-        setError(result.error || 'Imeshindwa kusajili jina');
-      }
+      } else setError(result.error || 'Imeshindwa kusajili jina');
     } catch (err: any) {
-      const newWorker: Worker = {
-        id: 'worker-' + Date.now(),
-        name: workerName.trim(),
-        phone: workerPhone.trim(),
-        photo: workerPhoto,
-        created_at: new Date().toISOString()
-      };
+      const newWorker: Worker = { id: 'worker-' + Date.now(), name: workerName.trim(), phone: workerPhone.trim(), photo: workerPhoto, created_at: new Date().toISOString() };
       setWorkers(prev => [...prev, newWorker]);
       setIsAddWorkerModalOpen(false);
       resetWorkerForm();
       handleSelectWorker(newWorker.id);
-      
-      const savedData = localStorage.getItem('stock_requests_data');
-      const parsed = savedData ? JSON.parse(savedData) : { workers: [], items: [] };
-      parsed.workers = [...(parsed.workers || []), newWorker];
-      localStorage.setItem('stock_requests_data', JSON.stringify(parsed));
-      
       setSuccessMessage('Jina lako limesajiliwa!');
       setTimeout(() => setSuccessMessage(null), 3000);
-    } finally {
-      setIsLoading(false);
-    }
+    } finally { setIsLoading(false); }
   };
 
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedWorkerId || !productName.trim()) return;
-    
-    setIsLoading(true);
-    setError(null);
-    
+    setIsLoading(true); setError(null);
     const worker = workers.find(w => w.id === selectedWorkerId);
-    if (!worker) {
-      setError('Mfanyakazi hakupatikana');
-      setIsLoading(false);
-      return;
-    }
-    
+    if (!worker) { setError('Mfanyakazi hakupatikana'); setIsLoading(false); return; }
     try {
-      const response = await fetch(`${API_BASE_URL}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workerId: selectedWorkerId,
-          workerName: worker.name,
-          productName: productName.trim(),
-          quantity: productQuantity.trim(),
-          notes: productNotes.trim(),
-          image1: productImage1,
-          image2: productImage2
-        })
-      });
-      
+      const response = await fetch(`${API_BASE_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workerId: selectedWorkerId, workerName: worker.name, productName: productName.trim(), quantity: productQuantity.trim(), notes: productNotes.trim(), image1: productImage1, image2: productImage2 }) });
       const result = await response.json();
-      
       if (result.success) {
         setStockItems(prev => [result.item, ...prev]);
         setIsAddProductModalOpen(false);
         resetProductForm();
         setSuccessMessage('Bidhaa imeongezwa!');
         setTimeout(() => setSuccessMessage(null), 3000);
-      } else {
-        setError(result.error || 'Imeshindwa kuongeza bidhaa');
-      }
+      } else setError(result.error || 'Imeshindwa kuongeza bidhaa');
     } catch (err: any) {
-      const newItem: StockItem = {
-        id: 'item-' + Date.now(),
-        worker_id: selectedWorkerId,
-        worker_name: worker.name,
-        product_name: productName.trim(),
-        quantity: productQuantity.trim(),
-        notes: productNotes.trim(),
-        image1: productImage1,
-        image2: productImage2,
-        status: 'Pending',
-        created_at: new Date().toISOString()
-      };
+      const newItem: StockItem = { id: 'item-' + Date.now(), worker_id: selectedWorkerId, worker_name: worker.name, product_name: productName.trim(), quantity: productQuantity.trim(), notes: productNotes.trim(), image1: productImage1, image2: productImage2, status: 'Pending', created_at: new Date().toISOString() };
       setStockItems(prev => [newItem, ...prev]);
       setIsAddProductModalOpen(false);
       resetProductForm();
-      
-      const savedData = localStorage.getItem('stock_requests_data');
-      const parsed = savedData ? JSON.parse(savedData) : { workers: [], items: [] };
-      parsed.items = [newItem, ...(parsed.items || [])];
-      localStorage.setItem('stock_requests_data', JSON.stringify(parsed));
-      
       setSuccessMessage('Bidhaa imeongezwa!');
       setTimeout(() => setSuccessMessage(null), 3000);
-    } finally {
-      setIsLoading(false);
-    }
+    } finally { setIsLoading(false); }
   };
 
-  const resetWorkerForm = () => {
-    setWorkerName('');
-    setWorkerPhone('');
-    setWorkerPhoto('');
-  };
-
+  const resetWorkerForm = () => { setWorkerName(''); setWorkerPhone(''); setWorkerPhoto(''); };
   const resetProductForm = () => {
-    setProductName('');
-    setProductQuantity('');
-    setProductNotes('');
-    setProductImage1('');
-    setProductImage2('');
-    if (file1Ref.current) file1Ref.current.value = '';
-    if (file2Ref.current) file2Ref.current.value = '';
+    setProductName(''); setProductQuantity(''); setProductNotes(''); setProductImage1(''); setProductImage2('');
+    if (file1Ref.current) file1Ref.current.value = ''; if (file2Ref.current) file2Ref.current.value = '';
   };
 
   const handleToggleStatus = async (itemId: string, currentStatus: 'Pending' | 'Purchased') => {
     const newStatus = currentStatus === 'Pending' ? 'Purchased' : 'Pending';
     const previousStatus = currentStatus;
-    
-    setStockItems(prev => prev.map(item => 
-      item.id === itemId 
-        ? { ...item, status: newStatus, purchased_at: newStatus === 'Purchased' ? new Date().toISOString() : undefined }
-        : item
-    ));
-    
+    setStockItems(prev => prev.map(item => item.id === itemId ? { ...item, status: newStatus, purchased_at: newStatus === 'Purchased' ? new Date().toISOString() : undefined } : item));
     try {
-      const response = await fetch(`${API_BASE_URL}/${itemId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
-      });
+      const response = await fetch(`${API_BASE_URL}/${itemId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) });
       const result = await response.json();
-      
       if (result.success) {
         setSuccessMessage(newStatus === 'Purchased' ? '✅ Imewekwa kama Zimenunuliwa!' : 'Imerejeshwa');
         setTimeout(() => setSuccessMessage(null), 1500);
         if (onUpdate) onUpdate();
       } else throw new Error(result.error);
     } catch (err) {
-      setStockItems(prev => prev.map(item => 
-        item.id === itemId ? { ...item, status: previousStatus } : item
-      ));
-      setError('Imeshindwa kuhifadhi');
-      setTimeout(() => setError(null), 3000);
+      setStockItems(prev => prev.map(item => item.id === itemId ? { ...item, status: previousStatus } : item));
+      setError('Imeshindwa kuhifadhi'); setTimeout(() => setError(null), 3000);
     }
   };
 
   const handleBulkTick = async (itemIds: string[], targetStatus: 'Purchased' | 'Pending') => {
     if (itemIds.length === 0) return;
     if (!confirm(targetStatus === 'Purchased' ? `Weka bidhaa ${itemIds.length} kama Zimenunuliwa?` : `Rejesha bidhaa ${itemIds.length}?`)) return;
-    
     const previousItems = [...stockItems];
-    setStockItems(prev => prev.map(item => 
-      itemIds.includes(item.id) ? { ...item, status: targetStatus } : item
-    ));
-    
+    setStockItems(prev => prev.map(item => itemIds.includes(item.id) ? { ...item, status: targetStatus } : item));
     try {
-      const promises = itemIds.map(itemId =>
-        fetch(`${API_BASE_URL}/${itemId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: targetStatus })
-        })
-      );
+      const promises = itemIds.map(itemId => fetch(`${API_BASE_URL}/${itemId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: targetStatus }) }));
       const results = await Promise.all(promises);
       if (results.every(r => r.ok)) {
         setSuccessMessage(targetStatus === 'Purchased' ? `✅ Bidhaa ${itemIds.length} zimewekwa!` : 'Zimerejeshwa');
@@ -748,9 +506,7 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
         if (onUpdate) onUpdate();
       } else throw new Error('Failed');
     } catch (err) {
-      setStockItems(previousItems);
-      setError('Imeshindwa kuhifadhi');
-      setTimeout(() => setError(null), 3000);
+      setStockItems(previousItems); setError('Imeshindwa kuhifadhi'); setTimeout(() => setError(null), 3000);
     }
   };
 
@@ -760,32 +516,21 @@ export default function StockRequests({ onUpdate, isWorkerMode = false }: StockR
     setStockItems(prev => prev.filter(item => item.id !== itemId));
     try {
       await fetch(`${API_BASE_URL}/${itemId}`, { method: 'DELETE' });
-      setSuccessMessage('Bidhaa imefutwa');
-      setTimeout(() => setSuccessMessage(null), 2000);
+      setSuccessMessage('Bidhaa imefutwa'); setTimeout(() => setSuccessMessage(null), 2000);
       if (onUpdate) onUpdate();
-    } catch (err) {
-      setStockItems(previousItems);
-    }
+    } catch (err) { setStockItems(previousItems); }
   };
 
-  // ============================================
-  // PDF (same as before, with images)
-  // ============================================
   const generatePDF = (workerId: string | null, filterType: 'All' | 'Today' | 'Week' | 'Month') => {
     let itemsToReport: StockItem[] = [];
-    if (workerId) itemsToReport = stockItems.filter(i => i.worker_id === workerId);
-    else itemsToReport = [...stockItems];
-    
+    if (workerId) itemsToReport = stockItems.filter(i => i.worker_id === workerId); else itemsToReport = [...stockItems];
     const range = getDateRange(filterType);
     if (range) {
       itemsToReport = itemsToReport.filter(item => {
-        const dateToCheck = item.status === 'Purchased' && item.purchased_at 
-          ? new Date(item.purchased_at) 
-          : new Date(item.created_at);
+        const dateToCheck = item.status === 'Purchased' && item.purchased_at ? new Date(item.purchased_at) : new Date(item.created_at);
         return dateToCheck >= range.start && dateToCheck < range.end;
       });
     }
-    
     const purchased = itemsToReport.filter(i => i.status === 'Purchased');
     const pending = itemsToReport.filter(i => i.status === 'Pending');
     const filterLabels: Record<string, string> = { 'All': 'Zote', 'Today': 'Leo', 'Week': 'Wiki Hii', 'Month': 'Mwezi Huu' };
@@ -884,9 +629,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
       printWindow.document.open();
       printWindow.document.write(htmlContent);
       printWindow.document.close();
-    } else {
-      alert('Tafadhali ruhusu pop-ups');
-    }
+    } else alert('Tafadhali ruhusu pop-ups');
     
     setIsDownloadModalOpen(false);
     setDownloadWorkerId(null);
@@ -912,6 +655,10 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
     );
   }
 
+  // ✅ HARD LOCK: If user is Staff, force the worker view and hide admin panel
+  const effectiveRole = userRole || (isWorkerMode ? 'staff' : 'staff');
+  const showAdminPanel = effectiveRole === 'admin';
+
   return (
     <div className="space-y-6">
       
@@ -935,127 +682,100 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
       {/* ============================================
           WORKER MODE (NO BACK ARROW)
           ============================================ */}
-      {isWorkerMode ? (
+      {(!showAdminPanel || isWorkerMode) ? (
         activeWorker ? (
-          <div className="space-y-6 text-xs text-left">
+          <div className="space-y-6 text-xs text-left animate-fade-in">
             {/* Worker Header (NO BACK BUTTON) */}
-            <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm">
+            <div className="bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-600 rounded-3xl p-6 md:p-8 text-white shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex items-center gap-4">
-                  {/* Profile Photo */}
                   {activeWorker.photo ? (
                     <img 
                       src={activeWorker.photo} 
                       alt={activeWorker.name}
-                      className="h-16 w-16 rounded-2xl object-cover border-2 border-accent/20 shadow-sm cursor-pointer"
-                      onClick={() => {
-                        setGalleryImages([activeWorker.photo!]);
-                        setGalleryIndex(0);
-                        setGalleryTitle(activeWorker.name);
-                        setIsGalleryOpen(true);
-                      }}
+                      className="h-16 w-16 rounded-2xl object-cover border-2 border-white/40 shadow-lg cursor-pointer hover:scale-105 transition"
+                      onClick={() => { setGalleryImages([activeWorker.photo!]); setGalleryIndex(0); setGalleryTitle(activeWorker.name); setIsGalleryOpen(true); }}
                     />
                   ) : (
-                    <div className="h-16 w-16 rounded-2xl bg-accent/10 text-accent font-extrabold text-xl flex items-center justify-center shadow-sm">
+                    <div className="h-16 w-16 rounded-2xl bg-white/25 backdrop-blur border-2 border-white/40 text-white font-extrabold text-xl flex items-center justify-center shadow-lg">
                       {getInitials(activeWorker.name)}
                     </div>
                   )}
-                  
                   <div>
-                    <h3 className="text-base font-extrabold text-slate-800">{activeWorker.name}</h3>
+                    <h3 className="text-lg font-extrabold">{activeWorker.name}</h3>
                     {activeWorker.phone && (
-                      <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                      <p className="text-xs text-emerald-100 mt-1 flex items-center gap-1">
                         <Phone size={11} /> {activeWorker.phone}
                       </p>
                     )}
-                    <p className="text-xs text-slate-400 mt-1">Orodha yako ya Bidhaa Zisizokuepo</p>
+                    <p className="text-xs text-emerald-100 mt-1">Orodha yako ya Bidhaa Zisizokuepo</p>
                   </div>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <button 
                     onClick={() => setIsAddProductModalOpen(true)}
-                    className="bg-accent hover:bg-accent/90 text-white font-bold py-2.5 px-5 rounded-xl flex items-center justify-center gap-2 shadow-sm transition"
+                    className="bg-white text-emerald-700 hover:bg-emerald-50 font-bold py-2.5 px-5 rounded-xl flex items-center justify-center gap-2 shadow-lg transition"
                   >
                     <Plus size={16} /> Ongeza Bidhaa
                   </button>
                   <button 
                     onClick={openEditWorkerModal}
-                    className="border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition text-[11px]"
+                    className="bg-white/20 hover:bg-white/30 backdrop-blur border border-white/30 text-white font-semibold py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition text-[11px]"
                   >
                     <UserCog size={14} /> Hariri Wasifu
                   </button>
                 </div>
               </div>
               
-              <div className="grid grid-cols-3 gap-4 pt-4 mt-4 border-t border-slate-100">
+              <div className="grid grid-cols-3 gap-4 pt-4 mt-4 border-t border-white/20">
                 <div className="text-center">
-                  <p className="text-xs text-slate-400">Jumla</p>
-                  <p className="text-lg font-bold text-slate-800">{activeWorkerStats.total}</p>
+                  <p className="text-[10px] uppercase font-bold text-emerald-100 tracking-wider">Jumla</p>
+                  <p className="text-xl font-black mt-0.5">{activeWorkerStats.total}</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-xs text-slate-400">Bado</p>
-                  <p className="text-lg font-bold text-amber-600">{activeWorkerStats.pending}</p>
+                  <p className="text-[10px] uppercase font-bold text-emerald-100 tracking-wider">Bado</p>
+                  <p className="text-xl font-black mt-0.5 text-amber-200">{activeWorkerStats.pending}</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-xs text-slate-400">Zimenunuliwa</p>
-                  <p className="text-lg font-bold text-emerald-600">{activeWorkerStats.purchased}</p>
+                  <p className="text-[10px] uppercase font-bold text-emerald-100 tracking-wider">Zimenunuliwa</p>
+                  <p className="text-xl font-black mt-0.5 text-white">{activeWorkerStats.purchased}</p>
                 </div>
               </div>
             </div>
 
-            {/* Product List with BOTH Images */}
+            {/* Product List */}
             <div className="space-y-3">
               {activeWorkerItems.length > 0 ? activeWorkerItems.map(item => {
                 const imageCount = (item.image1 ? 1 : 0) + (item.image2 ? 1 : 0);
-                
                 return (
-                  <div key={item.id} className={`bg-white rounded-2xl border p-4 shadow-sm transition ${
+                  <div key={item.id} className={`bg-white rounded-2xl border-2 p-4 shadow-sm transition ${
                     item.status === 'Purchased' ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'
                   }`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-start gap-3 flex-1">
-                        {/* BOTH Images side by side */}
                         {imageCount > 0 ? (
                           <div className="flex gap-2 shrink-0">
-                            {item.image1 && (
-                              <img 
-                                src={item.image1} 
-                                alt={item.product_name}
-                                className="h-16 w-16 rounded-xl object-cover border border-slate-200 cursor-pointer hover:scale-105 transition"
-                                onClick={() => openGallery(item, 0)}
-                              />
-                            )}
-                            {item.image2 && (
-                              <img 
-                                src={item.image2} 
-                                alt={`${item.product_name} 2`}
-                                className="h-16 w-16 rounded-xl object-cover border border-slate-200 cursor-pointer hover:scale-105 transition"
-                                onClick={() => openGallery(item, 1)}
-                              />
-                            )}
+                            {item.image1 && <img src={item.image1} alt={item.product_name} className="h-16 w-16 rounded-xl object-cover border-2 border-emerald-100 cursor-pointer hover:scale-105 transition" onClick={() => openGallery(item, 0)} />}
+                            {item.image2 && <img src={item.image2} alt={`${item.product_name} 2`} className="h-16 w-16 rounded-xl object-cover border-2 border-emerald-100 cursor-pointer hover:scale-105 transition" onClick={() => openGallery(item, 1)} />}
                           </div>
                         ) : (
                           <div className={`h-16 w-16 rounded-xl flex items-center justify-center shrink-0 ${
-                            item.status === 'Purchased' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
+                            item.status === 'Purchased' ? 'bg-gradient-to-br from-emerald-400 to-teal-500 text-white' : 'bg-gradient-to-br from-amber-300 to-orange-400 text-white'
                           }`}>
                             {item.status === 'Purchased' ? <ShoppingBag size={22} /> : <Clock size={22} />}
                           </div>
                         )}
-                        
                         <div className="flex-1">
                           <h4 className={`text-sm font-bold ${item.status === 'Purchased' ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
                             {item.product_name}
                           </h4>
                           {item.quantity && <p className="text-xs text-slate-500 mt-1">Idadi: {item.quantity}</p>}
                           {item.notes && <p className="text-xs text-slate-400 mt-1 italic">{item.notes}</p>}
-                          
-                          {/* Image count indicator */}
                           {imageCount > 1 && (
                             <p className="text-[10px] text-blue-600 mt-1 flex items-center gap-1 font-semibold">
                               <ImageIcon size={10} /> Picha {imageCount} - bonyeza kuona zote
                             </p>
                           )}
-                          
                           <p className="text-[10px] text-slate-400 mt-2">
                             {formatDate(item.created_at)} • {formatTime(item.created_at)}
                           </p>
@@ -1082,10 +802,10 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
         ) : (
           /* Worker Selection */
           <>
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-5 rounded-3xl border border-slate-100 shadow-sm gap-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-5 rounded-3xl shadow-lg gap-4 text-white">
               <div>
-                <h2 className="text-md font-bold text-slate-800 flex items-center gap-2">
-                  <Package className="text-accent" size={20} />
+                <h2 className="text-md font-bold flex items-center gap-2">
+                  <Package className="text-amber-400" size={20} />
                   Orodha ya Bidhaa Zisizokuepo
                 </h2>
                 <p className="text-xs text-slate-400 mt-1">
@@ -1094,7 +814,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
               </div>
               <button 
                 onClick={() => { resetWorkerForm(); setIsAddWorkerModalOpen(true); }}
-                className="bg-accent hover:bg-accent/90 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-sm transition"
+                className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 shadow-md transition"
               >
                 <Plus size={15} /> Ongeza Jina Lako
               </button>
@@ -1111,16 +831,16 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                   <div 
                     key={worker.id}
                     onClick={() => handleSelectWorker(worker.id)}
-                    className={`bg-white rounded-3xl border p-5 shadow-sm hover:shadow-md cursor-pointer transition ${
-                      isRemembered ? 'border-emerald-300 ring-2 ring-emerald-500/20 bg-emerald-50/30' : 'border-slate-100 hover:border-accent/50'
+                    className={`bg-white rounded-3xl border-2 p-5 shadow-sm hover:shadow-xl cursor-pointer transition-all ${
+                      isRemembered ? 'border-emerald-400 ring-2 ring-emerald-500/20 bg-emerald-50/30' : 'border-slate-100 hover:border-emerald-200'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       {worker.photo ? (
-                        <img src={worker.photo} alt={worker.name} className="h-12 w-12 rounded-xl object-cover border-2 border-accent/20" />
+                        <img src={worker.photo} alt={worker.name} className="h-12 w-12 rounded-xl object-cover border-2 border-emerald-100" />
                       ) : (
                         <div className={`h-12 w-12 rounded-xl font-bold flex items-center justify-center ${
-                          isRemembered ? 'bg-emerald-100 text-emerald-700' : 'bg-accent/10 text-accent'
+                          isRemembered ? 'bg-gradient-to-br from-emerald-400 to-teal-500 text-white' : 'bg-slate-100 text-slate-500'
                         }`}>
                           {getInitials(worker.name)}
                         </div>
@@ -1128,7 +848,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                       <div>
                         <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
                           {worker.name}
-                          {isRemembered && <CheckCircle2 size={12} className="text-emerald-600" />}
+                          {isRemembered && <CheckCircle2 size={14} className="text-emerald-600" />}
                         </h3>
                         {worker.phone && (
                           <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
@@ -1138,7 +858,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                       </div>
                     </div>
                     
-                    <div className="mt-4 pt-3 border-t border-slate-50 flex justify-between items-center">
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center">
                       <div className="flex gap-4">
                         <div>
                           <p className="text-[10px] text-slate-400 uppercase font-bold">Jumla</p>
@@ -1153,7 +873,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                           <p className="text-sm font-bold text-emerald-600">{purchasedCount}</p>
                         </div>
                       </div>
-                      <ChevronRight size={16} className="text-slate-400" />
+                      <ChevronRight size={16} className="text-slate-300" />
                     </div>
                   </div>
                 );
@@ -1169,25 +889,28 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
         )
       ) : (
         /* ============================================
-            ADMIN MODE
+            ADMIN PANEL ONLY (userRole === 'admin')
             ============================================ */
-        <div className="space-y-4">
+        <div className="space-y-4 animate-fade-in">
           {/* Admin Header */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-2xl shadow-lg p-5 text-white">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div className="flex items-center gap-3">
-                <div className="h-11 w-11 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center shadow-md">
-                  <Package size={20} className="text-white" />
+                <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-md">
+                  <Package size={22} className="text-white" />
                 </div>
                 <div>
-                  <h1 className="text-lg font-extrabold text-slate-800">Paneli ya Bidhaa</h1>
-                  <p className="text-xs text-slate-500">Fuatilia na thibitisha bidhaa zisizokuepo</p>
+                  <h1 className="text-lg font-extrabold flex items-center gap-2">
+                    Paneli ya Bidhaa
+                    <span className="text-[10px] bg-amber-500 text-slate-900 px-2 py-0.5 rounded-full font-black">ADMIN</span>
+                  </h1>
+                  <p className="text-xs text-slate-400">Fuatilia na thibitisha bidhaa zisizokuepo</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => openDownloadModal(null)}
-                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-2 shadow-sm"
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white text-xs font-bold transition flex items-center gap-2 shadow-md"
                 >
                   <Download size={14} />
                   Pakua Ripoti Yote
@@ -1195,9 +918,9 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                 <button
                   onClick={loadData}
                   disabled={isLoading}
-                  className="p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 transition disabled:opacity-50"
+                  className="p-2.5 rounded-xl bg-white/10 border border-white/20 hover:bg-white/20 transition disabled:opacity-50 text-white"
                 >
-                  <RefreshCw size={14} className={isLoading ? 'animate-spin text-accent' : 'text-slate-600'} />
+                  <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
                 </button>
               </div>
             </div>
@@ -1205,29 +928,29 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
 
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-white rounded-2xl border border-slate-100 p-4">
+            <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
               <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                 <ListChecks size={12} /> Jumla
               </div>
               <p className="text-2xl font-black text-slate-800">{adminStats.total}</p>
             </div>
-            <div className="bg-amber-50 rounded-2xl border border-amber-200 p-4">
-              <div className="flex items-center gap-2 text-[10px] font-bold text-amber-600 uppercase tracking-wider mb-1">
+            <div className="bg-gradient-to-br from-amber-400 to-orange-500 rounded-2xl p-4 text-white shadow-md">
+              <div className="flex items-center gap-2 text-[10px] font-bold text-white/80 uppercase tracking-wider mb-1">
                 <Clock size={12} /> Bado
               </div>
-              <p className="text-2xl font-black text-amber-700">{adminStats.pending}</p>
+              <p className="text-2xl font-black">{adminStats.pending}</p>
             </div>
-            <div className="bg-emerald-50 rounded-2xl border border-emerald-200 p-4">
-              <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">
+            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-md">
+              <div className="flex items-center gap-2 text-[10px] font-bold text-white/80 uppercase tracking-wider mb-1">
                 <ShoppingBag size={12} /> Zimenunuliwa
               </div>
-              <p className="text-2xl font-black text-emerald-700">{adminStats.purchased}</p>
+              <p className="text-2xl font-black">{adminStats.purchased}</p>
             </div>
-            <div className="bg-blue-50 rounded-2xl border border-blue-200 p-4">
-              <div className="flex items-center gap-2 text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1">
+            <div className="bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl p-4 text-white shadow-md">
+              <div className="flex items-center gap-2 text-[10px] font-bold text-white/80 uppercase tracking-wider mb-1">
                 <TrendingUp size={12} /> Ufanisi
               </div>
-              <p className="text-2xl font-black text-blue-700">{adminStats.purchaseRate}%</p>
+              <p className="text-2xl font-black">{adminStats.purchaseRate}%</p>
             </div>
           </div>
 
@@ -1262,7 +985,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
             </div>
           </div>
 
-          {/* Items List - Admin sees BOTH images */}
+          {/* Items List */}
           {Object.keys(itemsByWorker).length > 0 ? (
             <div className="space-y-3">
               {Object.values(itemsByWorker).map(({ worker, items, pending, purchased }) => {
@@ -1277,7 +1000,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                           <img src={worker.photo} alt={worker.name} className="h-9 w-9 rounded-lg object-cover border border-slate-200" />
                         ) : (
                           <div className={`h-9 w-9 rounded-lg font-bold text-xs flex items-center justify-center ${
-                            pending > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                            pending > 0 ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white' : 'bg-gradient-to-br from-emerald-400 to-teal-500 text-white'
                           }`}>
                             {getInitials(worker.name)}
                           </div>
@@ -1292,7 +1015,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                         <ChevronRight size={16} className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
                       </button>
                       
-                      <div className="relative ml-2">
+                      <div className="relative ml-2" ref={openMenuId === `admin-${worker.id}` ? menuRef : null}>
                         <button
                           onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === `admin-${worker.id}` ? null : `admin-${worker.id}`); }}
                           className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"
@@ -1301,7 +1024,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                         </button>
                         
                         {openMenuId === `admin-${worker.id}` && (
-                          <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-100 py-1 min-w-[200px] z-20">
+                          <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-100 py-1 min-w-[200px] z-20 animate-scale-in">
                             <button
                               onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); openDownloadModal(worker.id); }}
                               className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
@@ -1324,7 +1047,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                       {workerPendingIds.length > 0 && isExpanded && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleBulkTick(workerPendingIds, 'Purchased'); }}
-                          className="ml-2 px-3 py-1.5 text-[10px] font-bold rounded-lg bg-emerald-600 text-white flex items-center gap-1.5 whitespace-nowrap"
+                          className="ml-2 px-3 py-1.5 text-[10px] font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 whitespace-nowrap shadow-sm"
                         >
                           <CheckSquare size={11} />
                           Weka Zote ({workerPendingIds.length})
@@ -1338,39 +1061,23 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                           <div className="divide-y divide-slate-100">
                             {items.map(item => {
                               const imageCount = (item.image1 ? 1 : 0) + (item.image2 ? 1 : 0);
-                              
                               return (
                                 <div key={item.id} className={`flex items-center gap-3 p-3 ${item.status === 'Purchased' ? 'bg-emerald-50/40' : 'bg-white'}`}>
                                   <button
                                     onClick={() => handleToggleStatus(item.id, item.status)}
                                     className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 transition-all ${
                                       item.status === 'Purchased'
-                                        ? 'bg-emerald-500 text-white shadow-md'
+                                        ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md'
                                         : 'border-2 border-slate-300 text-slate-300 hover:border-emerald-500 hover:text-emerald-500 bg-white'
                                     }`}
                                   >
                                     {item.status === 'Purchased' ? <CheckSquare size={20} strokeWidth={3} /> : <Square size={20} />}
                                   </button>
                                   
-                                  {/* BOTH Images - admin sees side by side */}
                                   {imageCount > 0 && (
                                     <div className="flex gap-1.5 shrink-0">
-                                      {item.image1 && (
-                                        <img 
-                                          src={item.image1} 
-                                          alt={item.product_name}
-                                          className="h-14 w-14 rounded-lg object-cover border border-slate-200 cursor-pointer hover:scale-110 hover:shadow-md transition"
-                                          onClick={() => openGallery(item, 0)}
-                                        />
-                                      )}
-                                      {item.image2 && (
-                                        <img 
-                                          src={item.image2} 
-                                          alt={`${item.product_name} 2`}
-                                          className="h-14 w-14 rounded-lg object-cover border border-slate-200 cursor-pointer hover:scale-110 hover:shadow-md transition"
-                                          onClick={() => openGallery(item, 1)}
-                                        />
-                                      )}
+                                      {item.image1 && <img src={item.image1} alt={item.product_name} className="h-14 w-14 rounded-lg object-cover border border-slate-200 cursor-pointer hover:scale-110 hover:shadow-md transition" onClick={() => openGallery(item, 0)} />}
+                                      {item.image2 && <img src={item.image2} alt={`${item.product_name} 2`} className="h-14 w-14 rounded-lg object-cover border border-slate-200 cursor-pointer hover:scale-110 hover:shadow-md transition" onClick={() => openGallery(item, 1)} />}
                                     </div>
                                   )}
                                   
@@ -1379,27 +1086,14 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                                       {item.product_name}
                                     </h4>
                                     <div className="flex flex-wrap items-center gap-2 mt-1">
-                                      {item.quantity && (
-                                        <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
-                                          Idadi: {item.quantity}
-                                        </span>
-                                      )}
-                                      <span className="text-[10px] text-slate-400">
-                                        {formatDate(item.created_at)} • {formatTime(item.created_at)}
-                                      </span>
-                                      {imageCount > 1 && (
-                                        <span className="text-[10px] text-blue-600 font-semibold flex items-center gap-1">
-                                          <ImageIcon size={9} /> Picha {imageCount}
-                                        </span>
-                                      )}
+                                      {item.quantity && <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">Idadi: {item.quantity}</span>}
+                                      <span className="text-[10px] text-slate-400">{formatDate(item.created_at)} • {formatTime(item.created_at)}</span>
+                                      {imageCount > 1 && <span className="text-[10px] text-blue-600 font-semibold flex items-center gap-1"><ImageIcon size={9} /> Picha {imageCount}</span>}
                                     </div>
                                     {item.notes && <p className="text-[11px] text-slate-500 mt-1 italic">{item.notes}</p>}
                                   </div>
                                   
-                                  <button 
-                                    onClick={() => handleDeleteItem(item.id)}
-                                    className="p-1.5 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 shrink-0"
-                                  >
+                                  <button onClick={() => handleDeleteItem(item.id)} className="p-1.5 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 shrink-0">
                                     <Trash2 size={14} />
                                   </button>
                                 </div>
@@ -1427,11 +1121,11 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
       )}
 
       {/* ============================================
-          ADD WORKER MODAL
+          MODALS & GALLERY (unchanged)
           ============================================ */}
       {isAddWorkerModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
             <button onClick={() => setIsAddWorkerModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50">
               <X size={18} />
             </button>
@@ -1444,7 +1138,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
               <div className="flex flex-col items-center gap-3">
                 <div className="relative">
                   {workerPhoto ? (
-                    <img src={workerPhoto} alt="Profile" className="h-24 w-24 rounded-2xl object-cover border-4 border-accent/20 shadow-md" />
+                    <img src={workerPhoto} alt="Profile" className="h-24 w-24 rounded-2xl object-cover border-4 border-emerald-200 shadow-md" />
                   ) : (
                     <div className="h-24 w-24 rounded-2xl bg-slate-100 border-4 border-slate-200 flex items-center justify-center">
                       <Camera size={28} className="text-slate-400" />
@@ -1471,7 +1165,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                   value={workerName} 
                   onChange={(e) => setWorkerName(e.target.value)} 
                   placeholder="Mfano: Juma"
-                  className="w-full p-3 border border-slate-200 rounded-xl focus:ring-accent text-base" 
+                  className="w-full p-3 border-2 border-slate-200 rounded-xl focus:ring-emerald-500 focus:border-emerald-500 text-base" 
                   autoFocus
                 />
               </div>
@@ -1482,7 +1176,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                   value={workerPhone} 
                   onChange={(e) => setWorkerPhone(e.target.value)} 
                   placeholder="0712345678"
-                  className="w-full p-3 border border-slate-200 rounded-xl" 
+                  className="w-full p-3 border-2 border-slate-200 rounded-xl focus:ring-emerald-500 focus:border-emerald-500" 
                 />
               </div>
               
@@ -1492,7 +1186,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                   Ghairi
                 </button>
                 <button type="submit" disabled={isLoading || isCompressing || !workerName.trim()}
-                  className="px-5 py-2.5 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold disabled:opacity-50 flex items-center gap-2">
+                  className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl font-semibold disabled:opacity-50 flex items-center gap-2 shadow-md">
                   {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inasajili...</> : <>Endelea</>}
                 </button>
               </div>
@@ -1501,12 +1195,9 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
         </div>
       )}
 
-      {/* ============================================
-          EDIT WORKER MODAL
-          ============================================ */}
       {isEditWorkerModalOpen && activeWorker && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
             <button onClick={() => setIsEditWorkerModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50">
               <X size={18} />
             </button>
@@ -1519,7 +1210,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
               <div className="flex flex-col items-center gap-3">
                 <div className="relative">
                   {editWorkerPhoto ? (
-                    <img src={editWorkerPhoto} alt="Profile" className="h-24 w-24 rounded-2xl object-cover border-4 border-accent/20 shadow-md" />
+                    <img src={editWorkerPhoto} alt="Profile" className="h-24 w-24 rounded-2xl object-cover border-4 border-emerald-200 shadow-md" />
                   ) : (
                     <div className="h-24 w-24 rounded-2xl bg-slate-100 border-4 border-slate-200 flex items-center justify-center">
                       <Camera size={28} className="text-slate-400" />
@@ -1544,7 +1235,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                   required 
                   value={editWorkerName} 
                   onChange={(e) => setEditWorkerName(e.target.value)} 
-                  className="w-full p-3 border border-slate-200 rounded-xl text-base" 
+                  className="w-full p-3 border-2 border-slate-200 rounded-xl text-base focus:ring-emerald-500 focus:border-emerald-500" 
                 />
               </div>
               <div>
@@ -1554,7 +1245,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                   value={editWorkerPhone} 
                   onChange={(e) => setEditWorkerPhone(e.target.value)} 
                   placeholder="0712345678"
-                  className="w-full p-3 border border-slate-200 rounded-xl" 
+                  className="w-full p-3 border-2 border-slate-200 rounded-xl focus:ring-emerald-500 focus:border-emerald-500" 
                 />
               </div>
               
@@ -1564,7 +1255,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                   Ghairi
                 </button>
                 <button type="submit" disabled={isLoading || isCompressing || !editWorkerName.trim()}
-                  className="px-5 py-2.5 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold disabled:opacity-50 flex items-center gap-2">
+                  className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl font-semibold disabled:opacity-50 flex items-center gap-2">
                   {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inahifadhi...</> : <><Save size={14} /> Hifadhi</>}
                 </button>
               </div>
@@ -1573,12 +1264,9 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
         </div>
       )}
 
-      {/* ============================================
-          ADD PRODUCT MODAL
-          ============================================ */}
       {isAddProductModalOpen && activeWorker && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-scale-in">
             <button onClick={() => { setIsAddProductModalOpen(false); resetProductForm(); }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50">
               <X size={18} />
             </button>
@@ -1596,7 +1284,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                   value={productName} 
                   onChange={(e) => setProductName(e.target.value)} 
                   placeholder="Mfano: Speaker ya Sony"
-                  className="w-full p-3 border border-slate-200 rounded-xl text-base" 
+                  className="w-full p-3 border-2 border-slate-200 rounded-xl text-base focus:ring-emerald-500 focus:border-emerald-500" 
                   autoFocus
                 />
               </div>
@@ -1607,7 +1295,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                   value={productQuantity} 
                   onChange={(e) => setProductQuantity(e.target.value)} 
                   placeholder="Mfano: 5 pieces"
-                  className="w-full p-2.5 border border-slate-200 rounded-xl" 
+                  className="w-full p-2.5 border-2 border-slate-200 rounded-xl focus:ring-emerald-500 focus:border-emerald-500" 
                 />
               </div>
               <div>
@@ -1616,7 +1304,7 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                   value={productNotes} 
                   onChange={(e) => setProductNotes(e.target.value)} 
                   placeholder="Maelezo yoyote..."
-                  className="w-full p-2.5 border border-slate-200 rounded-xl h-20" 
+                  className="w-full p-2.5 border-2 border-slate-200 rounded-xl h-20 focus:ring-emerald-500 focus:border-emerald-500" 
                 />
               </div>
               
@@ -1629,21 +1317,12 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                     {productImage1 ? (
                       <div className="relative">
                         <img src={productImage1} alt="Product 1" className="w-full h-28 rounded-xl object-cover border-2 border-emerald-300" />
-                        <button
-                          type="button"
-                          onClick={() => { setProductImage1(''); if (file1Ref.current) file1Ref.current.value = ''; }}
-                          className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md"
-                        >
+                        <button type="button" onClick={() => { setProductImage1(''); if (file1Ref.current) file1Ref.current.value = ''; }} className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md">
                           <X size={11} />
                         </button>
                       </div>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => file1Ref.current?.click()}
-                        disabled={isCompressing}
-                        className="w-full h-28 rounded-xl border-2 border-dashed border-slate-300 hover:border-accent hover:bg-accent/5 flex flex-col items-center justify-center gap-1 transition disabled:opacity-50"
-                      >
+                      <button type="button" onClick={() => file1Ref.current?.click()} disabled={isCompressing} className="w-full h-28 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 flex flex-col items-center justify-center gap-1 transition disabled:opacity-50">
                         <Camera size={20} className="text-slate-400" />
                         <span className="text-[10px] text-slate-500 font-semibold">Picha 1</span>
                       </button>
@@ -1655,21 +1334,12 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                     {productImage2 ? (
                       <div className="relative">
                         <img src={productImage2} alt="Product 2" className="w-full h-28 rounded-xl object-cover border-2 border-emerald-300" />
-                        <button
-                          type="button"
-                          onClick={() => { setProductImage2(''); if (file2Ref.current) file2Ref.current.value = ''; }}
-                          className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md"
-                        >
+                        <button type="button" onClick={() => { setProductImage2(''); if (file2Ref.current) file2Ref.current.value = ''; }} className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md">
                           <X size={11} />
                         </button>
                       </div>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => file2Ref.current?.click()}
-                        disabled={isCompressing}
-                        className="w-full h-28 rounded-xl border-2 border-dashed border-slate-300 hover:border-accent hover:bg-accent/5 flex flex-col items-center justify-center gap-1 transition disabled:opacity-50"
-                      >
+                      <button type="button" onClick={() => file2Ref.current?.click()} disabled={isCompressing} className="w-full h-28 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 flex flex-col items-center justify-center gap-1 transition disabled:opacity-50">
                         <Camera size={20} className="text-slate-400" />
                         <span className="text-[10px] text-slate-500 font-semibold">Picha 2</span>
                       </button>
@@ -1677,20 +1347,14 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
                     <input ref={file2Ref} type="file" accept="image/*" onChange={(e) => handleProductImageChange(e, 2)} className="hidden" />
                   </div>
                 </div>
-                {isCompressing && (
-                  <p className="text-[10px] text-accent mt-2 flex items-center gap-1">
-                    <Loader2 size={10} className="animate-spin" /> Inasindika picha...
-                  </p>
-                )}
+                {isCompressing && <p className="text-[10px] text-emerald-600 mt-2 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Inasindika picha...</p>}
               </div>
               
               <div className="pt-2 flex justify-end gap-2">
-                <button type="button" onClick={() => { setIsAddProductModalOpen(false); resetProductForm(); }} disabled={isLoading}
-                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600">
+                <button type="button" onClick={() => { setIsAddProductModalOpen(false); resetProductForm(); }} disabled={isLoading} className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600">
                   Ghairi
                 </button>
-                <button type="submit" disabled={isLoading || isCompressing || !productName.trim()}
-                  className="px-5 py-2 bg-accent hover:bg-accent/90 text-white rounded-xl font-semibold disabled:opacity-50 flex items-center gap-2">
+                <button type="submit" disabled={isLoading || isCompressing || !productName.trim()} className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl font-semibold disabled:opacity-50 flex items-center gap-2 shadow-md">
                   {isLoading ? <><Loader2 size={14} className="animate-spin" /> Inaongeza...</> : <><Plus size={14} /> Ongeza</>}
                 </button>
               </div>
@@ -1699,12 +1363,9 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
         </div>
       )}
 
-      {/* ============================================
-          DOWNLOAD MODAL
-          ============================================ */}
       {isDownloadModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl relative">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl relative animate-scale-in">
             <button onClick={() => { setIsDownloadModalOpen(false); setDownloadWorkerId(null); }} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50">
               <X size={18} />
             </button>
@@ -1714,24 +1375,14 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
               </div>
               <div>
                 <h3 className="text-md font-bold text-slate-800">Pakua Ripoti</h3>
-                <p className="text-xs text-slate-500">
-                  {downloadWorkerId ? 'Ripoti ya mfanyakazi' : 'Ripoti ya Wote'}
-                </p>
+                <p className="text-xs text-slate-500">{downloadWorkerId ? 'Ripoti ya mfanyakazi' : 'Ripoti ya Wote'}</p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               {(['Today', 'Week', 'Month', 'All'] as const).map(f => (
-                <button
-                  key={f}
-                  onClick={() => generatePDF(downloadWorkerId, f)}
-                  className="p-4 rounded-2xl border-2 border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition text-left"
-                >
-                  <p className="text-sm font-bold text-slate-800">
-                    {f === 'Today' ? 'Leo' : f === 'Week' ? 'Wiki Hii' : f === 'Month' ? 'Mwezi Huu' : 'Zote'}
-                  </p>
-                  <p className="text-[10px] text-slate-500 mt-1">
-                    {f === 'Today' ? 'Bidhaa za leo' : f === 'Week' ? 'Siku 7' : f === 'Month' ? 'Siku 30' : 'Muda wote'}
-                  </p>
+                <button key={f} onClick={() => generatePDF(downloadWorkerId, f)} className="p-4 rounded-2xl border-2 border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition text-left">
+                  <p className="text-sm font-bold text-slate-800">{f === 'Today' ? 'Leo' : f === 'Week' ? 'Wiki Hii' : f === 'Month' ? 'Mwezi Huu' : 'Zote'}</p>
+                  <p className="text-[10px] text-slate-500 mt-1">{f === 'Today' ? 'Bidhaa za leo' : f === 'Week' ? 'Siku 7' : f === 'Month' ? 'Siku 30' : 'Muda wote'}</p>
                 </button>
               ))}
             </div>
@@ -1739,83 +1390,35 @@ ${itemsToReport.length === 0 ? '<div class="section"><div class="section-header"
         </div>
       )}
 
-      {/* ============================================
-          FULL-SCREEN IMAGE GALLERY
-          ============================================ */}
       {isGalleryOpen && galleryImages.length > 0 && (
-        <div 
-          className="fixed inset-0 z-[70] bg-black/95 flex flex-col"
-          onClick={() => setIsGalleryOpen(false)}
-        >
-          {/* Gallery Header */}
-          <div 
-            className="flex items-center justify-between p-4 border-b border-white/10"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-[70] bg-black/95 flex flex-col" onClick={() => setIsGalleryOpen(false)}>
+          <div className="flex items-center justify-between p-4 border-b border-white/10" onClick={(e) => e.stopPropagation()}>
             <div className="text-white">
               <h3 className="text-sm font-bold">{galleryTitle}</h3>
-              <p className="text-[11px] text-white/60 mt-0.5">
-                Picha {galleryIndex + 1} ya {galleryImages.length}
-              </p>
+              <p className="text-[11px] text-white/60 mt-0.5">Picha {galleryIndex + 1} ya {galleryImages.length}</p>
             </div>
-            <button 
-              onClick={() => setIsGalleryOpen(false)}
-              className="p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition"
-            >
+            <button onClick={() => setIsGalleryOpen(false)} className="p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition">
               <X size={20} />
             </button>
           </div>
-          
-          {/* Gallery Main Image */}
-          <div 
-            className="flex-1 flex items-center justify-center p-4 relative"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="flex-1 flex items-center justify-center p-4 relative" onClick={(e) => e.stopPropagation()}>
             {galleryImages.length > 1 && (
               <>
-                <button
-                  onClick={prevImage}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition z-10"
-                >
+                <button onClick={prevImage} className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition z-10">
                   <ChevronLeft size={24} />
                 </button>
-                <button
-                  onClick={nextImage}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition z-10"
-                >
+                <button onClick={nextImage} className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition z-10">
                   <ChevronRight size={24} />
                 </button>
               </>
             )}
-            
-            <img 
-              src={galleryImages[galleryIndex]} 
-              alt={`${galleryTitle} ${galleryIndex + 1}`} 
-              className="max-w-full max-h-full object-contain rounded-xl"
-            />
+            <img src={galleryImages[galleryIndex]} alt={`${galleryTitle} ${galleryIndex + 1}`} className="max-w-full max-h-full object-contain rounded-xl" />
           </div>
-          
-          {/* Thumbnail Strip */}
           {galleryImages.length > 1 && (
-            <div 
-              className="p-4 flex items-center justify-center gap-3 border-t border-white/10"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <div className="p-4 flex items-center justify-center gap-3 border-t border-white/10" onClick={(e) => e.stopPropagation()}>
               {galleryImages.map((img, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setGalleryIndex(idx)}
-                  className={`h-16 w-16 rounded-lg overflow-hidden border-2 transition ${
-                    idx === galleryIndex 
-                      ? 'border-white scale-110' 
-                      : 'border-white/20 opacity-60 hover:opacity-100'
-                  }`}
-                >
-                  <img 
-                    src={img} 
-                    alt={`Thumbnail ${idx + 1}`} 
-                    className="w-full h-full object-cover"
-                  />
+                <button key={idx} onClick={() => setGalleryIndex(idx)} className={`h-16 w-16 rounded-lg overflow-hidden border-2 transition ${idx === galleryIndex ? 'border-white scale-110' : 'border-white/20 opacity-60 hover:opacity-100'}`}>
+                  <img src={img} alt={`Thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
                 </button>
               ))}
             </div>
