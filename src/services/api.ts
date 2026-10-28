@@ -281,12 +281,13 @@ export const api = {
   // KUBANDIKA (Received Payments — Tz/China)
   // ============================================
   kubandika: {
-    // ✅ List all (with optional filters)
-    list: (params?: { region?: 'Tz' | 'China' | string; start?: string; end?: string }) => {
+    // ✅ NEW: Added includeRef to fetch Kopesha-linked rows (for accurate balance)
+    list: (params?: { region?: 'Tz' | 'China' | string; start?: string; end?: string; includeRef?: boolean }) => {
       const query = new URLSearchParams();
       if (params?.region) query.append('region', params.region);
       if (params?.start) query.append('start', params.start);
       if (params?.end) query.append('end', params.end);
+      if (params?.includeRef) query.append('includeRef', '1'); // ✅ Pass to backend
       const qs = query.toString();
       return safeFetch(`${API_BASE}/kubandika${qs ? `?${qs}` : ''}`);
     },
@@ -297,6 +298,7 @@ export const api = {
     // ✅ Create new payment
     create: (data: {
       region: 'Tz' | 'China' | string;
+      type?: 'IN' | 'OUT';
       amount: number;
       date: string;
       method?: string;
