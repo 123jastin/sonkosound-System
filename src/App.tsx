@@ -24,11 +24,12 @@ import NotificationsView from './components/NotificationsView';
 import MemoryPage from './components/MemoryPage';
 import KubandikaPage from './components/KubandikaPage';
 import Kopesha from './components/Kopesha';
+import Cashier from './components/Cashier';
 import { 
   LayoutDashboard, Users, BookOpen, Truck, Calendar, 
   FileSpreadsheet, Settings, LogOut, Menu, X, Shield, 
   MapPin, Phone, Bell, Loader2, AlertTriangle, RefreshCw,
-  FolderOpen, Download, Wallet, ShoppingCart, Package, Globe, Banknote
+  FolderOpen, Download, Wallet, ShoppingCart, Package, Globe, Banknote, Coins
 } from 'lucide-react';
 
 // Utility: Get days difference
@@ -186,14 +187,21 @@ export default function App() {
     return localStorage.getItem('ledger_authenticated') === 'true';
   });
 
-  // ✅ Track user role (admin or staff)
-  const [userRole, setUserRole] = useState<'admin' | 'staff' | null>(() => {
-    return (localStorage.getItem('ledger_role') as 'admin' | 'staff') || null;
+  // ✅ Track user role (admin, staff, or cashier)
+  const [userRole, setUserRole] = useState<'admin' | 'staff' | 'cashier' | null>(() => {
+    return (localStorage.getItem('ledger_role') as 'admin' | 'staff' | 'cashier') || null;
   });
 
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // ✅ Admin Cashier floating modal state
+  const [isCashierModalOpen, setIsCashierModalOpen] = useState(false);
+  const [cashierName, setCashierName] = useState('');
+  const [cashierAmount, setCashierAmount] = useState('');
+  const [cashierSubmitting, setCashierSubmitting] = useState(false);
+  const [cashierModalMsg, setCashierModalMsg] = useState<string | null>(null);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
@@ -390,11 +398,14 @@ export default function App() {
     }
   }, [isAuthenticated, isWorkerUrl]);
 
-  const handleAuthenticated = (role: 'admin' | 'staff') => {
+  const handleAuthenticated = (role: 'admin' | 'staff' | 'cashier') => {
     setIsAuthenticated(true);
     setUserRole(role);
     localStorage.setItem('ledger_authenticated', 'true');
     localStorage.setItem('ledger_role', role);
+    if (role === 'cashier') {
+      setCurrentTab('cashier');
+    }
   };
 
   const handleLogout = () => {
@@ -405,6 +416,7 @@ export default function App() {
     setCustomers([]); setDebts([]); setPayments([]);
     setSuppliers([]); setNotifications([]); setSettings(null);
     setInstallmentNotifications([]);
+    setCurrentTab('dashboard');
   };
 
   const handleInstallmentNotifications = (notifs: InstallmentNotification[]) => {
@@ -421,7 +433,7 @@ export default function App() {
     window.open(APK_DOWNLOAD_URL, '_blank');
   };
 
-  // ✅ Filtered navigation items — hide Kopesha & Stock from Staff
+  // ✅ Navigation items — Cashier page added for admin only
   const allNavigationItems = [
     { id: 'dashboard', label: 'Bao Kuu (Dashboard)', icon: LayoutDashboard },
     { id: 'customers', label: 'Wateja (wadaiwa)', icon: Users },
@@ -438,6 +450,7 @@ export default function App() {
     },
     { id: 'orders', label: 'Oda (Orders)', icon: ShoppingCart },
     { id: 'stock', label: 'Bidhaa Zisizokuepo', icon: Package, adminOnly: true },
+    { id: 'cashier', label: 'Cashier (Malipo)', icon: Coins, adminOnly: true },
     { id: 'calendar', label: 'Kalenda (Calendar)', icon: Calendar },
     { id: 'reports', label: 'Ripoti (Reports)', icon: FileSpreadsheet },
     { id: 'memory', label: 'Kumbukumbu (Memory)', icon: FolderOpen },
@@ -448,12 +461,90 @@ export default function App() {
     !(item as any).adminOnly || userRole === 'admin'
   );
 
-  // ✅ Force staff out of admin-only tabs if they somehow get there
+  // ✅ Force staff/cashier out of admin-only tabs if they somehow get there
   useEffect(() => {
-    if (userRole === 'staff' && (currentTab === 'kopesha' || currentTab === 'stock')) {
+    if (userRole === 'staff' && (currentTab === 'kopesha' || currentTab === 'stock' || currentTab === 'cashier')) {
       setCurrentTab('dashboard');
     }
+    if (userRole === 'cashier' && currentTab !== 'cashier') {
+      setCurrentTab('cashier');
+    }
   }, [userRole, currentTab]);
+
+  // ✅ Admin floating "Tuma kwa Cashier" handler
+  const handleSendToCashier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = Number(cashierAmount);
+    if (!amt || amt <= 0) {
+      setCashierModalMsg('Weka kiasi sahihi');
+      return;
+    }
+    setCashierSubmitting(true);
+    setCashierModalMsg(null);
+    try {
+      const res = await fetch('/api/cashier', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: cashierName.trim(),
+          amount: amt,
+          createdBy: 'admin',
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCashierModalMsg('✅ Imepitishwa kwa Cashier!');
+        setCashierName('');
+        setCashierAmount('');
+        setTimeout(() => {
+          setIsCashierModalOpen(false);
+          setCashierModalMsg(null);
+        }, 1500);
+      } else {
+        setCashierModalMsg(data.error || 'Imeshindwa kutuma');
+      }
+    } catch (err: any) {
+      setCashierModalMsg(err.message || 'Imeshindwa kutuma');
+    } finally {
+      setCashierSubmitting(false);
+    }
+  };
+
+  // ============================================
+  // CASHIER VIEW — locked-down, no sidebar
+  // ============================================
+  if (isAuthenticated && userRole === 'cashier') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col">
+        <header className="bg-gradient-to-r from-purple-700 via-indigo-700 to-blue-700 text-white flex items-center justify-between p-4 sticky top-0 z-40 shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-lg bg-white/20 backdrop-blur border border-white/30 flex items-center justify-center">
+              <Coins size={16} />
+            </div>
+            <div>
+              <h1 className="text-xs font-extrabold">{settings?.businessName || 'Sonko Sound'}</h1>
+              <span className="text-[10px] text-white/70 font-semibold uppercase tracking-wider">Cashier Panel</span>
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-200 hover:text-white hover:bg-white/10 transition"
+          >
+            <LogOut size={14} /> Logout
+          </button>
+        </header>
+        <main className="flex-1 p-4 md:p-8 max-w-5xl mx-auto w-full overflow-y-auto">
+          <Cashier userRole="cashier" />
+        </main>
+        <footer className="bg-slate-900 text-slate-400 p-4 text-center border-t border-slate-800">
+          <p className="text-[10px] flex items-center justify-center gap-1">
+            <MapPin size={10} /> {settings?.businessAddress || 'Morogoro, Tanzania'} • 
+            <Phone size={10} /> {settings?.businessPhone || '0688423753'}
+          </p>
+        </footer>
+      </div>
+    );
+  }
 
   // ============================================
   // WORKER VIEW (via ?worker=1 URL) — NO RUDI BUTTON
@@ -473,7 +564,6 @@ export default function App() {
               </span>
             </div>
           </div>
-          {/* ✅ "Rudi" button completely removed — worker is locked in */}
         </header>
 
         <main className="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full overflow-y-auto">
@@ -554,15 +644,26 @@ export default function App() {
                 </span>
               </div>
             </div>
-            <button onClick={() => { setCurrentTab('notifications'); setSelectedCustomerId(null); }}
-              className={`relative p-1.5 rounded-xl border transition-colors ${currentTab === 'notifications' ? 'bg-accent border-accent text-white' : 'border-transparent text-slate-400 hover:text-white hover:bg-slate-800'}`}>
-              <Bell size={18} />
-              {totalAlertCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-rose-600 text-white font-extrabold text-[8px] h-4 w-4 rounded-full flex items-center justify-center border-2 border-slate-900 animate-pulse">
-                  {totalAlertCount}
-                </span>
+            <div className="flex items-center gap-1">
+              {userRole === 'admin' && (
+                <button
+                  onClick={() => setIsCashierModalOpen(true)}
+                  className="p-1.5 rounded-xl border border-transparent text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors"
+                  title="Tuma kwa Cashier"
+                >
+                  <Coins size={18} />
+                </button>
               )}
-            </button>
+              <button onClick={() => { setCurrentTab('notifications'); setSelectedCustomerId(null); }}
+                className={`relative p-1.5 rounded-xl border transition-colors ${currentTab === 'notifications' ? 'bg-accent border-accent text-white' : 'border-transparent text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                <Bell size={18} />
+                {totalAlertCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-rose-600 text-white font-extrabold text-[8px] h-4 w-4 rounded-full flex items-center justify-center border-2 border-slate-900 animate-pulse">
+                    {totalAlertCount}
+                  </span>
+                )}
+              </button>
+            </div>
           </div>
           <nav className="space-y-1.5">
             {navigationItems.map(item => {
@@ -634,6 +735,15 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {userRole === 'admin' && (
+            <button
+              onClick={() => setIsCashierModalOpen(true)}
+              className="p-1.5 rounded-lg text-amber-400 hover:text-amber-300 hover:bg-slate-800 transition-colors"
+              title="Tuma kwa Cashier"
+            >
+              <Coins size={18} />
+            </button>
+          )}
           <button onClick={() => { setCurrentTab('notifications'); setSelectedCustomerId(null); setIsMobileMenuOpen(false); }}
             className={`relative p-1.5 rounded-lg transition-colors ${currentTab === 'notifications' ? 'bg-accent text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800'}`}>
             <Bell size={18} />
@@ -768,6 +878,10 @@ export default function App() {
             userRole={userRole}
           />
         )}
+        {/* ✅ Cashier — Only mounted if user is Admin */}
+        {currentTab === 'cashier' && userRole === 'admin' && (
+          <Cashier userRole={userRole} />
+        )}
         {currentTab === 'calendar' && (
           <CalendarView debts={debts} customers={customers} payments={payments} suppliers={suppliers} setCurrentTab={setCurrentTab} setSelectedCustomerId={setSelectedCustomerId} />
         )}
@@ -797,6 +911,79 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* ✅ Admin Cashier Modal — Tuma kwa Cashier */}
+      {isCashierModalOpen && userRole === 'admin' && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+            <button
+              onClick={() => { setIsCashierModalOpen(false); setCashierModalMsg(null); }}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50"
+            >
+              <X size={18} />
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-md">
+                <Coins size={22} className="text-white" />
+              </div>
+              <div>
+                <h3 className="text-md font-extrabold text-slate-800">Tuma kwa Cashier</h3>
+                <p className="text-xs text-slate-400">Cashier atapokea ombi la malipo</p>
+              </div>
+            </div>
+
+            {cashierModalMsg && (
+              <div className={`rounded-xl p-3 text-xs font-semibold ${
+                cashierModalMsg.startsWith('✅') ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+              }`}>
+                {cashierModalMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleSendToCashier} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-500 uppercase tracking-wide mb-1">Jina (Hiari)</label>
+                <input
+                  type="text"
+                  value={cashierName}
+                  onChange={e => setCashierName(e.target.value)}
+                  placeholder="Mf. Juma"
+                  className="w-full p-3 border-2 border-slate-200 rounded-xl text-sm focus:border-indigo-400 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-500 uppercase tracking-wide mb-1">Kiasi (TSh) *</label>
+                <input
+                  type="number"
+                  required
+                  min="1"
+                  value={cashierAmount}
+                  onChange={e => setCashierAmount(e.target.value)}
+                  placeholder="0"
+                  className="w-full p-3 border-2 border-slate-200 rounded-xl text-lg font-extrabold focus:border-indigo-400 focus:outline-none"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setIsCashierModalOpen(false); setCashierModalMsg(null); }}
+                  disabled={cashierSubmitting}
+                  className="px-4 py-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl font-semibold text-slate-600 disabled:opacity-50"
+                >
+                  Ghairi
+                </button>
+                <button
+                  type="submit"
+                  disabled={cashierSubmitting || !cashierAmount}
+                  className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl font-bold shadow-md disabled:opacity-50 flex items-center gap-2"
+                >
+                  {cashierSubmitting ? <><Loader2 size={14} className="animate-spin" /> Inatuma...</> : <><Coins size={14} /> Tuma</>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
