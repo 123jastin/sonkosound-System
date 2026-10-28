@@ -9,7 +9,7 @@ import {
   Trash2, CreditCard, ChevronRight, Check, X, AlertCircle, Edit2,
   ArrowLeft, History, Printer, MapPin, Loader2, Wallet,
   TrendingUp, CheckCircle2, Clock, Banknote, AlertTriangle,
-  Globe2, ArrowDownRight, ArrowUpRight, Coins, Sparkles
+  Globe2, ArrowDownRight, ArrowUpRight, Coins, Sparkles, Lock
 } from 'lucide-react';
 
 // ============================================
@@ -144,7 +144,8 @@ export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
   // ============================================
   const loadChinaBalance = useCallback(async () => {
     try {
-      const res = await fetch(KUBANDIKA_API);
+      // ✅ FIXED: Added ?includeRef=1 to include Kopesha-linked rows
+      const res = await fetch(`${KUBANDIKA_API}?includeRef=1`);
       const data = await res.json();
       const list: KubandikaPayment[] = Array.isArray(data) ? data : (data?.payments || []);
       
@@ -297,11 +298,6 @@ export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
   };
 
   const handleDeleteCustomer = async (id: string) => {
-    if (userRole !== 'admin') {
-      setError('Huna ruhusa ya kufuta. Wasiliana na Admin.');
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
     if (!confirm('Futa mteja huyu pamoja na mikopo yake yote?')) return;
     setIsLoading(true);
     try { await fetch(`${API_BASE_URL}/customers/${id}`, { method: 'DELETE' }); } catch {}
@@ -388,12 +384,6 @@ export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
   const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedLoan) return;
-
-    if (userRole !== 'admin') {
-      setError('Huna ruhusa ya kurekodi malipo. Wasiliana na Admin.');
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
 
     const amt = Number(payAmount);
     const remainingBefore = Math.max(0, Number(selectedLoan.amount) - Number(selectedLoan.paid_amount));
@@ -487,11 +477,6 @@ export default function Kopesha({ onUpdate, userRole }: KopeshaProps) {
   };
 
   const openPay = (loan: KopeshaLoan) => {
-    if (userRole !== 'admin') {
-      setError('Huna ruhusa ya kurekodi malipo. Wasiliana na Admin.');
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
     setSelectedLoan(loan);
     setPayAmount('');
     setPayNotes('');
@@ -653,6 +638,23 @@ Taarifa hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', mo
   // ============================================
   // RENDER
   // ============================================
+
+  // ✅ HARD LOCK: Kopesha is entirely Admin-only
+  if (userRole !== 'admin') {
+    return (
+      <div className="bg-white rounded-3xl border border-slate-100 p-12 text-center shadow-sm max-w-lg mx-auto my-12 text-xs">
+        <div className="w-20 h-20 rounded-full bg-rose-50 flex items-center justify-center mx-auto mb-4 border-2 border-rose-100">
+          <Lock size={36} className="text-rose-500" />
+        </div>
+        <h2 className="text-lg font-extrabold text-slate-800">Ufikiaji Umekataliwa</h2>
+        <p className="text-slate-500 mt-2 leading-relaxed">
+          Ukurasa wa <strong>Kopesha</strong> unaruhusiwa tu kwa Admin. 
+          Wasiliana na Mmiliki wa mfumo (Admin) ili upate ruhusa.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {error && (
@@ -708,11 +710,9 @@ Taarifa hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', mo
                 <button onClick={openEditCustomer} className="py-2.5 px-4 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur border border-white/30 text-white font-bold flex items-center gap-1.5 transition">
                   <Edit2 size={14} /> Hariri
                 </button>
-                {userRole === 'admin' && (
-                  <button onClick={() => handleDeleteCustomer(activeCustomer.id)} className="py-2.5 px-4 rounded-xl bg-rose-500/80 hover:bg-rose-500 text-white font-bold flex items-center gap-1.5 transition">
-                    <Trash2 size={14} /> Futa
-                  </button>
-                )}
+                <button onClick={() => handleDeleteCustomer(activeCustomer.id)} className="py-2.5 px-4 rounded-xl bg-rose-500/80 hover:bg-rose-500 text-white font-bold flex items-center gap-1.5 transition">
+                  <Trash2 size={14} /> Futa
+                </button>
                 <button onClick={() => setSelectedCustomerId('')} className="py-2.5 px-4 rounded-xl bg-white/90 hover:bg-white text-slate-800 font-bold">
                   Orodha
                 </button>
@@ -880,7 +880,7 @@ Taarifa hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', mo
                     </div>
 
                     <div className="flex md:flex-col gap-2">
-                      {!isCleared && userRole === 'admin' && (
+                      {!isCleared && (
                         <button
                           onClick={() => openPay(loan)}
                           className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold py-2 px-4 rounded-xl flex items-center gap-1.5 text-xs shadow-sm"
@@ -1226,7 +1226,7 @@ Taarifa hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', mo
       )}
 
       {/* PAY MODAL */}
-      {isPayModalOpen && selectedLoan && userRole === 'admin' && (
+      {isPayModalOpen && selectedLoan && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-scale-in">
             <button onClick={() => setIsPayModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-50">
