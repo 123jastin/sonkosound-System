@@ -38,21 +38,54 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     // Verify customer exists
     const customer: any = await env.DB
-      .prepare('SELECT id FROM kopesha_customers WHERE id = ?')
+      .prepare('SELECT id, full_name FROM kopesha_customers WHERE id = ?')
       .bind(customerId).first();
     if (!customer) return json({ error: 'Mkopaji haipatikani' }, 404);
 
-    const id = `kloan-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    // ✅ Check China balance has enough
+    const inRow: any = await env.DB.prepare(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM kubandika_payments
+       WHERE region = 'China' AND (type = 'IN' OR type IS NULL)`
+    ).first();
+    const outRow: any = await env.DB.prepare(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM kubandika_payments
+       WHERE region = 'China' AND type = 'OUT'`
+    ).first();
 
+    const chinaBalance = Number(inRow?.total || 0) - Number(outRow?.total || 0);
+    if (amount > chinaBalance) {
+      return json({
+        error: `Salio la China halitoshi. Lililopo: TSh ${chinaBalance.toLocaleString()}, unahitaji: TSh ${amount.toLocaleString()}`
+      }, 400);
+    }
+
+    const loanId = `kloan-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const kubId = `kub-kopesha-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+    // ✅ 1. Insert loan
     await env.DB.prepare(
       `INSERT INTO kopesha_loans
          (id, customer_id, amount, paid_amount, lend_date, return_date, status, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, customerId, amount, paidAmount, lendDate, returnDate, status, notes).run();
+    ).bind(loanId, customerId, amount, paidAmount, lendDate, returnDate, status, notes).run();
+
+    // ✅ 2. Auto-insert kubandika OUT (China) with ref_id = loanId
+    await env.DB.prepare(
+      `INSERT INTO kubandika_payments
+         (id, region, type, amount, date, method, received_from, notes, ref_id, created_at, updated_at)
+       VALUES (?, 'China', 'OUT', ?, ?, 'Kopesha', ?, ?, ?, datetime('now'), datetime('now'))`
+    ).bind(
+      kubId,
+      amount,
+      lendDate,
+      customer.full_name,
+      `Kopesha: mkopo kwa ${customer.full_name} - TSh ${amount.toLocaleString()}`,
+      loanId
+    ).run();
 
     const loan: any = await env.DB
       .prepare('SELECT * FROM kopesha_loans WHERE id = ?')
-      .bind(id).first();
+      .bind(loanId).first();
 
     return json({ success: true, loan });
   } catch (error: any) {
