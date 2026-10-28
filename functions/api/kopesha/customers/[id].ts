@@ -18,9 +18,6 @@ const json = (data: any, status = 200) =>
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
-// ============================================
-// PUT — update customer
-// ============================================
 export const onRequestPut: PagesFunction<Env> = async ({ params, request, env }) => {
   try {
     const id = String(params.id || '');
@@ -46,25 +43,46 @@ export const onRequestPut: PagesFunction<Env> = async ({ params, request, env })
 
     return json({ success: true });
   } catch (error: any) {
-    console.error('Kopesha update customer error:', error);
     return json({ error: error?.message || 'Failed to update customer' }, 500);
   }
 };
 
-// ============================================
-// DELETE — remove customer (+ loans + payments)
-// ============================================
 export const onRequestDelete: PagesFunction<Env> = async ({ params, env }) => {
   try {
     const id = String(params.id || '');
     if (!id) return json({ error: 'Customer ID required' }, 400);
 
-    // Explicit cleanup (safe even if FK CASCADE is enabled)
+    // Get loan IDs
     const loanIdsRes = await env.DB
       .prepare('SELECT id FROM kopesha_loans WHERE customer_id = ?')
       .bind(id).all();
     const loanIds = (loanIdsRes.results || []).map((r: any) => r.id);
 
+    // Get payment IDs
+    let paymentIds: string[] = [];
+    if (loanIds.length > 0) {
+      const placeholders = loanIds.map(() => '?').join(',');
+      const payRes = await env.DB
+        .prepare(`SELECT id FROM kopesha_payments WHERE loan_id IN (${placeholders})`)
+        .bind(...loanIds).all();
+      paymentIds = (payRes.results || []).map((r: any) => r.id);
+    }
+
+    // ✅ Cleanup kubandika rows linked to these loans/payments
+    if (loanIds.length > 0) {
+      const lp = loanIds.map(() => '?').join(',');
+      await env.DB
+        .prepare(`DELETE FROM kubandika_payments WHERE ref_id IN (${lp})`)
+        .bind(...loanIds).run();
+    }
+    if (paymentIds.length > 0) {
+      const pp = paymentIds.map(() => '?').join(',');
+      await env.DB
+        .prepare(`DELETE FROM kubandika_payments WHERE ref_id IN (${pp})`)
+        .bind(...paymentIds).run();
+    }
+
+    // Delete Kopesha data
     if (loanIds.length > 0) {
       const placeholders = loanIds.map(() => '?').join(',');
       await env.DB
@@ -75,9 +93,7 @@ export const onRequestDelete: PagesFunction<Env> = async ({ params, env }) => {
         .bind(id).run();
     }
 
-    await env.DB
-      .prepare('DELETE FROM kopesha_customers WHERE id = ?')
-      .bind(id).run();
+    await env.DB.prepare('DELETE FROM kopesha_customers WHERE id = ?').bind(id).run();
 
     return json({ success: true });
   } catch (error: any) {
