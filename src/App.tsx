@@ -25,6 +25,7 @@ import MemoryPage from './components/MemoryPage';
 import KubandikaPage from './components/KubandikaPage';
 import Kopesha from './components/Kopesha';
 import Cashier from './components/Cashier';
+import Malipo from './components/Malipo';
 import { 
   LayoutDashboard, Users, BookOpen, Truck, Calendar, 
   FileSpreadsheet, Settings, LogOut, Menu, X, Shield, 
@@ -433,7 +434,7 @@ export default function App() {
     window.open(APK_DOWNLOAD_URL, '_blank');
   };
 
-  // ✅ Navigation items — Cashier page added for admin only
+  // ✅ Navigation items — Malipo added (admin + staff), Cashier (admin only)
   const allNavigationItems = [
     { id: 'dashboard', label: 'Bao Kuu (Dashboard)', icon: LayoutDashboard },
     { id: 'customers', label: 'Wateja (wadaiwa)', icon: Users },
@@ -441,6 +442,13 @@ export default function App() {
     { id: 'suppliers', label: 'Ma Suppliers (Wanaotudai)', icon: Truck },
     { id: 'installments', label: 'Kubandika (Installments)', icon: Wallet },
     { id: 'kopesha', label: 'Kopesha (Mikopo)', icon: Banknote, adminOnly: true },
+    {
+      id: 'malipo',
+      label: 'Malipo (Wafanyakazi)',
+      icon: Coins,
+      isNew: true,
+      highlight: 'malipo',
+    },
     {
       id: 'kubandika',
       label: 'Kubandika Tz/China',
@@ -669,6 +677,8 @@ export default function App() {
             {navigationItems.map(item => {
               const Icon = item.icon;
               const isKubandika = (item as any).highlight === 'kubandika';
+              const isMalipo = (item as any).highlight === 'malipo';
+              const isHighlighted = isKubandika || isMalipo;
               const isActive = currentTab === item.id;
 
               return (
@@ -680,20 +690,29 @@ export default function App() {
                   }}
                   className={`w-full relative flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all border-l-3 ${
                     isActive
-                      ? isKubandika
-                        ? 'bg-gradient-to-r from-amber-500/25 to-orange-500/10 border-amber-400 text-amber-100 shadow-sm'
-                        : 'bg-white/5 border-accent text-white shadow-sm'
-                      : isKubandika
-                        ? 'border-transparent bg-gradient-to-r from-amber-500/8 to-transparent hover:from-amber-500/20 text-amber-300 hover:text-amber-100'
-                        : 'border-transparent hover:bg-slate-800 hover:text-white text-slate-400'
+                      ? isMalipo
+                        ? 'bg-gradient-to-r from-fuchsia-500/30 via-purple-500/20 to-indigo-500/10 border-fuchsia-400 text-white shadow-md shadow-fuchsia-500/10'
+                        : isKubandika
+                          ? 'bg-gradient-to-r from-amber-500/25 to-orange-500/10 border-amber-400 text-amber-100 shadow-sm'
+                          : 'bg-white/5 border-accent text-white shadow-sm'
+                      : isMalipo
+                        ? 'border-transparent bg-gradient-to-r from-fuchsia-500/10 via-purple-500/5 to-transparent hover:from-fuchsia-500/25 hover:via-purple-500/15 text-fuchsia-300 hover:text-fuchsia-100'
+                        : isKubandika
+                          ? 'border-transparent bg-gradient-to-r from-amber-500/8 to-transparent hover:from-amber-500/20 text-amber-300 hover:text-amber-100'
+                          : 'border-transparent hover:bg-slate-800 hover:text-white text-slate-400'
                   }`}
                 >
                   <Icon
                     size={16}
-                    className={isKubandika ? 'text-amber-400' : ''}
+                    className={isMalipo ? 'text-fuchsia-400' : isKubandika ? 'text-amber-400' : ''}
                   />
                   <span className="flex-1 text-left">{item.label}</span>
 
+                  {isMalipo && (item as any).isNew && (
+                    <span className="shrink-0 text-[8px] font-black tracking-wider bg-gradient-to-r from-fuchsia-400 via-purple-400 to-indigo-400 text-white px-1.5 py-0.5 rounded-md shadow-sm shadow-fuchsia-500/30 animate-pulse">
+                      MPYA
+                    </span>
+                  )}
                   {isKubandika && (item as any).isNew && (
                     <span className="shrink-0 text-[8px] font-black tracking-wider bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 px-1.5 py-0.5 rounded-md shadow-sm animate-pulse">
                       NEW
@@ -766,6 +785,7 @@ export default function App() {
             {navigationItems.map(item => {
               const Icon = item.icon;
               const isKubandika = (item as any).highlight === 'kubandika';
+              const isMalipo = (item as any).highlight === 'malipo';
               const isActive = currentTab === item.id;
 
               return (
@@ -778,20 +798,29 @@ export default function App() {
                   }}
                   className={`w-full relative flex items-center gap-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all border-l-3 ${
                     isActive
-                      ? isKubandika
-                        ? 'bg-gradient-to-r from-amber-500/25 to-orange-500/10 border-amber-400 text-amber-100'
-                        : 'bg-white/5 border-accent text-white'
-                      : isKubandika
-                        ? 'border-transparent bg-gradient-to-r from-amber-500/8 to-transparent text-amber-300 hover:text-amber-100'
-                        : 'border-transparent hover:bg-slate-800 hover:text-white text-slate-400'
+                      ? isMalipo
+                        ? 'bg-gradient-to-r from-fuchsia-500/30 via-purple-500/20 to-indigo-500/10 border-fuchsia-400 text-white'
+                        : isKubandika
+                          ? 'bg-gradient-to-r from-amber-500/25 to-orange-500/10 border-amber-400 text-amber-100'
+                          : 'bg-white/5 border-accent text-white'
+                      : isMalipo
+                        ? 'border-transparent bg-gradient-to-r from-fuchsia-500/10 via-purple-500/5 to-transparent text-fuchsia-300 hover:text-fuchsia-100'
+                        : isKubandika
+                          ? 'border-transparent bg-gradient-to-r from-amber-500/8 to-transparent text-amber-300 hover:text-amber-100'
+                          : 'border-transparent hover:bg-slate-800 hover:text-white text-slate-400'
                   }`}
                 >
                   <Icon
                     size={18}
-                    className={isKubandika ? 'text-amber-400' : ''}
+                    className={isMalipo ? 'text-fuchsia-400' : isKubandika ? 'text-amber-400' : ''}
                   />
                   <span className="flex-1 text-left">{item.label}</span>
 
+                  {isMalipo && (item as any).isNew && (
+                    <span className="shrink-0 text-[8px] font-black tracking-wider bg-gradient-to-r from-fuchsia-400 via-purple-400 to-indigo-400 text-white px-1.5 py-0.5 rounded-md shadow-sm shadow-fuchsia-500/30 animate-pulse">
+                      MPYA
+                    </span>
+                  )}
                   {isKubandika && (item as any).isNew && (
                     <span className="shrink-0 text-[8px] font-black tracking-wider bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 px-1.5 py-0.5 rounded-md shadow-sm animate-pulse">
                       NEW
@@ -858,6 +887,13 @@ export default function App() {
         {/* ✅ Kopesha — Only mounted if user is Admin */}
         {currentTab === 'kopesha' && userRole === 'admin' && (
           <Kopesha 
+            onUpdate={() => syncDatabaseStates(false)} 
+            userRole={userRole}
+          />
+        )}
+        {/* ✅ Malipo — Mounted for Admin + Staff (blocked for cashier) */}
+        {currentTab === 'malipo' && userRole !== 'cashier' && (
+          <Malipo 
             onUpdate={() => syncDatabaseStates(false)} 
             userRole={userRole}
           />
