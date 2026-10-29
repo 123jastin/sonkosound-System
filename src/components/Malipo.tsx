@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Malipo.tsx — Pay workers/suppliers for jobs done
- * - Admin & staff accessible (cashier too, if you later grant it)
+ * - Admin & staff accessible
  * - Create worker, add job ("Mpe kazi"), pay partial/full ("Lipa"),
  *   download colourful PDF statement per worker ("Taarifa")
- * - Mirrors Kopesha / CustomerManagement patterns & styling
+ * - Staff sees the workers list directly (no global stats dashboard)
+ * - SMS covers: job_created, job_paid (partial), job_paid (completed)
  */
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -515,7 +516,7 @@ export default function Malipo({ onUpdate, userRole }: MalipoProps) {
   };
 
   // ============================================
-  // PAYMENT
+  // PAYMENT — sends job_paid SMS (partial OR completed)
   // ============================================
   const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -574,14 +575,16 @@ export default function Malipo({ onUpdate, userRole }: MalipoProps) {
         : j
     ));
 
+    // ✅ Full payload for backend messages (partial or completed)
     if (activeWorker) {
       await sendMalipoSMS({
         event: 'job_paid',
         workerName: activeWorker.full_name,
         workerPhone: activeWorker.phone_number,
         jobName: selectedJob.job_name,
-        paidAmount: amt,
-        remaining: remainingAfter,
+        amount: Number(selectedJob.amount),   // total agreed
+        paidAmount: amt,                      // just paid
+        remaining: remainingAfter,            // after this payment
         isCompleted,
       });
     }
@@ -591,10 +594,10 @@ export default function Malipo({ onUpdate, userRole }: MalipoProps) {
     setIsLoading(false);
     setSuccessMessage(
       isCompleted
-        ? `Malipo ya TSh ${amt.toLocaleString()} yamekamilisha kazi!`
-        : `Malipo ya TSh ${amt.toLocaleString()} yamerekodiwa!`
+        ? `🎉 Malipo yote yamekamilika! TSh ${Number(selectedJob.amount).toLocaleString()} kwa kazi "${selectedJob.job_name}". SMS imetumwa.`
+        : `Malipo ya TSh ${amt.toLocaleString()} yamerekodiwa! Baki: TSh ${remainingAfter.toLocaleString()}. SMS imetumwa.`
     );
-    setTimeout(() => setSuccessMessage(null), 4000);
+    setTimeout(() => setSuccessMessage(null), 5000);
     onUpdate?.();
   };
 
@@ -815,6 +818,9 @@ Taarifa hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', mo
       </div>
     );
   }
+
+  // ✅ Staff does not see global dashboard (stats cards); they land straight on the workers list
+  const showGlobalStats = userRole === 'admin';
 
   return (
     <div className="space-y-6">
@@ -1112,41 +1118,60 @@ Taarifa hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', mo
          * WORKERS LIST
          * ======================================== */
         <>
-          {/* Global stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bg-gradient-to-br from-purple-500 to-violet-600 p-6 rounded-3xl shadow-lg text-white">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-purple-100">Makubaliano Yote</span>
-                <Briefcase size={18} className="text-purple-100" />
+          {/* ✅ Global stats — Admin ONLY. Staff skip straight to workers. */}
+          {showGlobalStats && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="bg-gradient-to-br from-purple-500 to-violet-600 p-6 rounded-3xl shadow-lg text-white">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-purple-100">Makubaliano Yote</span>
+                  <Briefcase size={18} className="text-purple-100" />
+                </div>
+                <h3 className="text-2xl font-black mt-2">TSh {globalStats.totalAgreed.toLocaleString()}</h3>
+                <p className="text-[10px] text-purple-100 mt-1">Kazi zote zilizokubaliwa</p>
               </div>
-              <h3 className="text-2xl font-black mt-2">TSh {globalStats.totalAgreed.toLocaleString()}</h3>
-              <p className="text-[10px] text-purple-100 mt-1">Kazi zote zilizokubaliwa</p>
-            </div>
-            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-6 rounded-3xl shadow-lg text-white">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-100">Iliyolipwa</span>
-                <TrendingUp size={18} className="text-emerald-100" />
+              <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-6 rounded-3xl shadow-lg text-white">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-100">Iliyolipwa</span>
+                  <TrendingUp size={18} className="text-emerald-100" />
+                </div>
+                <h3 className="text-2xl font-black mt-2">TSh {globalStats.totalPaid.toLocaleString()}</h3>
+                <p className="text-[10px] text-emerald-100 mt-1">Malipo yaliyofanywa</p>
               </div>
-              <h3 className="text-2xl font-black mt-2">TSh {globalStats.totalPaid.toLocaleString()}</h3>
-              <p className="text-[10px] text-emerald-100 mt-1">Malipo yaliyofanywa</p>
-            </div>
-            <div className="bg-gradient-to-br from-rose-500 to-red-600 p-6 rounded-3xl shadow-lg text-white">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-100">Baki</span>
-                <Wallet size={18} className="text-rose-100" />
+              <div className="bg-gradient-to-br from-rose-500 to-red-600 p-6 rounded-3xl shadow-lg text-white">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-rose-100">Baki</span>
+                  <Wallet size={18} className="text-rose-100" />
+                </div>
+                <h3 className="text-2xl font-black mt-2">TSh {globalStats.outstanding.toLocaleString()}</h3>
+                <p className="text-[10px] text-rose-100 mt-1">Inadaiwa kwa wafanyakazi</p>
               </div>
-              <h3 className="text-2xl font-black mt-2">TSh {globalStats.outstanding.toLocaleString()}</h3>
-              <p className="text-[10px] text-rose-100 mt-1">Inadaiwa kwa wafanyakazi</p>
-            </div>
-            <div className="bg-gradient-to-br from-amber-500 to-orange-600 p-6 rounded-3xl shadow-lg text-white">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-100">Waliochelewa</span>
-                <AlertTriangle size={18} className="text-amber-100" />
+              <div className="bg-gradient-to-br from-amber-500 to-orange-600 p-6 rounded-3xl shadow-lg text-white">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-100">Waliochelewa</span>
+                  <AlertTriangle size={18} className="text-amber-100" />
+                </div>
+                <h3 className="text-2xl font-black mt-2">{globalStats.overdueCount}</h3>
+                <p className="text-[10px] text-amber-100 mt-1">Kazi zilizochelewa</p>
               </div>
-              <h3 className="text-2xl font-black mt-2">{globalStats.overdueCount}</h3>
-              <p className="text-[10px] text-amber-100 mt-1">Kazi zilizochelewa</p>
             </div>
-          </div>
+          )}
+
+          {/* Staff header — simpler, focused */}
+          {!showGlobalStats && (
+            <div className="bg-gradient-to-r from-fuchsia-500 via-purple-600 to-indigo-600 rounded-3xl p-6 text-white shadow-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur border border-white/30 flex items-center justify-center">
+                  <Users size={20} />
+                </div>
+                <div>
+                  <h2 className="text-base font-extrabold">Malipo — Wafanyakazi</h2>
+                  <p className="text-[11px] text-white/80 mt-0.5">
+                    {workers.length} wafanyakazi • {jobs.length} kazi • Chagua mfanyakazi kuona au kulipa
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Header + Search + Filter */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-4 rounded-3xl border border-slate-100 shadow-sm gap-4">
