@@ -1164,9 +1164,9 @@ Taarifa hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', mo
                   <Users size={20} />
                 </div>
                 <div>
-                  <h2 className="text-base font-extrabold">Malipo — Wafanyakazi</h2>
+                  <h2 className="text-base font-extrabold">Malipo</h2>
                   <p className="text-[11px] text-white/80 mt-0.5">
-                    {workers.length} wafanyakazi • {jobs.length} kazi • Chagua mfanyakazi kuona au kulipa
+                    {workers.length} watu • {jobs.length} kazi • Chagua mtu wa kulipa
                   </p>
                 </div>
               </div>
@@ -1200,7 +1200,7 @@ Taarifa hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', mo
                 disabled={isLoading}
                 className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 ml-2 shadow-sm transition disabled:opacity-50"
               >
-                <UserPlus size={15} /> Ongeza Mfanyakazi
+                <UserPlus size={15} /> Ongeza Mtu
               </button>
             </div>
           </div>
