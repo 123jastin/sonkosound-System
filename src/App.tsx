@@ -444,7 +444,7 @@ export default function App() {
     { id: 'kopesha', label: 'Kopesha (Mikopo)', icon: Banknote, adminOnly: true },
     {
       id: 'malipo',
-      label: 'Malipo (Wafanyakazi)',
+      label: 'Malipo',
       icon: Coins,
       isNew: true,
       highlight: 'malipo',
