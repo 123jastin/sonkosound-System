@@ -434,7 +434,7 @@ export default function App() {
     window.open(APK_DOWNLOAD_URL, '_blank');
   };
 
-  // ✅ Navigation items — Malipo added (admin + staff), Cashier (admin only)
+  // ✅ Navigation items — Malipo (admin + staff), Cashier (admin + staff)
   const allNavigationItems = [
     { id: 'dashboard', label: 'Bao Kuu (Dashboard)', icon: LayoutDashboard },
     { id: 'customers', label: 'Wateja (wadaiwa)', icon: Users },
@@ -458,7 +458,8 @@ export default function App() {
     },
     { id: 'orders', label: 'Oda (Orders)', icon: ShoppingCart },
     { id: 'stock', label: 'Bidhaa Zisizokuepo', icon: Package, adminOnly: true },
-    { id: 'cashier', label: 'Cashier (Malipo)', icon: Coins, adminOnly: true },
+    // ✅ Cashier — now visible to admin AND staff
+    { id: 'cashier', label: 'Cashier (Malipo)', icon: Coins },
     { id: 'calendar', label: 'Kalenda (Calendar)', icon: Calendar },
     { id: 'reports', label: 'Ripoti (Reports)', icon: FileSpreadsheet },
     { id: 'memory', label: 'Kumbukumbu (Memory)', icon: FolderOpen },
@@ -469,9 +470,10 @@ export default function App() {
     !(item as any).adminOnly || userRole === 'admin'
   );
 
-  // ✅ Force staff/cashier out of admin-only tabs if they somehow get there
+  // ✅ Force staff/cashier out of restricted tabs if they somehow get there
+  // Staff loses only Kopesha & Stock (Cashier is now allowed)
   useEffect(() => {
-    if (userRole === 'staff' && (currentTab === 'kopesha' || currentTab === 'stock' || currentTab === 'cashier')) {
+    if (userRole === 'staff' && (currentTab === 'kopesha' || currentTab === 'stock')) {
       setCurrentTab('dashboard');
     }
     if (userRole === 'cashier' && currentTab !== 'cashier') {
@@ -914,8 +916,8 @@ export default function App() {
             userRole={userRole}
           />
         )}
-        {/* ✅ Cashier — Only mounted if user is Admin */}
-        {currentTab === 'cashier' && userRole === 'admin' && (
+        {/* ✅ Cashier — Mounted for Admin + Staff */}
+        {currentTab === 'cashier' && (userRole === 'admin' || userRole === 'staff') && (
           <Cashier userRole={userRole} />
         )}
         {currentTab === 'calendar' && (
