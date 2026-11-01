@@ -26,11 +26,13 @@ import KubandikaPage from './components/KubandikaPage';
 import Kopesha from './components/Kopesha';
 import Cashier from './components/Cashier';
 import Malipo from './components/Malipo';
+import Invoice from './components/Invoice';
 import { 
   LayoutDashboard, Users, BookOpen, Truck, Calendar, 
   FileSpreadsheet, Settings, LogOut, Menu, X, Shield, 
   MapPin, Phone, Bell, Loader2, AlertTriangle, RefreshCw,
-  FolderOpen, Download, Wallet, ShoppingCart, Package, Globe, Banknote, Coins
+  FolderOpen, Download, Wallet, ShoppingCart, Package, Globe, Banknote, Coins,
+  FileText
 } from 'lucide-react';
 
 // Utility: Get days difference
@@ -52,6 +54,39 @@ function safeParseContacts(raw: any): any[] {
     return [];
   }
 }
+
+// ✅ Highlighted navigation themes (Malipo, Kubandika, Invoice)
+type NavHighlight = 'malipo' | 'kubandika' | 'invoice';
+
+const NAV_THEMES: Record<NavHighlight, {
+  active: string;
+  idle: string;
+  icon: string;
+  badge: string;
+  badgeText: string;
+}> = {
+  malipo: {
+    active: 'bg-gradient-to-r from-fuchsia-500/30 via-purple-500/20 to-indigo-500/10 border-fuchsia-400 text-white shadow-md shadow-fuchsia-500/10',
+    idle: 'border-transparent bg-gradient-to-r from-fuchsia-500/10 via-purple-500/5 to-transparent hover:from-fuchsia-500/25 hover:via-purple-500/15 text-fuchsia-300 hover:text-fuchsia-100',
+    icon: 'text-fuchsia-400',
+    badge: 'bg-gradient-to-r from-fuchsia-400 via-purple-400 to-indigo-400 text-white shadow-sm shadow-fuchsia-500/30',
+    badgeText: 'MPYA',
+  },
+  kubandika: {
+    active: 'bg-gradient-to-r from-amber-500/25 to-orange-500/10 border-amber-400 text-amber-100 shadow-sm',
+    idle: 'border-transparent bg-gradient-to-r from-amber-500/8 to-transparent hover:from-amber-500/20 text-amber-300 hover:text-amber-100',
+    icon: 'text-amber-400',
+    badge: 'bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 shadow-sm',
+    badgeText: 'NEW',
+  },
+  invoice: {
+    active: 'bg-gradient-to-r from-sky-500/30 via-cyan-500/20 to-teal-500/10 border-sky-400 text-white shadow-md shadow-sky-500/10',
+    idle: 'border-transparent bg-gradient-to-r from-sky-500/10 via-cyan-500/5 to-transparent hover:from-sky-500/25 hover:via-cyan-500/15 text-sky-300 hover:text-sky-100',
+    icon: 'text-sky-400',
+    badge: 'bg-gradient-to-r from-sky-400 via-cyan-400 to-teal-400 text-slate-900 shadow-sm shadow-sky-500/30',
+    badgeText: 'MPYA',
+  },
+};
 
 // Utility: Generate notifications from data - WITH SUPPLIERS
 function generateNotificationsFromData(
@@ -434,7 +469,7 @@ export default function App() {
     window.open(APK_DOWNLOAD_URL, '_blank');
   };
 
-  // ✅ Navigation items — Malipo (admin + staff), Cashier (admin + staff)
+  // ✅ Navigation items — Malipo (admin + staff), Cashier (admin + staff), Invoice (admin + staff)
   const allNavigationItems = [
     { id: 'dashboard', label: 'Bao Kuu (Dashboard)', icon: LayoutDashboard },
     { id: 'customers', label: 'Wateja (wadaiwa)', icon: Users },
@@ -450,6 +485,13 @@ export default function App() {
       highlight: 'malipo',
     },
     {
+      id: 'invoice',
+      label: 'Invoice',
+      icon: FileText,
+      isNew: true,
+      highlight: 'invoice',
+    },
+    {
       id: 'kubandika',
       label: 'Kubandika Tz/China',
       icon: Globe,
@@ -458,7 +500,7 @@ export default function App() {
     },
     { id: 'orders', label: 'Oda (Orders)', icon: ShoppingCart },
     { id: 'stock', label: 'Bidhaa Zisizokuepo', icon: Package, adminOnly: true },
-    // ✅ Cashier — now visible to admin AND staff
+    // ✅ Cashier — visible to admin AND staff
     { id: 'cashier', label: 'Cashier (Malipo)', icon: Coins },
     { id: 'calendar', label: 'Kalenda (Calendar)', icon: Calendar },
     { id: 'reports', label: 'Ripoti (Reports)', icon: FileSpreadsheet },
@@ -470,8 +512,43 @@ export default function App() {
     !(item as any).adminOnly || userRole === 'admin'
   );
 
+  // ✅ Shared nav button renderer (sidebar + mobile drawer)
+  const renderNavButton = (item: any, mobile: boolean) => {
+    const Icon = item.icon;
+    const theme = item.highlight ? NAV_THEMES[item.highlight as NavHighlight] : null;
+    const isActive = currentTab === item.id;
+
+    const baseClasses = mobile
+      ? 'w-full relative flex items-center gap-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all border-l-3'
+      : 'w-full relative flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all border-l-3';
+
+    const stateClasses = isActive
+      ? (theme ? theme.active : 'bg-white/5 border-accent text-white shadow-sm')
+      : (theme ? theme.idle : 'border-transparent hover:bg-slate-800 hover:text-white text-slate-400');
+
+    return (
+      <button
+        key={item.id}
+        onClick={() => {
+          setCurrentTab(item.id);
+          if (mobile) setIsMobileMenuOpen(false);
+          if (item.id !== 'customers') setSelectedCustomerId(null);
+        }}
+        className={`${baseClasses} ${stateClasses}`}
+      >
+        <Icon size={mobile ? 18 : 16} className={theme ? theme.icon : ''} />
+        <span className="flex-1 text-left">{item.label}</span>
+        {theme && item.isNew && (
+          <span className={`shrink-0 text-[8px] font-black tracking-wider px-1.5 py-0.5 rounded-md animate-pulse ${theme.badge}`}>
+            {theme.badgeText}
+          </span>
+        )}
+      </button>
+    );
+  };
+
   // ✅ Force staff/cashier out of restricted tabs if they somehow get there
-  // Staff loses only Kopesha & Stock (Cashier is now allowed)
+  // Staff loses only Kopesha & Stock (Cashier + Invoice are allowed)
   useEffect(() => {
     if (userRole === 'staff' && (currentTab === 'kopesha' || currentTab === 'stock')) {
       setCurrentTab('dashboard');
@@ -664,6 +741,15 @@ export default function App() {
                   <Coins size={18} />
                 </button>
               )}
+              {userRole === 'staff' && (
+                <button
+                  onClick={() => { setCurrentTab('cashier'); setSelectedCustomerId(null); }}
+                  className="p-1.5 rounded-xl border border-transparent text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors"
+                  title="Nenda Cashier"
+                >
+                  <Coins size={18} />
+                </button>
+              )}
               <button onClick={() => { setCurrentTab('notifications'); setSelectedCustomerId(null); }}
                 className={`relative p-1.5 rounded-xl border transition-colors ${currentTab === 'notifications' ? 'bg-accent border-accent text-white' : 'border-transparent text-slate-400 hover:text-white hover:bg-slate-800'}`}>
                 <Bell size={18} />
@@ -676,53 +762,7 @@ export default function App() {
             </div>
           </div>
           <nav className="space-y-1.5">
-            {navigationItems.map(item => {
-              const Icon = item.icon;
-              const isKubandika = (item as any).highlight === 'kubandika';
-              const isMalipo = (item as any).highlight === 'malipo';
-              const isHighlighted = isKubandika || isMalipo;
-              const isActive = currentTab === item.id;
-
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setCurrentTab(item.id);
-                    if (item.id !== 'customers') setSelectedCustomerId(null);
-                  }}
-                  className={`w-full relative flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all border-l-3 ${
-                    isActive
-                      ? isMalipo
-                        ? 'bg-gradient-to-r from-fuchsia-500/30 via-purple-500/20 to-indigo-500/10 border-fuchsia-400 text-white shadow-md shadow-fuchsia-500/10'
-                        : isKubandika
-                          ? 'bg-gradient-to-r from-amber-500/25 to-orange-500/10 border-amber-400 text-amber-100 shadow-sm'
-                          : 'bg-white/5 border-accent text-white shadow-sm'
-                      : isMalipo
-                        ? 'border-transparent bg-gradient-to-r from-fuchsia-500/10 via-purple-500/5 to-transparent hover:from-fuchsia-500/25 hover:via-purple-500/15 text-fuchsia-300 hover:text-fuchsia-100'
-                        : isKubandika
-                          ? 'border-transparent bg-gradient-to-r from-amber-500/8 to-transparent hover:from-amber-500/20 text-amber-300 hover:text-amber-100'
-                          : 'border-transparent hover:bg-slate-800 hover:text-white text-slate-400'
-                  }`}
-                >
-                  <Icon
-                    size={16}
-                    className={isMalipo ? 'text-fuchsia-400' : isKubandika ? 'text-amber-400' : ''}
-                  />
-                  <span className="flex-1 text-left">{item.label}</span>
-
-                  {isMalipo && (item as any).isNew && (
-                    <span className="shrink-0 text-[8px] font-black tracking-wider bg-gradient-to-r from-fuchsia-400 via-purple-400 to-indigo-400 text-white px-1.5 py-0.5 rounded-md shadow-sm shadow-fuchsia-500/30 animate-pulse">
-                      MPYA
-                    </span>
-                  )}
-                  {isKubandika && (item as any).isNew && (
-                    <span className="shrink-0 text-[8px] font-black tracking-wider bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 px-1.5 py-0.5 rounded-md shadow-sm animate-pulse">
-                      NEW
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+            {navigationItems.map(item => renderNavButton(item, false))}
           </nav>
         </div>
         <div className="border-t border-slate-800 pt-4 mt-6 space-y-3">
@@ -765,6 +805,15 @@ export default function App() {
               <Coins size={18} />
             </button>
           )}
+          {userRole === 'staff' && (
+            <button
+              onClick={() => { setCurrentTab('cashier'); setSelectedCustomerId(null); setIsMobileMenuOpen(false); }}
+              className="p-1.5 rounded-lg text-amber-400 hover:text-amber-300 hover:bg-slate-800 transition-colors"
+              title="Nenda Cashier"
+            >
+              <Coins size={18} />
+            </button>
+          )}
           <button onClick={() => { setCurrentTab('notifications'); setSelectedCustomerId(null); setIsMobileMenuOpen(false); }}
             className={`relative p-1.5 rounded-lg transition-colors ${currentTab === 'notifications' ? 'bg-accent text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800'}`}>
             <Bell size={18} />
@@ -784,53 +833,7 @@ export default function App() {
       {isMobileMenuOpen && (
         <div className="md:hidden fixed inset-0 top-[57px] bg-slate-900 z-30 flex flex-col p-5 justify-between animate-fade-in select-none overflow-y-auto">
           <nav className="space-y-2">
-            {navigationItems.map(item => {
-              const Icon = item.icon;
-              const isKubandika = (item as any).highlight === 'kubandika';
-              const isMalipo = (item as any).highlight === 'malipo';
-              const isActive = currentTab === item.id;
-
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setCurrentTab(item.id);
-                    setIsMobileMenuOpen(false);
-                    if (item.id !== 'customers') setSelectedCustomerId(null);
-                  }}
-                  className={`w-full relative flex items-center gap-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all border-l-3 ${
-                    isActive
-                      ? isMalipo
-                        ? 'bg-gradient-to-r from-fuchsia-500/30 via-purple-500/20 to-indigo-500/10 border-fuchsia-400 text-white'
-                        : isKubandika
-                          ? 'bg-gradient-to-r from-amber-500/25 to-orange-500/10 border-amber-400 text-amber-100'
-                          : 'bg-white/5 border-accent text-white'
-                      : isMalipo
-                        ? 'border-transparent bg-gradient-to-r from-fuchsia-500/10 via-purple-500/5 to-transparent text-fuchsia-300 hover:text-fuchsia-100'
-                        : isKubandika
-                          ? 'border-transparent bg-gradient-to-r from-amber-500/8 to-transparent text-amber-300 hover:text-amber-100'
-                          : 'border-transparent hover:bg-slate-800 hover:text-white text-slate-400'
-                  }`}
-                >
-                  <Icon
-                    size={18}
-                    className={isMalipo ? 'text-fuchsia-400' : isKubandika ? 'text-amber-400' : ''}
-                  />
-                  <span className="flex-1 text-left">{item.label}</span>
-
-                  {isMalipo && (item as any).isNew && (
-                    <span className="shrink-0 text-[8px] font-black tracking-wider bg-gradient-to-r from-fuchsia-400 via-purple-400 to-indigo-400 text-white px-1.5 py-0.5 rounded-md shadow-sm shadow-fuchsia-500/30 animate-pulse">
-                      MPYA
-                    </span>
-                  )}
-                  {isKubandika && (item as any).isNew && (
-                    <span className="shrink-0 text-[8px] font-black tracking-wider bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 px-1.5 py-0.5 rounded-md shadow-sm animate-pulse">
-                      NEW
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+            {navigationItems.map(item => renderNavButton(item, true))}
             <button 
               onClick={() => { handleDownloadApp(); setIsMobileMenuOpen(false); }}
               className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/20"
@@ -899,6 +902,10 @@ export default function App() {
             onUpdate={() => syncDatabaseStates(false)} 
             userRole={userRole}
           />
+        )}
+        {/* ✅ Invoice — Mounted for Admin + Staff (blocked for cashier) */}
+        {currentTab === 'invoice' && (userRole === 'admin' || userRole === 'staff') && (
+          <Invoice userRole={userRole} />
         )}
         {currentTab === 'kubandika' && (
           <KubandikaPage userRole={userRole} />
