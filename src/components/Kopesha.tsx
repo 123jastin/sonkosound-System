@@ -911,35 +911,26 @@ Taarifa hii ilitengenezwa ${now.toLocaleDateString('sw-TZ', { day: 'numeric', mo
         </div>
       ) : (
         <>
-          {/* Global stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-6 rounded-3xl shadow-lg text-white">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-100">Jumla Iliyokopeshwa</span>
-                <Banknote size={18} className="text-emerald-100" />
-              </div>
-              <h3 className="text-2xl font-black mt-2">TSh {globalStats.totalLent.toLocaleString()}</h3>
-              <p className="text-[10px] text-emerald-100 mt-1">Kutoka China</p>
-            </div>
-            <div className="bg-gradient-to-br from-teal-500 to-cyan-600 p-6 rounded-3xl shadow-lg text-white">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-teal-100">Iliyorejeshwa</span>
-                <TrendingUp size={18} className="text-teal-100" />
-              </div>
-              <h3 className="text-2xl font-black mt-2">TSh {globalStats.totalRepaid.toLocaleString()}</h3>
-              <p className="text-[10px] text-teal-100 mt-1">Imerudi China</p>
-            </div>
+          {/* ✅ Global stats — 2 cards only */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {/* Renamed from "Baki ya Mikopo" → "Jumla Iliyokopeshwa" */}
             <div className="bg-gradient-to-br from-rose-500 to-red-600 p-6 rounded-3xl shadow-lg text-white">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-100">Baki ya Mikopo</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-100">
+                  Jumla Iliyokopeshwa
+                </span>
                 <Wallet size={18} className="text-rose-100" />
               </div>
               <h3 className="text-2xl font-black mt-2">TSh {globalStats.outstanding.toLocaleString()}</h3>
               <p className="text-[10px] text-rose-100 mt-1">Inasubiri kurudi China</p>
             </div>
+
+            {/* Waliochelewa — unchanged */}
             <div className="bg-gradient-to-br from-amber-500 to-orange-600 p-6 rounded-3xl shadow-lg text-white">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-100">Waliochelewa</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-100">
+                  Waliochelewa
+                </span>
                 <AlertTriangle size={18} className="text-amber-100" />
               </div>
               <h3 className="text-2xl font-black mt-2">{globalStats.overdueCount}</h3>
