@@ -68,7 +68,7 @@ interface ReceivedPayment {
   method: string;
   receivedFrom?: string;
   notes?: string;
-  refId?: string; // ✅ NEW: Tracks if this row came from Kopesha
+  refId?: string; // ✅ Tracks if this row came from Kopesha
   createdAt: string;
 }
 
@@ -120,7 +120,7 @@ function RegionMenu({
   isLoading,
 }: {
   onSelect: (region: KubandikaRegion) => void;
-  totals: Record<KubandikaRegion, { allTime: number; balance: number }>;
+  totals: Record<KubandikaRegion, { allTime: number; allOut: number; balance: number }>;
   isLoading?: boolean;
 }) {
   const renderCard = (region: KubandikaRegion, title: string, subtitle: string, code: string, isTz: boolean) => {
@@ -146,12 +146,20 @@ function RegionMenu({
 
           <div className="grid grid-cols-2 gap-2 pt-4 border-t border-slate-100">
             <div>
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Jumla Iliyopokelewa</p>
-              <p className={`text-sm font-extrabold text-${accent}-700 mt-0.5`}>TSh {stats.allTime.toLocaleString()}</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
+                {isTz ? 'Jumla Iliyopokelewa' : 'Jumla Iliyoingia'}
+              </p>
+              <p className={`text-sm font-extrabold text-${accent}-700 mt-0.5`}>
+                TSh {stats.allTime.toLocaleString()}
+              </p>
             </div>
             <div>
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Salio Lililobaki</p>
-              <p className="text-sm font-extrabold text-slate-900 mt-0.5">TSh {stats.balance.toLocaleString()}</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
+                {isTz ? 'Salio Lililobaki' : 'Fedha Zinazopatikana China'}
+              </p>
+              <p className="text-sm font-extrabold text-slate-900 mt-0.5">
+                TSh {stats.balance.toLocaleString()}
+              </p>
             </div>
           </div>
         </div>
@@ -388,9 +396,9 @@ export default function KubandikaPage({ onBack, userRole }: KubandikaPageProps) 
       const allOut = rp.filter(p => (p.type || 'IN') === 'OUT').reduce((s, p) => s + p.amount, 0);
 
       return {
-        allTime: allIn,
-        allOut: allOut,
-        balance: allIn - allOut
+        allTime: allIn,          // Jumla Iliyoingia (IN only)
+        allOut: allOut,          // Jumla Iliyotoka (OUT only)
+        balance: allIn - allOut  // ✅ Salio la China = IN − OUT (includes Kopesha rows)
       };
     };
     return { Tz: calc('Tz'), China: calc('China') };
@@ -686,6 +694,7 @@ export default function KubandikaPage({ onBack, userRole }: KubandikaPageProps) 
       {/* Dashboard stats */}
       {activeRegionTotals && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Salio la Kipindi Hiki */}
           <div className={`rounded-3xl p-5 border shadow-sm ${isTz ? 'bg-gradient-to-br from-emerald-50 to-white border-emerald-200' : 'bg-gradient-to-br from-rose-50 to-white border-rose-200'}`}>
             <div className="flex items-center justify-between mb-2">
               <span className={`text-[10px] font-extrabold uppercase tracking-wider ${isTz ? 'text-emerald-700' : 'text-rose-700'}`}>Salio la Kipindi Hiki</span>
@@ -698,14 +707,27 @@ export default function KubandikaPage({ onBack, userRole }: KubandikaPageProps) 
             </div>
           </div>
 
+          {/* ✅ FIXED: All Time — TZ = IN only, China = Salio (IN − OUT) */}
           <div className="rounded-3xl p-5 bg-white border border-slate-100 shadow-sm">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Jumla Iliyoingia (All Time)</span>
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                {isTz ? 'Jumla Iliyoingia (All Time)' : 'Salio la China (All Time)'}
+              </span>
               <Wallet size={16} className="text-slate-400" />
             </div>
-            <p className={`text-2xl font-black ${isTz ? 'text-emerald-600' : 'text-rose-600'}`}>TSh {activeRegionTotals.allTime.toLocaleString()}</p>
+            <p className={`text-2xl font-black ${isTz ? 'text-emerald-600' : 'text-rose-600'}`}>
+              TSh {isTz
+                ? activeRegionTotals.allTime.toLocaleString()
+                : activeRegionTotals.balance.toLocaleString()}
+            </p>
+            {!isTz && (
+              <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                IN {activeRegionTotals.allTime.toLocaleString()} − OUT {activeRegionTotals.allOut.toLocaleString()}
+              </p>
+            )}
           </div>
 
+          {/* Jumla Iliyotoka (All Time) */}
           <div className="rounded-3xl p-5 bg-white border border-slate-100 shadow-sm">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Jumla Iliyotoka (All Time)</span>
